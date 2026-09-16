@@ -324,6 +324,70 @@ def test_number_over_mcp_refuses_a_composite():
     assert bad["verdict"] == "refuted"
     assert bad["certificate"] is None
 
+
+def test_lint_reaches_the_model_before_the_compute_is_spent():
+    """The one finding worth the round trip: a regime nobody is in."""
+    src = """
+import z3
+from certo import Spec
+def spec():
+    x, y = z3.Reals("x y")
+    s = Spec(title="a regime nobody is in")
+    s.assume("x_big", x > 10)
+    s.assume("y_ok", y > 0)
+    s.assume("x_small", x < 1)
+    s.claim(y * y >= 0)
+    return s
+"""
+    rep = run(call("lint", {"spec_source": src}))
+    assert rep["kind"] == "Spec" and rep["errors"] == 1
+    clash = [f for f in rep["findings"] if f["key"] == "spec.vacuous"]
+    assert len(clash) == 1
+    assert "x_big" in clash[0]["text"] and "x_small" in clash[0]["text"]
+    assert "y_ok" not in clash[0]["text"]
+
+
+def test_status_over_mcp_reports_what_the_workspace_still_owes():
+    """A model picking up a workspace has no memory of what was established."""
+    src = """
+import z3
+from certo import Spec
+def spec():
+    a, b = z3.Reals("a b")
+    s = Spec(title="squares are not negative")
+    s.assume("a_pos", a > 0)
+    s.claim((a - b) * (a - b) >= 0)
+    return s
+"""
+    run(call("prove", {"spec_source": src}))
+    rep = run(call("status", {}))
+    assert rep["certificates"] >= 1
+    assert isinstance(rep["owed"], list)
+    assert isinstance(rep["hollow"], list)
+    assert isinstance(rep["results"], list)
+    # It reads rather than re-verifies unless asked, and says which it did.
+    assert rep["verified"] is False
+
+
+def test_status_over_mcp_carries_a_vacuous_proof_through_as_hollow():
+    src = """
+import z3
+from certo import Spec
+def spec():
+    x = z3.Real("x")
+    s = Spec(title="an empty regime")
+    s.assume("too_big", x > 10)
+    s.assume("too_small", x < 1)
+    s.claim(x == 42)
+    return s
+"""
+    out = run(call("prove", {"spec_source": src}))
+    where = str(Path(out["certificate"]["path"]).parent)
+    rep = run(call("status", {"directory": where}))
+    hollow = " ".join(h["text"] for h in rep["hollow"])
+    assert "too_big" in hollow and "too_small" in hollow
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

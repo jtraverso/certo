@@ -35,6 +35,37 @@ that goes missing is always the second one.
 
 ---
 
+## 0. Ask whether the question is well posed
+
+Before any of it, for the price of reading the file:
+
+```bash
+certo lint examples/walkthrough.py
+```
+
+```
+PackingSpec -- for `certo opt --gap / opt --by-type`
+  [--] 20 items over 27 resources
+  [--] item kinds: pair -- `opt --by-type` splits the optimum by these
+  [--] `integer=False`: `opt` solves the RELAXATION, so the answer is mu*,
+       not the packing number
+  nothing that will bite.
+  errors 0   warnings 0   notes 3
+```
+
+Notes, no errors, no warnings: nothing here will bite. The last note is the
+one worth reading before section 1 rather than after — `opt` on this spec
+answers μ*, and the packing number is a different question, which is what
+section 2 is for.
+
+It is worth running on a spec you just wrote for the same reason a compiler is
+worth running before a test suite: the failures it catches are the ones that
+would otherwise cost you the whole run. A contradictory hypothesis set, an
+inductive step that starts after the base cases end, a predicate returning
+`bool` when you expected a certificate.
+
+---
+
 ## 1. Measure it — and get both numbers at once
 
 ```bash
@@ -198,11 +229,64 @@ The Lean file carries `sorry` on **exactly the bridges** and nowhere else —
 `compose` already computed that boundary. The manifest hashes every
 certificate, so the Lean side can say which run it came from.
 
+## 7. Ask where that leaves you
+
+Six commands produced five certificates, and until now the only way to see
+what the pile amounted to was to open them one at a time.
+
+```bash
+certo status out/
+```
+
+```
+5 certificates under out
+  branch_bound 1   gap 1   ideal 1   orbit_witnesses 1   proof 1
+
+  RESULTS -- 3 certificates nothing else here builds on
+  ideal            identity.json    tight loads force the gain
+  orbit_witnesses  orbits.json      intersecting families of three pairs on five points
+  proof            proof.json       the canonical core has integrality gap exactly 1/2
+
+  STILL OWED -- 3 assumptions these results rest on
+  gap.json: optimality
+      "the integral side is conditional_optimum, so nu is a value reached,
+       not a proved maximum"
+  proof.json: gap_is_half
+      "the exact LP dual gives the fractional optimum 15/2; reading that as a
+       statement about this packing is what the encoding means"
+  proof.json: optimum_is_7
+      "branch and bound closed every leaf with a certificate and the tree
+       covers the integer domain, so 7 is the integral optimum -- of the
+       encoded packing"
+
+  HOLLOW -- 1 claims that are valid and say less than they look like
+  orbits.json: no evaluation of the 120 carries a certificate: replayable,
+               not certified
+
+  read, not verified. `certo status --verify` re-checks every one.
+```
+
+Three of the five are results; `gap.json` and `optimal.json` do not appear
+there because the proof is standing on them.
+
+Read the STILL OWED list against the walkthrough. The two `proof.json` entries
+are the two modelling steps taken in section 5 — each legitimate, each written
+down, neither findable six months later by opening files one at a time. The
+third is why section 2 exists at all: `opt --gap` alone gives ν as a value
+*reached*, and it took branch and bound to make it a maximum *proved*. Note
+what is **not** listed: `optimal.json` is a branch-and-bound certificate, so
+the optimality its own incumbent could not claim is the thing that certificate
+proves, and status does not ask for it twice.
+
+HOLLOW is the orbit sweep. The predicate returns `bool`, so the run is
+replayable rather than certified — which `certo lint` would have said before
+it ran, and which `verify` says every time afterwards.
+
 ---
 
 ## What this cost, and what it bought
 
-Six commands, about fifteen seconds of compute, most of it the branch and
+Seven commands, about fifteen seconds of compute, most of it the branch and
 bound. What you end up holding:
 
 | | Established | How it checks |

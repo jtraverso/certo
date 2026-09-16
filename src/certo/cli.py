@@ -984,6 +984,100 @@ def cmd_verify(args):
     return 0 if rep.ok else 1
 
 
+# Errors, warnings and notes get a mark rather than a colour: this output is
+# read as often by a model through `--json` and by a person through a pipe as
+# it is on a terminal that has colours at all.
+LINT_MARK = {"error": "XX", "warn": "!!", "note": "--"}
+
+
+def cmd_lint(args):
+    """What is wrong with this spec, before the compute is spent on it."""
+    from . import lint as linter
+
+    rep = linter.lint(args.spec, limits_from(args))
+    if args.json:
+        print(json.dumps(rep, indent=2, ensure_ascii=False))
+    else:
+        print(t("cli.lint.header", kind=rep["kind"] or "?",
+                command=rep["command"] or "?"))
+        for f in rep["findings"]:
+            if f["level"] == "note" and args.quiet:
+                continue
+            print("  [{}] {}".format(LINT_MARK[f["level"]], f["text"]))
+        if not rep["errors"] and not rep["warnings"]:
+            print("  " + t("cli.lint.clean"))
+        print("  " + t("cli.lint.summary", errors=rep["errors"],
+                       warnings=rep["warnings"], notes=rep["notes"]))
+    if rep["errors"]:
+        return 1
+    return 2 if rep["warnings"] else 0
+
+
+def cmd_status(args):
+    """Where the proof stands, read off the certificates themselves."""
+    from . import status_report
+
+    try:
+        rep = status_report.scan(args.where, verify_all=args.verify,
+                                 limits=limits_from(args))
+    except FileNotFoundError:
+        print(t("cli.status.nowhere", path=args.where), file=sys.stderr)
+        return 3
+
+    if args.json:
+        print(json.dumps(rep, indent=2, ensure_ascii=False))
+        return 1 if rep["broken"] else 0
+
+    if not rep["certificates"]:
+        print(t("cli.status.empty", path=rep["root"], skipped=rep["skipped"]))
+        return 0
+
+    print(t("cli.status.header", n=rep["certificates"], path=rep["root"]))
+    print("  " + "   ".join("{} {}".format(k, v)
+                            for k, v in rep["kinds"].items()))
+
+    _rows(t("cli.status.results", n=len(rep["results"])), rep["results"],
+          lambda n: ["  {:<16} {:<30} {}".format(
+              n["kind"], _tail(n["rel"], 30), n["headline"]).rstrip()])
+
+    # Owed comes first among the problems: a bridge is the thing a reader is
+    # most likely to have forgotten, precisely because everything around it
+    # verified.
+    _rows(t("cli.status.owed", n=len(rep["owed"])), rep["owed"],
+          lambda o: ["  {}: {}".format(o["rel"], o["name"])]
+                    + (['      "{}"'.format(o["why"])] if o["why"] else []))
+    _rows(t("cli.status.hollow", n=len(rep["hollow"])), rep["hollow"],
+          lambda h: ["  {}: {}".format(h["rel"], h["text"])])
+    _rows(t("cli.status.stale", n=len(rep["stale"])), rep["stale"],
+          lambda x: ["  {}: {}".format(
+              x["rel"],
+              t("cli.status.stale." + x["why"], spec=x["spec"] or "?"))])
+    _rows(t("cli.status.broken", n=len(rep["broken"])), rep["broken"],
+          lambda b: ["  {}: {}".format(b["rel"], b["detail"])])
+
+    if not args.verify:
+        print()
+        print("  " + t("cli.status.unverified"))
+    return 1 if rep["broken"] else 0
+
+
+def _tail(path, width):
+    """The end of a path, which is the part that identifies it."""
+    s = str(path)
+    return s if len(s) <= width else "..." + s[-(width - 3):]
+
+
+def _rows(title, items, render):
+    """A titled section, or nothing at all when there is nothing to say."""
+    if not items:
+        return
+    print()
+    print("  " + title)
+    for item in items:
+        for line in render(item):
+            print(line)
+
+
 def cmd_export(args):
     if args.lean:
         return _export_lean(args)
@@ -1181,6 +1275,21 @@ def build_parser():
                     help="add products and squares of the hypotheses first "
                          "(this is exactly what nlinarith does)")
     sp.set_defaults(func=cmd_farkas)
+
+    sp = add("lint", "check a spec before spending the compute: no goal, an "
+                     "empty family, an inductive step that starts too late")
+    sp.add_argument("spec", help="the .py file to check")
+    sp.add_argument("-q", "--quiet", action="store_true",
+                    help="errors and warnings only, without the notes")
+    sp.set_defaults(func=cmd_lint)
+
+    sp = add("status", "read a directory of certificates and say where the "
+                       "proof stands: proved, owed, hollow, stale")
+    sp.add_argument("where", nargs="?", default=".",
+                    help="directory (searched recursively) or one .json file")
+    sp.add_argument("--verify", action="store_true",
+                    help="re-verify every certificate, not just read it")
+    sp.set_defaults(func=cmd_status)
 
     sp = add("doctor", "what this install can and cannot do, and what each "
                        "gap costs")

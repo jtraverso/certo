@@ -1,0 +1,486 @@
+"""`certo lint`: the questions worth asking before the compute is spent.
+
+The primary consumer of this tool is a language model writing a spec, and a
+model has no way to know its spec is well-posed until it runs -- by which
+point a sweep over 10^9 items is already running, or a base case has proved
+six sweeps before the engine notices the inductive step starts too late.
+
+So: a dry pass. It loads the spec and looks at its shape, doing the cheapest
+thing that answers a real question and nothing more. The rule it holds to is
+that every finding names something that WILL bite, not something that might:
+a linter nobody believes is a linter nobody reads.
+
+Three findings earn their keep on their own.
+
+  A CONTRADICTORY HYPOTHESIS SET, found here rather than after the proof.
+  `prove` already reports vacuity, and reporting it first, for the cost of one
+  solver call on a strictly easier problem, turns a valid-and-empty result
+  into a question asked before anybody believed the answer.
+
+  AN INDUCTIVE STEP THAT STARTS TOO LATE. The engine refuses this too, but
+  only after discharging every base case, which is usually where the time
+  goes. The check is a comparison of two integers.
+
+  A PREDICATE THAT RETURNS `bool`. It is a perfectly good thing to write, and
+  it means the sweep will report `reproducible` rather than `certified`. That
+  difference has been read wrong by people who wrote the predicate themselves,
+  so it is better said in advance than discovered in a verdict.
+
+Loading a spec EXECUTES it: that is how specs work here, and lint is no
+exception. It does not run the solver on the goal, enumerate a whole domain,
+or call a predicate more than once.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from .i18n import t
+
+ERROR, WARN, NOTE = "error", "warn", "note"
+
+#: Above this, enumerating the domain is itself the expensive part, so the
+#: count is reported as "at least" and the iterable is left alone.
+PEEK = 100_000
+
+#: Graphs on n vertices up to isomorphism (OEIS A000088). Knowing the size of
+#: a sweep should not cost what the sweep costs, and this is the whole reason
+#: the number is in a table rather than counted: `certo lint` on n = 10 has to
+#: answer in the time it takes to read the file.
+GRAPH_COUNTS = {0: 1, 1: 1, 2: 2, 3: 4, 4: 11, 5: 34, 6: 156, 7: 1044,
+                8: 12346, 9: 274668, 10: 12005168, 11: 1018997864,
+                12: 165091172592}
+
+#: Without `geng`, enumeration is the Python augmentation, which is quadratic
+#: in a big number. Seven vertices is 1044 graphs and instant; eight is not.
+CHEAP_WITHOUT_GENG = 7
+CHEAP_WITH_GENG = 9
+
+
+def _f(level, key, **kw):
+    return {"level": level, "key": key, "text": t("lint." + key, **kw)}
+
+
+# ---------------------------------------------------------------------------
+
+
+def lint(path, limits=None) -> dict:
+    """Load the spec at `path` and say what is wrong with it before it runs."""
+    from .spec import load_spec
+
+    try:
+        spec = load_spec(path)
+    except FileNotFoundError:
+        return _report(path, None, [_f(ERROR, "no_file", path=str(path))])
+    except AttributeError as exc:
+        if "spec()" in str(exc):
+            # A script, not a broken spec. "The spec did not load" sends the
+            # reader hunting for a syntax error that is not there.
+            return _report(path, None, [_f(ERROR, "no_spec_fn",
+                                           path=str(path))])
+        return _report(path, None, [_f(ERROR, "load_failed",
+                                       error="AttributeError: {}".format(exc))])
+    except Exception as exc:                     # the spec itself blew up
+        return _report(path, None,
+                       [_f(ERROR, "load_failed", error="{}: {}".format(
+                           type(exc).__name__, exc))])
+
+    name = type(spec).__name__
+    checker = CHECKS.get(name)
+    if checker is None:
+        return _report(path, name, [_f(NOTE, "unknown_kind", kind=name)])
+
+    findings = list(checker(spec, limits))
+    if not getattr(spec, "title", ""):
+        # `status` reads titles; a directory of untitled certificates is a
+        # directory of filenames, which is what this is trying to prevent.
+        findings.append(_f(NOTE, "no_title"))
+    return _report(path, name, findings)
+
+
+def _report(path, kind, findings) -> dict:
+    by = {lvl: [f for f in findings if f["level"] == lvl]
+          for lvl in (ERROR, WARN, NOTE)}
+    return {
+        "spec": str(path), "kind": kind,
+        "command": COMMANDS.get(kind or "", ""),
+        "findings": by[ERROR] + by[WARN] + by[NOTE],
+        "errors": len(by[ERROR]), "warnings": len(by[WARN]),
+        "notes": len(by[NOTE]),
+        "ok": not by[ERROR] and not by[WARN],
+    }
+
+
+COMMANDS = {
+    "Spec": "prove / check / core", "MultiSpec": "core", "SynthSpec": "synth",
+    "LPSpec": "opt / mixed / bb / farkas", "PackingSpec": "opt --gap / opt --by-type",
+    "SweepSpec": "sweep", "DomainSpec": "cases", "BisectSpec": "bisect",
+    "BoundSpec": "bounds", "ProofSpec": "compose", "InductSpec": "induct",
+    "IdealSpec": "ideal", "SOSSpec": "sos", "NumberSpec": "number",
+    "OrderSpec": "order", "CNFSpec": "sat", "CNF": "sat",
+}
+
+
+# ---------------------------------------------------------------------------
+# the checks, one generator per spec type
+# ---------------------------------------------------------------------------
+
+
+def _contradictory(assumptions, limits):
+    """Do the hypotheses clash among themselves, and which ones?
+
+    The same question `prove` asks after succeeding. Asking it first costs one
+    solver call on a strictly easier problem than the proof, and the answer is
+    the difference between "valid" and "valid and about nothing".
+    """
+    if len(assumptions) < 2:
+        return None
+    import z3
+
+    from .engines.smt import _mus
+    from .limits import Limits
+
+    lim = limits or Limits()
+    s = z3.Solver()
+    s.set(unsat_core=True)
+    if lim.timeout_ms:
+        s.set("timeout", lim.timeout_ms)
+    ind = {}
+    for n, phi in assumptions:
+        ind[n] = z3.Bool("lint_" + n)
+        s.add(z3.Implies(ind[n], phi))
+    if s.check(*ind.values()) != z3.unsat:
+        return None
+    raw = {str(p)[5:] for p in s.unsat_core()}
+    names = [n for n, _ in assumptions]
+    return _mus(s, ind, [n for n in names if n in raw] or names, lim)
+
+
+def _check_spec(spec, limits):
+    if spec.goal is None:
+        yield _f(ERROR, "spec.no_goal")
+    if not spec.assumptions:
+        yield _f(NOTE, "spec.no_hypotheses")
+    clash = _contradictory(spec.assumptions, limits)
+    if clash:
+        yield _f(ERROR, "spec.vacuous", names=", ".join(clash))
+
+
+def _check_multi(spec, limits):
+    if not getattr(spec, "goals", None):
+        yield _f(ERROR, "multi.no_goals")
+    clash = _contradictory(spec.assumptions, limits)
+    if clash:
+        yield _f(ERROR, "spec.vacuous", names=", ".join(clash))
+
+
+def _probe(fn, item):
+    """What does this predicate return? One call, and failures are findings.
+
+    Calling it once is the only way to know, and knowing is the point: `bool`
+    means `reproducible`, an `Outcome` carrying a certificate means
+    `certified`, and people who wrote the predicate themselves have read that
+    difference wrong.
+    """
+    from .spec import Outcome
+
+    try:
+        out = fn(item)
+    except Exception as exc:
+        return "raised", "{}: {}".format(type(exc).__name__, exc)
+    if isinstance(out, Outcome):
+        return ("certified" if out.cert is not None else "outcome"), ""
+    if isinstance(out, bool):
+        return "bool", ""
+    return "other", type(out).__name__
+
+
+def _predicate_findings(spec, sample):
+    if spec.predicate is None:
+        return
+    what, detail = _probe(spec.predicate, sample)
+    if what == "raised":
+        yield _f(ERROR, "sweep.predicate_raised", error=detail)
+    elif what == "bool":
+        yield _f(NOTE, "sweep.bool")
+    elif what == "outcome":
+        yield _f(NOTE, "sweep.outcome_no_cert")
+    elif what == "other":
+        yield _f(ERROR, "sweep.predicate_type", got=detail)
+
+
+def _check_sweep(spec, limits):
+    from .graphs import _geng_path, enumerate_graphs
+
+    if spec.predicate is None and spec.collect is None:
+        yield _f(ERROR, "sweep.nothing")
+
+    known = GRAPH_COUNTS.get(spec.n)
+    if known is not None:
+        yield _f(NOTE, "sweep.size" if not spec.filters else "sweep.size_raw",
+                 n=known, vertices=spec.n)
+        if known > 1_000_000:
+            yield _f(WARN, "sweep.big", n=known, vertices=spec.n)
+    elif spec.n > max(GRAPH_COUNTS):
+        yield _f(WARN, "sweep.enormous", vertices=spec.n)
+
+    budget = CHEAP_WITH_GENG if _geng_path() else CHEAP_WITHOUT_GENG
+    if spec.n > budget:
+        # Enumerating to find out what the predicate returns would cost what
+        # the sweep costs, which is the thing this is here to save.
+        yield _f(NOTE, "sweep.not_probed", vertices=spec.n)
+        return
+    try:
+        family, _engine, total = enumerate_graphs(spec.n, spec.filters)
+    except Exception as exc:
+        yield _f(ERROR, "sweep.enumerate_failed", error=str(exc))
+        return
+    if spec.filters:
+        yield _f(NOTE, "sweep.filtered", n=len(family), total=total)
+    if not family:
+        # An empty family passes every predicate. The sweep would be correct
+        # and would have established nothing: the graph-shaped version of a
+        # vacuous proof.
+        yield _f(ERROR, "sweep.empty", n=spec.n)
+        return
+    if len(family) > 20_000 and spec.canonicalize is None:
+        yield _f(WARN, "sweep.big_no_canon", n=len(family))
+    for f in _predicate_findings(spec, family[0]):
+        yield f
+
+
+def _peek(spec):
+    """How many items, without materialising a domain that might be enormous.
+
+    `spec.enumerate()` builds the whole list, which is exactly the thing this
+    is here to avoid doing by accident.
+    """
+    import itertools
+
+    it = spec.items() if callable(spec.items) else spec.items
+    try:
+        return len(it), False
+    except TypeError:
+        pass
+    head = list(itertools.islice(iter(it), PEEK + 1))
+    return (PEEK, True) if len(head) > PEEK else (len(head), False)
+
+
+def _check_domain(spec, limits):
+    if spec.predicate is None and spec.collect is None:
+        yield _f(ERROR, "sweep.nothing")
+    try:
+        n, capped = _peek(spec)
+    except Exception as exc:
+        yield _f(ERROR, "domain.items_failed", error=str(exc))
+        return
+    if not n:
+        yield _f(ERROR, "domain.empty")
+        return
+    if capped:
+        yield _f(WARN, "domain.huge", n=PEEK)
+    else:
+        yield _f(NOTE, "domain.size", n=n)
+        if n > 1_000_000:
+            yield _f(WARN, "domain.big", n=n)
+    if spec.reduce is None:
+        yield _f(NOTE, "domain.no_reduce")
+    if spec.key is None:
+        yield _f(NOTE, "domain.no_key")
+
+    items = spec.items() if callable(spec.items) else spec.items
+    first = next(iter(items), None)
+    if first is not None:
+        for f in _predicate_findings(spec, first):
+            yield f
+
+
+def _check_lp(spec, limits):
+    if not spec.var_names:
+        yield _f(ERROR, "lp.no_variables")
+    if not spec.cons:
+        yield _f(ERROR, "lp.no_constraints")
+    if spec.integer:
+        # A user read `integer=True` as "there are integers in here" and got
+        # every variable rounded. Saying so up front costs nothing.
+        yield _f(WARN, "lp.integer_all", n=len(spec.var_names))
+    discrete = [v for v in spec.var_names
+                if spec.kinds.get(v, "continuous") != "continuous"]
+    if not spec.obj:
+        yield _f(NOTE, "lp.no_objective")
+    if discrete:
+        yield _f(NOTE, "lp.mixed", n=len(discrete),
+                 total=len(spec.var_names))
+        unbounded = [v for v in discrete
+                     if (spec.bounds.get(v) or (0, None))[1] is None
+                     and spec.kinds.get(v) != "binary"]
+        if unbounded:
+            # `bb` splits on a discrete variable's range; without an upper
+            # bound there is no finite tree to build.
+            yield _f(WARN, "lp.unbounded_discrete",
+                     names=", ".join(sorted(unbounded)[:5]))
+
+
+def _check_packing(spec, limits):
+    if not spec.items:
+        yield _f(ERROR, "packing.no_items")
+        return
+    yield _f(NOTE, "packing.size", items=len(spec.items),
+             resources=len(spec.resources))
+    if spec.kinds:
+        yield _f(NOTE, "packing.kinds", names=", ".join(spec.kinds))
+    if spec.integer is False:
+        # `opt` on a packing solves the RELAXATION. That is a real number and
+        # a useful one, and it is not the packing number.
+        yield _f(NOTE, "packing.fractional")
+    elif spec.integer is not True:
+        yield _f(NOTE, "packing.integer_kinds",
+                 names=", ".join(sorted(str(k) for k in spec.integer)))
+
+
+def _check_proof(spec, limits):
+    if spec.goal is None:
+        yield _f(ERROR, "spec.no_goal")
+    if not spec.lemmas:
+        yield _f(WARN, "proof.no_lemmas")
+    for lem in spec.lemmas:
+        if lem.certificate:
+            p = Path(lem.certificate)
+            if not p.is_file():
+                yield _f(ERROR, "proof.cert_missing", name=lem.name,
+                         path=str(p))
+            if not lem.bridge:
+                # The bridge prose is the whole reason a bridge is allowed:
+                # nothing can check that the certificate licenses `states`, so
+                # the argument that it does has to be written down by a person.
+                yield _f(WARN, "proof.no_bridge", name=lem.name)
+    bridges = [l.name for l in spec.lemmas if l.is_bridge]
+    if bridges:
+        yield _f(NOTE, "proof.bridges", n=len(bridges),
+                 names=", ".join(bridges[:5]))
+    clash = _contradictory(spec.assumptions, limits)
+    if clash:
+        yield _f(ERROR, "spec.vacuous", names=", ".join(clash))
+
+
+def _check_induct(spec, limits):
+    step_from = spec.k0 if spec.step_from is None else spec.step_from
+    if spec.base_upto < spec.k0:
+        yield _f(ERROR, "induct.no_base", k0=spec.k0, upto=spec.base_upto)
+    if step_from > spec.base_upto:
+        # The engine refuses this too -- after discharging every base case,
+        # which is where the hours are. Two integers, compared first.
+        yield _f(ERROR, "induct.gap", step=step_from, upto=spec.base_upto)
+    n = spec.base_upto - spec.k0 + 1
+    if n > 0:
+        yield _f(NOTE, "induct.base_count", n=n, k0=spec.k0,
+                 upto=spec.base_upto)
+    if not spec.bridge:
+        yield _f(WARN, "induct.no_bridge")
+
+
+def _check_bound(spec, limits):
+    from .numerics import NoBackend, backend_name
+
+    try:
+        backend_name()
+    except NoBackend:
+        yield _f(ERROR, "bound.no_backend")
+    if spec.claim is None:
+        yield _f(NOTE, "bound.measures")
+    if spec.max_prec < spec.prec:
+        yield _f(ERROR, "bound.prec", prec=spec.prec, max=spec.max_prec)
+
+
+def _check_order(spec, limits):
+    from .asymptotics import NotAsymptotic, parse
+
+    try:
+        poly = parse(spec.expression)
+    except NotAsymptotic as exc:
+        yield _f(ERROR, "order.not_laurent", error=str(exc))
+        return
+    missing = sorted({s for m in poly.terms for s, _ in m} - set(spec.orders))
+    if missing:
+        # An unassigned symbol is the error the whole command exists to
+        # prevent: a magnitude assumed in someone's head rather than written.
+        yield _f(ERROR, "order.unassigned", names=", ".join(missing))
+    unused = sorted(set(spec.orders) - {s for m in poly.terms for s, _ in m})
+    if unused:
+        yield _f(NOTE, "order.unused", names=", ".join(unused))
+    if spec.expect is None:
+        yield _f(NOTE, "order.measures")
+
+
+def _check_sos(spec, limits):
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        # The search is numeric even though the certificate is exact, so
+        # without numpy `sos` cannot start at all.
+        yield _f(ERROR, "sos.no_numpy")
+    if not spec.variables:
+        yield _f(ERROR, "sos.no_variables")
+
+
+def _check_ideal(spec, limits):
+    if not spec.equations:
+        yield _f(ERROR, "ideal.no_equations")
+    if not spec.variables:
+        yield _f(ERROR, "ideal.no_variables")
+
+
+def _check_number(spec, limits):
+    if spec.n < 2:
+        yield _f(ERROR, "number.too_small", n=spec.n)
+    if spec.question == "factor" and spec.n > 2 ** 70:
+        # Trial division with a Pratt certificate per factor: the certificate
+        # is cheap to check and the factorisation is not.
+        yield _f(WARN, "number.big_factor")
+
+
+def _check_synth(spec, limits):
+    if not spec.impl_vars:
+        yield _f(ERROR, "synth.no_impl_vars")
+    if not spec.input_vars:
+        yield _f(WARN, "synth.no_input_vars")
+    if spec.correctness is None:
+        yield _f(ERROR, "synth.no_correctness")
+    if spec.universal is None and spec.universal_behavior is None:
+        # `synth` searches a BOUNDED domain. Without one of these there is no
+        # universal statement to promote the candidate to, and the verdict
+        # stays scoped to that domain -- which is exactly the reading people
+        # get wrong.
+        yield _f(NOTE, "synth.bounded_only")
+
+
+def _check_bisect(spec, limits):
+    if spec.lo >= spec.hi:
+        yield _f(ERROR, "bisect.empty", lo=spec.lo, hi=spec.hi)
+    if spec.direction not in ("min_true", "max_true"):
+        yield _f(ERROR, "bisect.direction", got=spec.direction)
+    if not spec.integer and spec.tol <= 0:
+        yield _f(ERROR, "bisect.tol", tol=spec.tol)
+    # Monotonicity in t is ASSUMED and never verified. A reader who does not
+    # know that reads the threshold as a proved boundary.
+    yield _f(NOTE, "bisect.monotone")
+
+
+def _check_cnf(spec, limits):
+    cnf = getattr(spec, "cnf", spec)
+    clauses = getattr(cnf, "clauses", [])
+    if not clauses:
+        yield _f(ERROR, "cnf.empty")
+    else:
+        yield _f(NOTE, "cnf.size", clauses=len(clauses),
+                 variables=getattr(cnf, "nvars", 0))
+
+
+CHECKS = {
+    "Spec": _check_spec, "MultiSpec": _check_multi, "SweepSpec": _check_sweep,
+    "DomainSpec": _check_domain, "LPSpec": _check_lp, "ProofSpec": _check_proof,
+    "InductSpec": _check_induct, "BoundSpec": _check_bound,
+    "OrderSpec": _check_order, "SOSSpec": _check_sos, "IdealSpec": _check_ideal,
+    "NumberSpec": _check_number, "SynthSpec": _check_synth,
+    "BisectSpec": _check_bisect, "CNFSpec": _check_cnf, "CNF": _check_cnf,
+    "PackingSpec": _check_packing,
+}

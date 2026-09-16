@@ -1073,6 +1073,40 @@ async def verify(certificate_path: str, timeout_ms: int = 60_000) -> dict:
 
 
 @mcp.tool(description=(
+    "Where the work stands: read every certificate in a directory and report "
+    "what is established, what is STILL OWED (bridges and assumptions the "
+    "results rest on), what is HOLLOW (vacuous proofs, sweeps that certified "
+    "nothing), and what is STALE (the spec changed since the certificate was "
+    "issued). Start here when picking up a workspace you did not build. It "
+    "reads the certificates rather than re-verifying them unless you ask."))
+@_guard
+async def status(directory: str | None = None, verify_all: bool = False,
+                 timeout_ms: int = 60_000) -> dict:
+    from . import status_report
+
+    where = _resolve(directory) if directory else _workspace()
+    return await _off(status_report.scan, str(where), verify_all,
+                      _limits(timeout_ms))
+
+
+@mcp.tool(description=(
+    "Check a spec BEFORE spending the compute on it. Catches a missing goal, "
+    "hypotheses that contradict each other (so any proof would be vacuous), "
+    "an inductive step that starts after the base cases end, an empty family, "
+    "a domain of 10^9 items, and a predicate returning `bool` -- which means "
+    "the sweep will be `reproducible`, not `certified`. Loading a spec "
+    "executes it; nothing else here runs the solver on the goal or enumerates "
+    "a whole domain. Cheap, and worth doing every time."))
+@_guard
+async def lint(spec_path: str | None = None, spec_source: str | None = None,
+               timeout_ms: int = 10_000) -> dict:
+    from . import lint as _lint
+
+    f = _spec_file(spec_path, spec_source)
+    return await _off(_lint.lint, str(f), _limits(timeout_ms))
+
+
+@mcp.tool(description=(
     "Export a graph counterexample as Lean 4 DATA plus a skeleton, read from "
     "a stored shrink/sweep/graph_set certificate or from a graph6 string. "
     "Compiles against Lean/Mathlib v4.28.0 (including its `decide` sanity "

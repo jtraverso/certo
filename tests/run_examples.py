@@ -19,8 +19,11 @@ ROOT = Path(__file__).resolve().parent.parent
 EX = ROOT / "examples"
 OUT = ROOT / "out"
 
-# (example, command, extra flags). `None` means "produces no certificate".
+# (example, command, extra flags[, expected exit code]). A command that makes
+# no certificate -- `lint` -- is listed in NO_CERT below and checked on its
+# exit code alone, which for a linter IS the result.
 CASES = [
+    ("lint_vacuous_regime.py", "lint", [], 1),
     ("amgm.py", "prove", []),
     ("pigeonhole.py", "cases", []),
     ("core_matrix.py", "core", []),
@@ -53,6 +56,11 @@ CASES = [
     ("compose_proof.py", "compose", []),
 ]
 
+#: Commands that report rather than certify. `status` is not here because it
+#: takes a directory rather than a spec; it runs once at the end, over
+#: everything the other examples just produced.
+NO_CERT = {"lint"}
+
 # compose_proof.py reads two certificates that are output, not source, so they
 # have to exist before it runs. This is the `make examples` the backlog wants,
 # in the one place that already knows the order.
@@ -72,10 +80,18 @@ PREREQS = {
 }
 
 
-def run(args, label):
+def run(args, label, expect=None):
     p = subprocess.run([sys.executable, "-m", "certo.cli", *args],
                        cwd=ROOT, capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=900)
+    if expect is not None:
+        # An example that exists to be REJECTED has to be rejected: a linter
+        # whose failing case starts passing is the failure that hides itself.
+        if p.returncode != expect:
+            print("[XX] {} exited {}, expected {}\n{}".format(
+                label, p.returncode, expect, (p.stdout + p.stderr)[-800:]))
+            return False
+        return True
     # Exit 2 is "inconclusive", which several examples are ON PURPOSE -- a
     # sweep that refutes, a bisect that brackets. Only 1 and 3 are failures.
     if p.returncode in (1, 3):
@@ -98,7 +114,7 @@ def _tracked_examples():
 
 def main() -> int:
     OUT.mkdir(exist_ok=True)
-    listed = {name for name, _, _ in CASES}
+    listed = {case[0] for case in CASES}
     # Files the repository does not carry (a contributor's local work) would
     # show up here as "not covered" every run, which is noise about something
     # this file cannot cover anyway.
@@ -108,7 +124,9 @@ def main() -> int:
     missing = sorted(present - listed)
 
     failures = 0
-    for name, command, flags in CASES:
+    for case in CASES:
+        name, command, flags = case[0], case[1], case[2]
+        expect = case[3] if len(case) > 3 else None
         if name not in present:
             print("[XX] {} is listed here but not in examples/".format(name))
             failures += 1
@@ -117,9 +135,17 @@ def main() -> int:
             run([pre_cmd, "examples/" + pre_name, *pre_flags],
                 "prereq {}".format(pre_name))
 
+        label = "{} {}".format(command, name)
+        if command in NO_CERT:
+            if run([command, "examples/" + name, *flags], label, expect):
+                print("[ok] {:<10} {}".format(command, name))
+            else:
+                failures += 1
+            continue
+
         cert = OUT / (name[:-3] + ".json")
         ok = run([command, "examples/" + name, *flags, "--cert", str(cert)],
-                 "{} {}".format(command, name))
+                 label, expect)
         if not ok:
             failures += 1
             continue
@@ -129,13 +155,22 @@ def main() -> int:
         else:
             print("[ok] {:<10} {}".format(command, name))
 
+    # Last, over everything the run just produced: `status` has to be able to
+    # read the whole output directory. It is the one command whose input is
+    # the other commands, so this is the only place it can be exercised for
+    # real rather than against a directory built to suit it.
+    if not run(["status", str(OUT)], "status out/"):
+        failures += 1
+    else:
+        print("[ok] {:<10} {}".format("status", "out/"))
+
     if missing:
         # Not a failure, but it must not be silent: an example nobody runs is
         # an example nobody notices breaking.
         print("\nNOT COVERED by this file: " + ", ".join(missing))
 
     print("\n{}/{} examples ran and verified".format(
-        len(CASES) - failures, len(CASES)))
+        len(CASES) + 1 - failures, len(CASES) + 1))
     return 1 if failures else 0
 
 

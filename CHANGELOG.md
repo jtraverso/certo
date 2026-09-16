@@ -6,6 +6,54 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Two commands that make no claim of their own
+
+**`certo lint`** checks a spec before the compute is spent on it. Every other
+command answers a question; this one asks whether the question is well posed.
+
+The finding that pays for the whole thing is **contradictory hypotheses, found
+first**. `prove` already reports vacuity — after reporting `PROVED`, which is
+the moment somebody decides the run went well. Asking beforehand costs one
+solver call on a strictly easier problem than the proof, and the clash it
+names is minimal, so the next question is already answered.
+
+Three more in the same spirit:
+
+* an **inductive step that starts after the base cases end**. `induct` refuses
+  this too, after discharging every base case, which is where the hours go.
+  Here it is a comparison of two integers.
+* a **predicate returning `bool`**, which means the sweep will be
+  `reproducible` and not `certified` — a difference people who wrote the
+  predicate themselves have read wrong.
+* **`integer=True` makes every variable integer.** A user read it as "there
+  are integers in here" and got a design worth nothing, every weight rounded
+  to zero.
+
+It counts a domain without building it (`items=lambda: iter(range(10**7))` is
+peeked at, never materialised) and reads a graph family's size from a table,
+so linting an 11-vertex sweep answers in the time it takes to read the file.
+Loading a spec executes it; beyond that, lint calls the predicate at most once
+and never runs the solver on the goal.
+
+**`certo status`** reads a directory of certificates and says where the work
+stands, in four sections ordered by how much they matter:
+
+* **RESULTS** — the certificates nothing else there builds on. A lemma's
+  certificate is not a result; the proof standing on it is.
+* **STILL OWED** — every bridge and every unclaimed optimality, including ones
+  reached three levels down. Bridges are legitimate and often unavoidable;
+  losing count of them is not, and they are easy to lose precisely because
+  everything around them verifies.
+* **HOLLOW** — valid, and saying less than it looks like: a vacuous proof with
+  its clash named, a sweep whose predicate nothing certified, a value reached
+  rather than a maximum proved.
+* **STALE** — the spec moved under the certificate. Not wrong; it verifies on
+  its own. It just no longer describes the file next to it.
+
+Neither emits a certificate, deliberately. They make no claims; they read the
+claims other commands made. A report that certified itself would be the one
+artefact here that nobody had checked.
+
 ### The question a solver cannot ask
 
 A user found four bugs in one step they were doing by hand: take a symbolic
@@ -59,7 +107,7 @@ which term dominates.
 
 ### Notes
 
-- 264 tests.
+- 283 tests, 32 examples. The example runner now exercises `status` over everything the other examples just produced, which is the only place it can be tried against a directory nobody built to suit it.
 
 ## [0.4.0] — 2026-09-16
 

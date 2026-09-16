@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Veintitrés comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Veinticinco comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -140,7 +140,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintitrés comandos
+## Los veinticinco comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -163,6 +163,8 @@ esperar.
 | `sweep` | Predicado y/o magnitud sobre una familia o CUALQUIER dominio finito | nauty o Python | familia **+ certificados del predicado** |
 | `shrink` | Minimiza un contraejemplo (grafo o MUS) | CDCL / reducción | testigo de minimalidad |
 | `bisect` | Umbral de una constante | prove o cases | el par que lo encierra |
+| `lint` | Comprobar un spec antes de gastar el cómputo en él | — | — |
+| `status` | Dónde está una demostración: probado, pendiente, hueco, desfasado | — | — |
 | `doctor` | Qué puede hacer esta instalación y qué cuesta cada hueco | — | — |
 | `verify` | Re-verifica un certificado guardado | — | — |
 | `export` | Spec a SMT-LIB2/DIMACS, o un contraejemplo a Lean | — | — |
@@ -1497,6 +1499,101 @@ contradiga a otra es una línea nueva, no una edición— y **no copia
 certificados**, guarda su ruta y su digest. `ledger verify` los relee y los
 re-verifica, así que un certificado manipulado o ausente sale como fallo en
 vez de quedar duplicado en el log.
+
+## `lint`: antes de gastar el cómputo
+
+Todos los demás comandos responden una pregunta. Este pregunta si la pregunta
+está bien planteada, y es lo más barato de la herramienta.
+
+```
+$ certo lint examples/lint_vacuous_regime.py
+Spec -- para `certo prove / check / core`
+  [XX] las hipótesis se contradicen entre sí, así que cualquier demostración
+       será VACUA --válida y sobre nada--. El choque es: kappa_large,
+       density_high, sparse
+  1 errores, 0 avisos, 0 notas
+```
+
+`certo prove` sobre ese mismo archivo también reporta la vacuidad —después de
+reportar `DEMOSTRADO`, que es el momento en que alguien decide que la corrida
+salió bien—. Preguntarlo antes cuesta una llamada al solver sobre un problema
+estrictamente más fácil que la demostración.
+
+Fíjate en qué hipótesis nombra. `n_large` está en el conjunto, es consistente
+con todo, y no se le culpa: el choque es **minimal**, así que la siguiente
+pregunta ya está respondida.
+
+Otras tres que se pagan solas:
+
+| Hallazgo | Por qué importa |
+|---|---|
+| el paso inductivo empieza después de que terminan los casos base | `induct` también se niega —después de descargar todos los casos base, que es donde se van las horas—. Aquí es comparar dos enteros. |
+| el predicado devuelve `bool` | Entonces el barrido será `reproducible`, no `certificado`. Gente que escribió el predicado ella misma ha leído mal esa diferencia. |
+| `integer=True` hace enteras **todas** las variables | Un usuario lo leyó como «aquí hay enteros» y obtuvo un diseño que no valía nada, con cada peso redondeado a cero. |
+
+También cuenta el dominio sin construirlo —`items=lambda: iter(range(10**7))`
+se mira por encima, nunca se materializa— y lee el tamaño de una familia de
+grafos de una tabla, así que `certo lint` sobre 11 vértices responde en lo que
+se tarda en leer el archivo y no en lo que tardaría el barrido.
+
+Cargar un spec lo **ejecuta**; así funcionan los specs aquí. Más allá de eso,
+lint llama al predicado como mucho una vez y nunca corre el solver sobre el
+objetivo.
+
+Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
+
+## `status`: dónde está la demostración
+
+Veinticinco comandos y veintiocho tipos de certificado, y la forma de un
+proyecto vivía solo en la cabeza de quien los había corrido.
+
+```
+$ certo status out/
+19 certificados bajo out
+  sweep 6   unsat_core 4   proof 3   farkas 2   gap 1   induction 1   sos 1
+
+  RESULTADOS -- 9 certificados sobre los que nada más aquí se apoya
+  gap            out/walkthrough.json   el núcleo canónico del recorrido
+  proof          out/main.json          todo grafo 2-conexo sin K4...
+
+  PENDIENTE -- 3 supuestos sobre los que descansan estos resultados
+  main.json: density_bound
+      "el argumento de conteo de la sección 3"
+
+  HUECO -- 1 afirmaciones válidas que dicen menos de lo que aparentan
+  regime.json: VACUA: las hipótesis se contradicen entre sí -- el choque es
+               density_high, sparse
+
+  DESFASADO -- 2 certificados cuyo spec se ha movido
+  sweep_n7.json: el spec cambió desde que se emitió: specs/sweep7.py
+
+  leído, no verificado. `certo status --verify` vuelve a comprobar cada uno.
+```
+
+Cuatro secciones, en el orden en que importan.
+
+**RESULTADOS** son los certificados sobre los que nada más en el directorio se
+apoya. El certificado de un lema no es un resultado; la demostración que se
+sostiene sobre él, sí.
+
+**PENDIENTE** es cada puente y cada optimalidad no afirmada, incluidos los que
+están tres niveles más abajo —un puente dentro de un lema dentro de una
+demostración lo sigue debiendo la demostración—. Los puentes son legítimos y a
+menudo inevitables. Perderles la cuenta no lo es, y es fácil perderla
+precisamente porque todo lo que los rodea verifica.
+
+**HUECO** es lo que es válido y dice menos de lo que aparenta: una
+demostración vacua con su choque nombrado, un barrido cuyo predicado nadie
+certificó, un óptimo que es un valor alcanzado y no un máximo demostrado.
+
+**DESFASADO** es un certificado cuyo spec ha cambiado desde que se emitió. No
+está mal —verifica por sí solo— pero ya no describe el archivo que tiene al
+lado, y seis meses después nadie recuerda cuál.
+
+**No emite certificado**, deliberadamente. `status` no afirma nada; lee lo que
+afirmaron otros comandos. Un informe que se certificara a sí mismo sería el
+único artefacto aquí que nadie ha comprobado.
+
 
 ## Export a Lean
 

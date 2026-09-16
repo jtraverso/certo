@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Twenty-three commands to discover objects, destroy false formulations, calibrate
+Twenty-five commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -145,7 +145,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-three commands
+## The twenty-five commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -168,6 +168,8 @@ and what to expect.
 | `sweep` | Predicate and/or value over a family or ANY finite domain | nauty or Python | family **+ predicate certificates** |
 | `shrink` | Minimise a counterexample (graph or MUS) | CDCL / reduction | minimality witness |
 | `bisect` | A constant's threshold | prove or cases | the pair that brackets it |
+| `lint` | Check a spec before spending the compute on it | — | — |
+| `status` | Where a proof stands: proved, owed, hollow, stale | — | — |
 | `doctor` | What this install can do, and what each gap costs | — | — |
 | `verify` | Re-verify a stored certificate | — | — |
 | `export` | Spec to SMT-LIB2/DIMACS, or a counterexample to Lean | — | — |
@@ -1453,6 +1455,100 @@ certo opt examples/packing_mixed.py --by-type
 
 Whether mixing buys anything is the gap between the mixed optimum and the best
 single kind. Here, on K6, it buys nothing over pure K4.
+
+## `lint`: before the compute is spent
+
+Every other command answers a question. This one asks whether the question is
+well posed, and it is the cheapest thing in the tool.
+
+```
+$ certo lint examples/lint_vacuous_regime.py
+Spec -- for `certo prove / check / core`
+  [XX] the hypotheses contradict each other, so any proof will be VACUOUS --
+       valid and about nothing. The clash is: kappa_large, density_high, sparse
+  1 errors, 0 warnings, 0 notes
+```
+
+`certo prove` on that same file also reports the vacuity — after reporting
+`PROVED`, which is the moment somebody decides the run went well. Asking
+first costs one solver call on a strictly easier problem than the proof.
+
+Note which hypotheses it names. `n_large` is in the set, is consistent with
+everything, and is not blamed: the clash is **minimal**, so the next question
+is already answered.
+
+Three more that pay for themselves:
+
+| Finding | Why it matters |
+|---|---|
+| the inductive step starts after the base cases end | `induct` refuses this too — after discharging every base case, which is where the hours go. Here it is a comparison of two integers. |
+| the predicate returns `bool` | Then the sweep will be `reproducible`, not `certified`. People who wrote the predicate themselves have read that difference wrong. |
+| `integer=True` makes **all** variables integer | A user read it as "there are integers in here" and got a design worth nothing, every weight rounded to zero. |
+
+It also counts the domain without building it — `items=lambda: iter(range(10**7))`
+is peeked at, never materialised — and reads the size of a graph family from a
+table, so `certo lint` on 11 vertices answers in the time it takes to read the
+file rather than the time the sweep would take.
+
+Loading a spec **executes** it; that is how specs work here. Beyond that, lint
+calls the predicate at most once and never runs the solver on the goal.
+
+Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
+
+## `status`: where the proof stands
+
+Twenty-five commands and twenty-eight certificate kinds, and the shape of a
+project used to live only in the head of whoever ran them.
+
+```
+$ certo status out/
+19 certificates under out
+  sweep 6   unsat_core 4   proof 3   farkas 2   gap 1   induction 1   sos 1   order 1
+
+  RESULTS -- 9 certificates nothing else here builds on
+  gap            out/walkthrough.json   the walkthrough's canonical core
+  proof          out/main.json          every 2-connected K4-free graph...
+
+  STILL OWED -- 3 assumptions these results rest on
+  main.json: density_bound
+      "the counting argument of section 3"
+  walkthrough.json: optimality
+      "the integral side is conditional_optimum, so nu is a value reached,
+       not a proved maximum"
+
+  HOLLOW -- 1 claims that are valid and say less than they look like
+  regime.json: VACUOUS: the hypotheses contradict each other -- the clash is
+               density_high, sparse
+
+  STALE -- 2 certificates whose spec has moved
+  sweep_n7.json: the spec changed since this was issued: specs/sweep7.py
+
+  read, not verified. `certo status --verify` re-checks every one.
+```
+
+Four sections, in the order they matter.
+
+**RESULTS** are the certificates nothing else in the directory builds on. A
+lemma's certificate is not a result; the proof standing on it is.
+
+**STILL OWED** is every bridge and every unclaimed optimality, including ones
+reached three levels down — a bridge inside a lemma inside a proof is still
+owed by the proof. Bridges are legitimate and often unavoidable. Losing count
+of them is not, and they are easy to lose precisely because everything around
+them verifies.
+
+**HOLLOW** is what is valid and says less than it looks like: a vacuous proof
+with its clash named, a sweep whose predicate nothing certified, an optimum
+that is a value reached rather than a maximum proved.
+
+**STALE** is a certificate whose spec has changed since it was issued. It is
+not wrong — it verifies on its own — but it no longer describes the file next
+to it, and six months later nobody remembers which.
+
+It **emits no certificate**, deliberately. `status` makes no claim; it reads
+the claims other commands made. A report that certified itself would be the
+one artefact here that nobody had checked.
+
 
 ## Lean export
 

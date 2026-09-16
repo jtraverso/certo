@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import pathlib
+
+import certo
 import re
 from pathlib import Path
 
@@ -121,6 +124,23 @@ def test_certificates_carry_the_note_key_not_the_rendered_text():
     back = Certificate.from_dict(raw)      # same certificate, English reader
     assert back.note_key == "cert.note.model"
     assert "substitution" in back.note
+
+
+
+def test_every_lint_finding_has_a_message_in_both_languages():
+    """`lint` builds "lint." + key, which the literal-key sweep cannot see.
+
+    A finding whose message is missing renders as the key itself, which is
+    the one output shape nobody can act on.
+    """
+    src = (SRC / "lint.py").read_text(encoding="utf-8")
+    keys = {"lint." + m for m in re.findall(r'_f\(\w+, "([^"]+)"', src)}
+    assert len(keys) > 30, keys
+
+    for lang in ("en", "es"):
+        cat = _catalogue(lang)
+        missing = sorted(k for k in keys if k not in cat)
+        assert not missing, (lang, missing)
 
 
 if __name__ == "__main__":

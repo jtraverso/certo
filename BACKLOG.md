@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after 0.4.0 — schema frozen).
+Last updated: 2026-09-16 (after 0.4.0 — schema frozen; `status` and `lint` landed since).
 
 ---
 
@@ -48,6 +48,8 @@ Last updated: 2026-09-16 (after 0.4.0 — schema frozen).
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **`certo status`** *(P1)* | Reads a directory of certificates and reports where the work stands: RESULTS (nothing else builds on them), STILL OWED (every bridge and unclaimed optimality, including ones three levels down), HOLLOW (vacuous proofs with their clash named, sweeps that certified nothing), STALE (the spec moved under the certificate). Emits no certificate of its own: it makes no claim. |
+| ✅ | **`certo lint`** *(P1)* | The dry pass before the compute. Contradictory hypotheses found BEFORE the proof rather than after a valid-and-empty win; an inductive step that starts after the base cases end, caught by comparing two integers instead of discharging six sweeps; a `bool` predicate named as `reproducible` in advance. Counts a domain without materialising it and reads a graph family's size from a table. |
 | ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
 
 ---
@@ -95,21 +97,7 @@ items below still say "build against a real problem".
 
 ## P1 — next
 
-### 1. `certo status` — the state of a proof, not of a command
-
-Twenty-three commands, twenty-nine certificate kinds, a ledger, and no way to
-see where a proof stands. A command that reads a directory and shows the DAG:
-proved, bridged, open, and what depends on what. This is where `certo repro`
-stops being a loose item.
-
-### 2. `certo lint` — before the compute is spent
-
-An LLM writing a spec has no way to know it is well-posed until it runs. A dry
-check: this Spec has no goal, this domain is 10^9 items, this predicate
-returns `bool` so you will get `reproducible` and not `certified`. Cheap, and
-it prevents a class of wasted runs by the primary consumer.
-
-### 3. Parametric certificates — the jump from finite case to theorem
+### 1. Parametric certificates — the jump from finite case to theorem
 
 `order` is the first step of this and it shipped. The rest: an LP dual given
 as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial
@@ -119,6 +107,13 @@ inequalities in `s`, certified for all `s >= s0` by `sos` or
 That turns "checked for s = 7..20" into "holds for every s >= 7", which is the
 one thing the tool keeps saying it cannot do. Wanted: an instance where the
 dual weights follow a visible pattern in `s`.
+
+### 2. `export --lean` for `unsat_core` *(user feedback)*
+
+A `theorem` skeleton carrying the core's hypotheses and the statement, no
+proof. The user's words were that it "would close the circle": every other
+certificate kind that can reach Lean already does, and the one produced by the
+most-used command does not.
 
 ---
 

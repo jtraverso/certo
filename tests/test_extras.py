@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 from fractions import Fraction
 
 from certo import (DomainSpec, Graph, Limits, Outcome, PackingSpec, SweepSpec,
@@ -2863,6 +2864,348 @@ def test_the_clash_is_an_optional_field_the_frozen_schema_allows():
     cert = unsat_core_certificate("(check-sat)", ["a"], [], vacuous=True)
     assert cert.payload["clash"] == []
     assert verify(_roundtrip(cert), LIM) is not None
+
+
+# --- lint: the questions asked before the compute is spent -----------------
+
+
+def _lint_file(tmp, body: str):
+    """A spec on disk, because `lint` reads files the way a user does."""
+    import hashlib
+
+    name = "lint_" + hashlib.sha256(body.encode()).hexdigest()[:10] + ".py"
+    f = tmp / name
+    f.write_text(body, encoding="utf-8")
+    return str(f)
+
+
+def _tmp():
+    import tempfile
+
+    return pathlib.Path(tempfile.mkdtemp(prefix="certo_lint_"))
+
+
+def test_lint_catches_contradictory_hypotheses_before_the_proof_is_run():
+    """The headline check: vacuity found first, not after a valid-and-empty win."""
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "import z3\n"
+        "from certo.spec import Spec\n"
+        "def spec():\n"
+        "    x, y = z3.Real('x'), z3.Real('y')\n"
+        "    s = Spec(title='a regime nobody is in')\n"
+        "    s.assume('x_big', x > 10)\n"
+        "    s.assume('y_ok', y > 0)\n"
+        "    s.assume('x_small', x < 1)\n"
+        "    s.claim(y * y >= 0)\n"
+        "    return s\n"))
+    rep = linter.lint(f, LIM)
+    assert rep["kind"] == "Spec"
+    clash = [x for x in rep["findings"] if x["key"] == "spec.vacuous"]
+    assert len(clash) == 1
+    assert "x_big" in clash[0]["text"] and "x_small" in clash[0]["text"]
+    # The innocent hypothesis is not blamed: a minimal clash, not the core.
+    assert "y_ok" not in clash[0]["text"]
+    assert rep["errors"] == 1 and not rep["ok"]
+
+
+def test_lint_catches_the_induction_gap_without_discharging_a_base_case():
+    """The engine refuses this too -- after proving every base case first."""
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "import z3\n"
+        "from certo.spec import InductSpec, Spec\n"
+        "def spec():\n"
+        "    k = z3.Int('k')\n"
+        "    step = Spec()\n"
+        "    step.assume('k_big', k >= 10)\n"
+        "    step.claim(k + 1 >= 11)\n"
+        "    return InductSpec(k0=3, base_upto=8, base=lambda j: None,\n"
+        "                      step=step, step_from=10, bridge='...',\n"
+        "                      title='a chain that does not join')\n"))
+    rep = linter.lint(f, LIM)
+    gaps = [x for x in rep["findings"] if x["key"] == "induct.gap"]
+    assert len(gaps) == 1
+    assert "10" in gaps[0]["text"] and "8" in gaps[0]["text"]
+
+
+def test_lint_says_a_bool_predicate_means_reproducible_not_certified():
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "from certo.spec import DomainSpec\n"
+        "def spec():\n"
+        "    return DomainSpec(items=[(a, b) for a in range(4)"
+        " for b in range(4)],\n"
+        "                      predicate=lambda p: p[0] + p[1] >= 0,\n"
+        "                      key=lambda p: '%d,%d' % p, title='t')\n"))
+    rep = linter.lint(f, LIM)
+    keys = {x["key"] for x in rep["findings"]}
+    assert "sweep.bool" in keys
+    assert "domain.no_reduce" in keys          # `shrink` would refuse
+    # Notes alone are not a failure: this spec is fine, it just says less.
+    assert rep["ok"] and rep["errors"] == 0 and rep["warnings"] == 0
+
+
+def test_lint_reads_the_domain_size_without_materialising_it():
+    """A generator of ten million items must not be turned into a list."""
+    from certo import lint as linter
+    from certo.lint import PEEK
+
+    f = _lint_file(_tmp(), (
+        "from certo.spec import DomainSpec\n"
+        "def spec():\n"
+        "    return DomainSpec(items=lambda: iter(range(10 ** 7)),\n"
+        "                      predicate=lambda i: i >= 0, title='big')\n"))
+    rep = linter.lint(f, LIM)
+    huge = [x for x in rep["findings"] if x["key"] == "domain.huge"]
+    assert len(huge) == 1
+    assert str(PEEK) in huge[0]["text"] or "100000" in huge[0]["text"]
+
+
+def test_lint_reports_an_unassigned_magnitude_as_an_error():
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "import z3\n"
+        "from certo.spec import OrderSpec\n"
+        "def spec():\n"
+        "    d, C, W = z3.Real('d'), z3.Real('C'), z3.Real('W')\n"
+        "    return OrderSpec(expression=W * C / (d * d),\n"
+        "                     orders={'W': 2, 'C': 1}, title='t')\n"))
+    rep = linter.lint(f, LIM)
+    bad = [x for x in rep["findings"] if x["key"] == "order.unassigned"]
+    assert len(bad) == 1 and "d" in bad[0]["text"]
+    assert rep["errors"] == 1
+
+
+def test_lint_warns_that_integer_true_makes_every_variable_integer():
+    """A user read it as "there are integers in here" and got everything rounded."""
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "from certo.spec import LPSpec\n"
+        "def spec():\n"
+        "    lp = LPSpec(sense='max', integer=True, title='t')\n"
+        "    lp.variable('x'); lp.variable('y')\n"
+        "    lp.objective({'x': 1, 'y': 1})\n"
+        "    lp.constraint({'x': 1, 'y': 1}, '<=', 3, name='cap')\n"
+        "    return lp\n"))
+    rep = linter.lint(f, LIM)
+    warn = [x for x in rep["findings"] if x["key"] == "lp.integer_all"]
+    assert len(warn) == 1 and "2" in warn[0]["text"]
+    assert rep["warnings"] == 1 and not rep["ok"]
+
+
+def test_lint_tells_a_script_from_a_broken_spec():
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), "print('I am a script')\n")
+    rep = linter.lint(f, LIM)
+    assert [x["key"] for x in rep["findings"]] == ["no_spec_fn"]
+
+
+def test_lint_does_not_enumerate_a_family_it_cannot_afford():
+    """Knowing a sweep's size must not cost what the sweep costs."""
+    import time
+
+    from certo import lint as linter
+
+    f = _lint_file(_tmp(), (
+        "from certo.spec import SweepSpec\n"
+        "def spec():\n"
+        "    return SweepSpec(n=11, predicate=lambda g: True, title='t')\n"))
+    t0 = time.perf_counter()
+    rep = linter.lint(f, LIM)
+    assert time.perf_counter() - t0 < 5.0
+    texts = " ".join(x["text"] for x in rep["findings"])
+    assert "1018997864" in texts.replace(",", "")
+    assert any(x["key"] == "sweep.not_probed" for x in rep["findings"])
+
+
+# --- status: where the proof stands ---------------------------------------
+
+
+def test_status_finds_the_bridges_a_proof_rests_on():
+    """A bridge is legitimate. Losing count of them is not."""
+    from certo import status_report
+    from certo.certificate import proof_certificate
+
+    tmp = _tmp()
+    cert = proof_certificate(
+        title="the theorem", theorem_smt2="(assert true)",
+        assumptions=[], assumptions_smt2="",
+        lemmas=[{"name": "counted", "derived": True, "cert": None},
+                {"name": "k6", "derived": False, "cert": None,
+                 "bridge": "the DRAT proof says the encoding is unsat"}],
+        step=None, used=["counted", "k6"], unused=[],
+    )
+    (tmp / "p.json").write_text(json.dumps(cert.to_dict()), encoding="utf-8")
+
+    rep = status_report.scan(str(tmp))
+    assert rep["certificates"] == 1
+    assert len(rep["owed"]) == 1
+    assert rep["owed"][0]["name"] == "k6"
+    assert "DRAT" in rep["owed"][0]["why"]
+    assert not rep["hollow"] and not rep["stale"]
+
+
+def test_status_separates_results_from_the_certificates_they_embed():
+    """A lemma's certificate is not a result; the proof on top of it is."""
+    import z3
+
+    from certo import Spec, status_report
+    from certo.certificate import proof_certificate
+    from certo.engines import smt
+
+    x = z3.Real("x")
+    s = Spec()
+    s.assume("pos", x > 0)
+    s.claim(x >= 0)
+    sub = smt.prove(s, LIM).certificate.to_dict()
+
+    tmp = _tmp()
+    (tmp / "lemma.json").write_text(json.dumps(sub), encoding="utf-8")
+    top = proof_certificate(
+        title="on top", theorem_smt2="(assert true)", assumptions=[],
+        assumptions_smt2="",
+        lemmas=[{"name": "pos", "derived": True, "cert": sub}],
+        step=None, used=["pos"], unused=[],
+    )
+    (tmp / "top.json").write_text(json.dumps(top.to_dict()), encoding="utf-8")
+
+    rep = status_report.scan(str(tmp))
+    assert rep["certificates"] == 2
+    # Both files hold a certificate; only one of them is a result.
+    assert [n["kind"] for n in rep["results"]] == ["proof"]
+
+
+def test_status_names_a_vacuous_proof_as_hollow_with_its_clash():
+    import z3
+
+    from certo import Spec, status_report
+    from certo.engines import smt
+
+    x, y = z3.Real("x"), z3.Real("y")
+    s = Spec()
+    s.assume("x_big", x > 10)
+    s.assume("y_ok", y >= 0)
+    s.assume("x_small", x < 1)
+    s.claim(x + y == 42)
+
+    tmp = _tmp()
+    (tmp / "v.json").write_text(
+        json.dumps(smt.prove(s, LIM).certificate.to_dict()), encoding="utf-8")
+
+    rep = status_report.scan(str(tmp))
+    assert len(rep["hollow"]) == 1
+    text = rep["hollow"][0]["text"]
+    assert "x_big" in text and "x_small" in text and "y_ok" not in text
+
+
+def test_status_notices_the_spec_moved_under_a_certificate():
+    import z3
+
+    from certo import Spec, status_report
+    from certo.engines import smt
+
+    tmp = _tmp()
+    spec_file = tmp / "s.py"
+    spec_file.write_text("# version one\n", encoding="utf-8")
+
+    x = z3.Real("x")
+    s = Spec()
+    s.assume("pos", x > 0)
+    s.claim(x >= 0)
+    cert = smt.prove(s, LIM).certificate.stamp(str(spec_file))
+    (tmp / "c.json").write_text(json.dumps(cert.to_dict()), encoding="utf-8")
+
+    assert not status_report.scan(str(tmp))["stale"]
+    spec_file.write_text("# version TWO, materially different\n",
+                         encoding="utf-8")
+    stale = status_report.scan(str(tmp))["stale"]
+    assert len(stale) == 1 and stale[0]["why"] == "changed"
+
+    spec_file.unlink()
+    assert status_report.scan(str(tmp))["stale"][0]["why"] == "gone"
+
+
+def test_status_skips_files_that_are_not_certificates_without_complaining():
+    """A ledger, a config and somebody's notes all live in the same directory."""
+    from certo import status_report
+
+    tmp = _tmp()
+    (tmp / "notes.json").write_text('{"hello": "world"}', encoding="utf-8")
+    (tmp / "broken.json").write_text("{not json", encoding="utf-8")
+    rep = status_report.scan(str(tmp))
+    assert rep["certificates"] == 0 and rep["skipped"] == 2
+
+
+def test_status_reads_a_run_as_readily_as_a_bare_certificate():
+    """`--cert` writes one shape and `--json` writes the other. Both are right."""
+    import z3
+
+    from certo import Spec, status_report
+    from certo.engines import smt
+
+    x = z3.Real("x")
+    s = Spec()
+    s.assume("pos", x > 0)
+    s.claim(x >= 0)
+    res = smt.prove(s, LIM)
+
+    tmp = _tmp()
+    (tmp / "run.json").write_text(json.dumps(res.to_dict()), encoding="utf-8")
+    rep = status_report.scan(str(tmp))
+    assert rep["certificates"] == 1
+    assert rep["results"][0]["kind"] == "unsat_core"
+
+
+
+def test_status_inherits_bridges_upward_but_not_unclaimed_optimality():
+    """Two debts, two behaviours, and the difference is the point.
+
+    A bridge is an ASSUMPTION: whatever stands on it stands on it too, however
+    many levels down. An unclaimed optimality is a STATEMENT ABOUT ONE
+    CERTIFICATE -- a proof citing a `gap` for the value 15/2 is not thereby
+    claiming the optimum, and a `branch_bound` certificate is precisely the
+    proof its own incumbent lacked.
+    """
+    from certo import status_report
+    from certo.certificate import gap_certificate, proof_certificate
+
+    inner = gap_certificate(
+        fractional={"kind": "lp_dual", "payload": {}},
+        integral={"kind": "mixed_design",
+                  "payload": {"level": "conditional_optimum"}},
+        mu="15/2", nu="7", gap="1/2", tight=[],
+        level="conditional_optimum", title="the gap",
+    ).to_dict()
+    top = proof_certificate(
+        title="on top", theorem_smt2="(assert true)", assumptions=[],
+        assumptions_smt2="",
+        lemmas=[{"name": "gap_is_half", "derived": False, "cert": inner,
+                 "bridge": "reading the dual as a statement about the packing"}],
+        step=None, used=["gap_is_half"], unused=[],
+    )
+
+    tmp = _tmp()
+    (tmp / "top.json").write_text(json.dumps(top.to_dict()), encoding="utf-8")
+    rep = status_report.scan(str(tmp))
+
+    sorts = {o["sort"] for o in rep["owed"]}
+    assert sorts == {"bridge"}, rep["owed"]
+    assert rep["owed"][0]["name"] == "gap_is_half"
+
+    # Alone, that same gap certificate DOES report its unclaimed optimality:
+    # the rule is about inheritance, not about hiding it.
+    alone = _tmp()
+    (alone / "gap.json").write_text(json.dumps(inner), encoding="utf-8")
+    assert [o["sort"] for o in status_report.scan(str(alone))["owed"]] \
+        == ["not_claimed"]
+
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
