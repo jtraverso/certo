@@ -25,9 +25,38 @@ payload — each such change says so and what still reads the old shape.
 - `canonicalize="auto"` asks the item for its own canonical form, so any class
   with a `canonical()` method joins.
 
+- **`sweep --by-orbit`** — evaluate one item per orbit instead of every item.
+  Sound only if the predicate is invariant under the declared symmetry, which
+  nothing can prove: the assumption is named in the certificate and
+  **spot-checked** against real non-representatives, and a predicate that is
+  not invariant stops the run naming the item and its representative.
+  Inferred verdicts are marked in lower case in the verdict vector, and
+  replay reproduces the inference rather than re-evaluating.
+- **`sweep --witnesses`** — the structural story in one artefact: N labelled
+  counterexamples → K orbits → a minimal witness for each. Verification
+  checks the witnesses minimise the sweep's own representatives, which a
+  directory of separate certificates cannot say.
+- **Deep Lean export.** `certo export --lean` now reads the certificate's
+  kind: a Farkas certificate becomes a runnable `linarith` example with the
+  hypothesis list already narrowed and the `sq_nonneg` hints it actually
+  used; a `compose` proof becomes a skeleton with `sorry` on exactly the
+  bridges and nowhere else; a sweep becomes a `List` Lean can `decide` over,
+  with completeness stated as the enumerator's claim rather than smuggled in.
+  Plus `--manifest` (hashes tying the file to the run) and `--check`, which
+  runs the toolchain and says so when there is not one.
+
+### Fixed
+
+- `subprocess` output was decoded with the Windows default codepage, so any
+  Lean or tool output containing UTF-8 crashed the run.
+
 ### Notes
 
-- 168 tests.
+- 182 tests.
+- The three Lean exporters were checked by compiling them against Mathlib
+  v4.28.0. `nlinarith` alone could not close the nonlinear example — the
+  `sq_nonneg` hint from the certificate is what makes it compile, which is
+  the clearest demonstration of what the certificate is worth.
 
 ## [0.2.0] — 2026-09-16
 

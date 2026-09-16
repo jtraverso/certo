@@ -1560,6 +1560,259 @@ def test_a_false_step_stops_the_whole_thing():
     assert r.verdict is Verdict.INCONCLUSIVE
     assert r.certificate is None
 
+# --- P1: --by-orbit --------------------------------------------------------
+
+
+def _mirror(n=7, pred=None):
+    from certo import DomainSpec
+
+    return DomainSpec(
+        items=[(a, b) for a in range(1, n) for b in range(1, n)],
+        predicate=pred or (lambda p: p[0] + p[1] != n),
+        key=lambda p: "({},{})".format(*p),
+        canonicalize=lambda p: tuple(sorted(p)),
+    )
+
+
+def test_by_orbit_evaluates_one_item_per_orbit():
+    from certo.engines import domain
+
+    full = domain.sweep_domain(_mirror(), LIM)
+    quick = domain.sweep_domain(_mirror(), LIM, by_orbit=True)
+    assert quick.verdict is full.verdict
+    assert quick.meta["counterexamples"] == full.meta["counterexamples"]
+    # 36 ordered pairs quotiented by sorting is 21 orbits, so most of the
+    # saving here is modest -- what matters is that fewer than 36 were run.
+    assert quick.meta["evaluated"] == quick.meta["domain_orbits"]
+    assert quick.meta["evaluated"] + quick.meta["inferred"] == 36
+    assert quick.meta["evaluated"] < 36
+
+
+def test_an_inferred_verdict_is_marked_in_the_vector():
+    """Lower case says "not computed", so a reader can see how much was run."""
+    from certo.engines import domain
+
+    p = domain.sweep_domain(_mirror(), LIM, by_orbit=True).certificate.payload
+    codes = p["outcomes"]
+    assert set(codes) <= set("TFtf")
+    assert sum(1 for c in codes if c.isupper()) == p["evaluated"]
+
+
+def test_by_orbit_replays_the_inference_not_a_full_evaluation():
+    from certo import load_spec
+    from certo.engines import domain
+
+    src = _spec_file("certo_byorbit_", 0)
+    src.write_text(ORBIT_SPEC, encoding="utf-8")
+    cert = _roundtrip(domain.sweep_domain(load_spec(src), LIM, by_orbit=True)
+                      .certificate.stamp(src))
+    rep = verify(cert, LIM)
+    assert rep.ok
+    assert any("re-running" in c and ok for c, ok, _ in rep.checks)
+
+
+ORBIT_SPEC = """
+from certo import DomainSpec
+
+def spec():
+    return DomainSpec(
+        items=[(a, b) for a in range(1, 7) for b in range(1, 7)],
+        predicate=lambda p: p[0] + p[1] != 7,
+        key=lambda p: "(%d,%d)" % p,
+        canonicalize=lambda p: tuple(sorted(p)),
+    )
+"""
+
+
+def test_a_predicate_that_is_not_invariant_stops_the_run():
+    """The spot checks exist for exactly this, and it is not a warning."""
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_mirror(pred=lambda p: p[0] <= p[1]), LIM,
+                            by_orbit=True)
+    assert r.status is Status.OUT_OF_THEORY
+    assert r.certificate is None
+    assert "NOT invariant" in r.detail
+
+
+def test_by_orbit_needs_a_symmetry_to_sweep_by():
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_bool_domain(lambda i: i < 5), LIM, by_orbit=True)
+    assert r.status is Status.OUT_OF_THEORY
+    assert "canonicalize" in r.detail
+
+
+def test_the_invariance_assumption_is_reported_on_every_verification():
+    from certo.engines import domain
+
+    rep = verify(_roundtrip(domain.sweep_domain(_mirror(), LIM, by_orbit=True)
+                            .certificate), LIM)
+    assert any("ASSUMED" in w or "SUPUESTO" in w for w in rep.warnings)
+    assert any("spot checks" in c or "puntuales" in c for c, _, _ in rep.checks)
+
+
+# --- P1: orbit witnesses ---------------------------------------------------
+
+
+def test_witnesses_must_come_from_the_sweep_they_claim_to():
+    from certo.certificate import orbit_witnesses_certificate
+    from certo.engines import domain
+
+    sweep = domain.sweep_domain(_mirror(), LIM)
+    cert = _roundtrip(orbit_witnesses_certificate(
+        sweep_cert=sweep.certificate.to_dict(),
+        witnesses=[{"representative": "(9,9)", "size": 1, "minimal": "(9,9)",
+                    "steps": 0, "cert": None}],
+        labelled=6))
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("own representatives" in c and not ok
+               for c, ok, _ in rep.checks)
+
+
+# --- P1: the deep Lean export ----------------------------------------------
+
+
+def _farkas_cert(nonlinear=False):
+    import z3
+
+    from certo import Spec
+    from certo.engines import farkas
+
+    if nonlinear:
+        a, b = z3.Reals("a b")
+        s = Spec()
+        s.claim(a * a + b * b >= 2 * a * b)
+    else:
+        x, y = z3.Reals("x y")
+        s = Spec()
+        s.assume("x_ge_1", x >= 1)
+        s.assume("y_ge_1", y >= 1)
+        s.claim(x + y >= 2)
+    r = farkas.farkas(s, LIM, nonlinear=nonlinear)
+    d = r.certificate.to_dict()
+    d["digest"] = r.certificate.digest()
+    return d
+
+
+def test_a_farkas_certificate_becomes_a_runnable_linarith_example():
+    from certo import leanexport
+
+    text = leanexport.farkas_to_lean(_farkas_cert())
+    assert "example (x y : \u211d)" in text
+    assert "linarith [x_ge_1, y_ge_1]" in text
+    assert "import Mathlib.Data.Real.Basic" in text   # linarith alone is not enough
+    assert "\u00ac" not in text                      # the goal is positive, not a negation
+
+
+def test_the_nonlinear_export_hands_nlinarith_the_square_it_used():
+    """Without the hint nlinarith fails; the certificate knows which square."""
+    from certo import leanexport
+
+    text = leanexport.farkas_to_lean(_farkas_cert(nonlinear=True))
+    assert "nlinarith [sq_nonneg (a - b)]" in text
+
+
+def test_the_square_hint_comes_from_the_polynomial_not_the_name():
+    """`sq_a_b` is ambiguous when a variable contains an underscore."""
+    import z3
+
+    from certo import Spec, leanexport
+    from certo.engines import farkas
+
+    a_b, c = z3.Reals("a_b c")
+    s = Spec()
+    s.claim(a_b * a_b + c * c >= 2 * a_b * c)
+    r = farkas.farkas(s, LIM, nonlinear=True)
+    d = r.certificate.to_dict()
+    d["digest"] = r.certificate.digest()
+    text = leanexport.farkas_to_lean(d)
+    assert "sq_nonneg (a_b - c)" in text
+
+
+def test_a_proof_export_puts_sorry_on_the_bridges_and_nowhere_else():
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import z3
+
+    from certo import ProofSpec, Spec, leanexport
+    from certo.engines import compose, smt
+
+    x = z3.Real("x")
+    src = Spec()
+    src.assume("h", x >= 1)
+    src.claim(x >= 1)
+    sub = smt.prove(src, LIM).certificate
+    d = Path(tempfile.mkdtemp(prefix="certo_leanproof_"))
+    (d / "c.json").write_text(json.dumps(sub.to_dict()), encoding="utf-8")
+
+    k = z3.Int("k")
+    p = ProofSpec(title="two kinds of lemma")
+    p.assume("k_ge_6", k >= 6)
+    p.lemma("finite", certificate=str(d / "c.json"), states=(k <= 10),
+            bridge="checked exhaustively")
+    lem = Spec()
+    lem.assume("h", k >= 6)
+    lem.claim(k >= 0)
+    p.lemma("derived", proves=lem)
+    p.conclude(z3.And(k >= 6, k <= 10))
+
+    cert = compose.compose(p, LIM).certificate
+    data = cert.to_dict()
+    data["digest"] = cert.digest()
+    text = leanexport.proof_to_lean(data)
+
+    assert text.count("sorry") == 2          # the bridge, and its listing
+    assert "theorem finite" in text and "theorem derived" in text
+    # The sorry belongs to the bridge, not to the derived lemma.
+    bridge_block = text.split("theorem finite")[1].split("theorem")[0]
+    derived_block = text.split("theorem derived")[1].split("/--")[0]
+    assert "sorry" in bridge_block and "sorry" not in derived_block
+
+
+def test_the_classification_export_states_what_lean_cannot_check():
+    from certo import leanexport
+    from certo.engines import domain
+
+    cert = domain.sweep_domain(_bool_domain(lambda i: i < 20), LIM).certificate
+    data = cert.to_dict()
+    data["digest"] = cert.digest()
+    text = leanexport.classification_to_lean(data)
+    assert "COMPLETENESS IS NOT PROVED HERE" in text
+    assert "family.length = 12" in text
+
+
+def test_the_manifest_ties_the_lean_file_to_the_certificate():
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from certo import leanexport
+
+    d = Path(tempfile.mkdtemp(prefix="certo_manifest_"))
+    cert = d / "c.json"
+    cert.write_text(json.dumps(_farkas_cert()), encoding="utf-8")
+    man = leanexport.manifest([cert])
+    assert man["files"][0]["kind"] == "farkas"
+    assert len(man["files"][0]["sha256"]) == 64
+
+
+def test_check_says_it_did_not_run_rather_than_staying_quiet():
+    import tempfile
+    from pathlib import Path
+
+    from certo import leanexport
+
+    d = Path(tempfile.mkdtemp(prefix="certo_nocheck_"))
+    f = d / "X.lean"
+    f.write_text("example : True := trivial\n", encoding="utf-8")
+    rep = leanexport.check(f)
+    assert rep["ran"] is False
+    assert rep["reason"]
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

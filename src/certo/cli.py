@@ -59,7 +59,8 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "domain", "evaluations", "calibration", "table", "multipliers",
                 "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
-                "banner_key", "level", "orbits")
+                "banner_key", "level", "orbits", "spot_checks",
+                "by_orbit", "evaluated", "inferred")
 
 
 def _item_id(entry) -> str:
@@ -350,6 +351,50 @@ def cmd_induct(args):
     return emit(res, args)
 
 
+def _shrink_orbits(spec, sweep_res, args):
+    """Minimise one representative per orbit. The end of the structural story.
+
+    Running `shrink` by hand from each representative is the same work; what
+    this removes is lining up three artefacts afterwards and hoping they came
+    from the same run -- which is exactly what the certificate then records.
+    """
+    from .certificate import orbit_witnesses_certificate
+    from .engines import shrink
+
+    rows = sweep_res.meta.get("orbits") or []
+    by_id = {spec.id_of(i): i for i in spec.enumerate()}
+    witnesses = []
+    for row in rows:
+        start = by_id.get(row["representative"])
+        if start is None:
+            continue
+        r = shrink.shrink_domain(spec, start, limits_from(args),
+                                 spec_path=args.spec)
+        witnesses.append({
+            "representative": row["representative"],
+            "size": row["size"],
+            "minimal": r.meta.get("minimal", "?"),
+            "steps": r.meta.get("steps", 0),
+            "cert": r.certificate.to_dict() if r.certificate else None,
+        })
+    # Stamp the sweep certificate before embedding it: emit() will stamp the
+    # wrapper, and an inner certificate with no spec path cannot be replayed.
+    return orbit_witnesses_certificate(
+        sweep_cert=sweep_res.certificate.stamp(args.spec).to_dict(),
+        witnesses=witnesses,
+        labelled=sweep_res.meta.get("labelled", 0),
+        title=spec.title,
+    ), witnesses
+
+
+def _print_witnesses(witnesses):
+    print("  " + t("cli.witness.header"))
+    for w in witnesses:
+        print("    " + t("cli.witness.row", rep=w["representative"],
+                         size=w["size"], minimal=w["minimal"],
+                         steps=w["steps"]))
+
+
 def cmd_synth(args):
     from .engines import cegis
     from .spec import SynthSpec, load_spec
@@ -483,7 +528,8 @@ def cmd_sweep(args):
     if args.n_range:
         return _sweep_range(args, spec, mode)
     if isinstance(spec, DomainSpec):
-        res = domain.sweep_domain(spec, limits_from(args), cert_mode=mode)
+        res = domain.sweep_domain(spec, limits_from(args), cert_mode=mode,
+                                  by_orbit=getattr(args, "by_orbit", False))
     elif isinstance(spec, SweepSpec):
         res = graphsearch.sweep(spec, limits_from(args),
                                 use_geng=not args.no_geng, cert_mode=mode)
@@ -491,6 +537,18 @@ def cmd_sweep(args):
         print("sweep needs a SweepSpec (graphs) or a DomainSpec (any finite "
               "domain); spec() returned " + type(spec).__name__, file=sys.stderr)
         return 1
+    # --witnesses replaces the sweep certificate with one that carries the
+    # sweep, the orbits AND a minimal witness per orbit -- the whole
+    # structural story as one artefact rather than three files to line up.
+    witnesses = None
+    if getattr(args, "witnesses", False):
+        if res.verdict is not Verdict.REFUTED or not res.meta.get("orbits"):
+            print("  " + t("cli.witness.needs_orbits"), file=sys.stderr)
+        elif not isinstance(spec, DomainSpec) or spec.reduce is None:
+            print("  " + t("cli.witness.needs_reduce"), file=sys.stderr)
+        else:
+            res.certificate, witnesses = _shrink_orbits(spec, res, args)
+
     rc = emit(res, args)
     if args.json:
         return rc
@@ -500,6 +558,11 @@ def cmd_sweep(args):
     if res.verdict is Verdict.REFUTED:
         # With a symmetry declared, the orbits ARE the answer: printing a
         # thousand relabelled copies underneath them would bury it again.
+        if res.meta.get("by_orbit"):
+            print("  !! " + t("cli.orbits.by_orbit",
+                              evaluated=res.meta["evaluated"],
+                              inferred=res.meta["inferred"],
+                              n=res.meta["spot_checks"]))
         if res.meta.get("orbits"):
             print("  " + t("cli.orbits.summary",
                            labelled=res.meta["labelled"],
@@ -516,6 +579,8 @@ def cmd_sweep(args):
                 print("    " + c)
         for d in res.meta.get("describe", []):
             print("    -> " + str(d))
+        if witnesses:
+            _print_witnesses(witnesses)
 
     # The uncertified count is reported once, by the level line in `emit`,
     # which also says which of the three levels this run reached. This second
@@ -797,26 +862,76 @@ def cmd_export(args):
 
 
 def _export_lean(args):
-    """A counterexample as Lean data. Never compiled here, and it says so."""
-    from . import lean
+    """Lean 4 from a certificate: data for a graph, proof steps for the rest.
+
+    Which exporter runs is decided by the certificate's KIND, because that is
+    what determines how much can honestly be emitted. A Farkas certificate
+    becomes a runnable `linarith` example; a `compose` proof becomes a
+    skeleton with `sorry` on exactly the bridges; a sweep becomes a list Lean
+    can `decide` over. A graph counterexample is still data, because data is
+    all it is.
+    """
+    from . import lean, leanexport
     from .graphs import Graph
 
     if args.graph:
-        graphs, source = [Graph.from_graph6(args.graph)], "graph6 " + args.graph
-    else:
-        data = json.loads(Path(args.spec).read_text(encoding="utf-8"))
-        graphs = lean.graphs_from_certificate(data)
-        source = "{} (certificate {})".format(
-            args.spec, Certificate.from_dict(data).digest())
+        text = lean.graphs_to_lean([Graph.from_graph6(args.graph)],
+                                   "graph6 " + args.graph)
+        return _write_lean(text, args, [])
 
-    text = lean.graphs_to_lean(graphs, source)
-    if args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
-        print(t("cli.lean.written", path=args.out, n=len(graphs)))
-        print("  " + t("cli.lean.unverified"))
+    path = Path(args.spec)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    kind = data.get("kind")
+    source = "{} (certificate {})".format(
+        args.spec, Certificate.from_dict(data).digest())
+    data["digest"] = Certificate.from_dict(data).digest()
+
+    exporter = leanexport.EXPORTERS.get(kind)
+    if exporter is not None:
+        text = exporter(data, source)
     else:
+        try:
+            graphs = lean.graphs_from_certificate(data)
+        except ValueError:
+            print(t("cli.lean.no_exporter", kind=kind), file=sys.stderr)
+            return 3
+        text = lean.graphs_to_lean(graphs, source)
+    return _write_lean(text, args, [path])
+
+
+def _write_lean(text, args, sources):
+    from . import leanexport
+
+    if not args.out:
         print(text, end="")
+        return 0
+
+    out = Path(args.out)
+    out.write_text(text, encoding="utf-8")
+    print(t("cli.lean.written", path=str(out)))
+
+    if args.manifest:
+        man = leanexport.manifest(list(sources) + [out])
+        mp = Path(args.manifest)
+        mp.write_text(json.dumps(man, indent=2) + "\n", encoding="utf-8")
+        print("  " + t("cli.lean.manifest", path=str(mp)))
+
+    if args.check:
+        # "It should compile" is the claim most likely to be wrong and the one
+        # nobody should take on trust from a text generator.
+        rep = leanexport.check(out, args.lean_project)
+        if not rep["ran"]:
+            print("  " + t("cli.lean.not_checked", reason=rep["reason"]))
+            return 0
+        extra = (t("cli.lean.sorries", n=rep["sorries"]) if rep["sorries"]
+                 else "")
+        print("  " + t("cli.lean.checked",
+                       state="OK" if rep["ok"] else "FAILED", sorries=extra))
+        if not rep["ok"]:
+            print(rep["output"], file=sys.stderr)
+            return 1
     return 0
+
 
 
 def build_parser():
@@ -933,6 +1048,17 @@ def build_parser():
                          "not just the counterexamples (expensive)")
     sp.add_argument("--cert-none", action="store_true", dest="cert_none",
                     help="do not store predicate certificates")
+    sp.add_argument("--witnesses", action="store_true",
+                    help="after a refuted sweep with a symmetry: minimise one "
+                         "representative per orbit and report the minimal "
+                         "witnesses together, in one certificate")
+    sp.add_argument("--by-orbit", action="store_true", dest="by_orbit",
+                    help="with a DomainSpec declaring canonicalize: evaluate "
+                         "ONE item per orbit and infer the rest. Sound only if "
+                         "the predicate is invariant under your symmetry, "
+                         "which nothing can prove -- so it is spot-checked "
+                         "against real non-representatives and recorded as an "
+                         "assumption in the certificate")
     sp.add_argument("--n-range", metavar="LO..HI", dest="n_range",
                     help="sweep every size in the range and report the first "
                          "one that fails (overrides the spec's n)")
@@ -992,6 +1118,16 @@ def build_parser():
     sp = add("export", "dump the spec to SMT-LIB2 or DIMACS, or a "
                        "counterexample to Lean")
     sp.add_argument("spec", help=".py spec, or a .json certificate with --lean")
+    sp.add_argument("--manifest", metavar="FILE",
+                    help="write a JSON manifest of the certificate and the "
+                         "emitted file, with hashes, so the Lean side can say "
+                         "which run it came from")
+    sp.add_argument("--check", action="store_true",
+                    help="run the Lean toolchain over the emitted file. "
+                         "Without one it says so rather than staying quiet")
+    sp.add_argument("--lean-project", metavar="DIR", dest="lean_project",
+                    help="the Lean project to compile inside (default: the "
+                         "output file's directory)")
     sp.add_argument("--lean", action="store_true",
                     help="emit a graph counterexample as Lean 4 data "
                          "(checked against Lean/Mathlib v4.28.0)")

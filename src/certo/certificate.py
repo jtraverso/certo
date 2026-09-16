@@ -320,8 +320,8 @@ def synth_proved_certificate(candidate, synth_cert, universal_cert) -> Certifica
 
 def domain_sweep_certificate(ids, entries, mode, counts, values=None,
                              stats=None, title="", outcomes="",
-                             orbits=None, labelled=0,
-                             by_orbit=False, spot_checks=None) -> Certificate:
+                             orbits=None, labelled=0, by_orbit=False,
+                             spot_checks=None, evaluated=0) -> Certificate:
     """Same contract as `sweep`, for a domain the spec defines itself.
 
     Including the same three levels: the domain and its hash, the verdict
@@ -341,7 +341,8 @@ def domain_sweep_certificate(ids, entries, mode, counts, values=None,
                  "outcomes": outcomes,
                  "outcomes_sha256": outcomes_digest(outcomes) if outcomes else "",
                  "orbits": orbits, "labelled": labelled,
-                 "by_orbit": by_orbit, "spot_checks": spot_checks},
+                 "by_orbit": by_orbit, "spot_checks": spot_checks,
+                 "evaluated": evaluated},
         note_key="cert.note.domain_sweep",
     )
 
@@ -388,7 +389,7 @@ def shrink_domain_certificate(spec_path, spec_sha256, original, minimal,
 
 def farkas_certificate(rows, multipliers, constant, strict, nonlinear,
                        base_rows, sorts=None, vacuous=False,
-                       spec_path="") -> Certificate:
+                       derived=None, spec_path="") -> Certificate:
     """Non-negative multipliers that close the system. Checked by arithmetic.
 
     This is what `linarith` emits, and what `nlinarith` emits once its
@@ -400,7 +401,7 @@ def farkas_certificate(rows, multipliers, constant, strict, nonlinear,
                  "constant": constant, "strict": strict,
                  "nonlinear": nonlinear, "base_rows": base_rows,
                  "sorts": sorts or {}, "vacuous": bool(vacuous),
-                 "spec_path": str(spec_path)},
+                 "derived": derived or {}, "spec_path": str(spec_path)},
         note_key="cert.note.farkas",
     )
 
@@ -476,6 +477,28 @@ def induction_certificate(k0, base_upto, step_from, base, step, step_smt2,
     )
 
 
+
+def orbit_witnesses_certificate(sweep_cert, witnesses, labelled,
+                                title="") -> Certificate:
+    """A refuted sweep, quotiented, and one minimal witness per orbit.
+
+    The three steps a combinatorial refutation actually wants -- how many
+    counterexamples there are, how many objects that really is, and what the
+    smallest version of each looks like -- travel as one artefact instead of
+    three files someone has to line up by hand.
+
+    Nothing new is proved here: each part carries its own certificate and
+    verification cascades into all of them. What this adds is that they are
+    about THE SAME RUN, which a directory of certificates cannot say.
+    """
+    return Certificate(
+        kind="orbit_witnesses", solver_free=False,
+        payload={"title": title, "sweep": sweep_cert, "witnesses": witnesses,
+                 "labelled": labelled, "orbits": len(witnesses)},
+        note_key="cert.note.orbit_witnesses",
+    )
+
+
 def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     h = hashlib.sha256("\n".join(sorted(g6)).encode()).hexdigest()
     return Certificate(
@@ -509,7 +532,12 @@ NO_PREDICATE = "no_predicate"  # a calibration run: nothing to certify
 
 
 def outcome_code(out) -> str:
-    """One character per evaluation. T true, F false, ? inconclusive, E error."""
+    """One character per item. T true, F false, ? inconclusive, E error.
+
+    Lower case means INFERRED from an orbit representative rather than
+    computed -- `--by-orbit`. A reader can see at a glance how much of a
+    verdict vector was actually run.
+    """
     if getattr(out, "errored", False):
         return "E"
     if out.ok is None:
@@ -605,6 +633,26 @@ def _replay(cert, limits, kind):
         if ids != list(p.get("ids", [])):
             return False, t("verify.sweep.replay.domain_moved")
 
+        if p.get("by_orbit"):
+            # Reproduce the INFERENCE, not a full evaluation: a --by-orbit run
+            # never computed the non-representatives, so re-computing them here
+            # would disagree with the stored vector by construction.
+            from . import orbits as orb
+            from .engines.domain import orbit_codes
+
+            groups = orb.build(spec, items, ids)
+            if groups is None:
+                return False, t("verify.sweep.replay.no_symmetry")
+            got = "".join(orbit_codes(spec, items, groups)[1])
+            if outcomes_digest(got) == want:
+                return True, t("verify.sweep.replay.agrees", n=len(got))
+            old = p.get("outcomes", "")
+            where = next((i for i, c in enumerate(got)
+                          if i < len(old) and c != old[i]), 0)
+            return False, t("verify.sweep.replay.differs",
+                            item=ids[where] if where < len(ids) else "?",
+                            index=where)
+
     codes = []
     for item in items:
         codes.append(outcome_code(_evaluate(spec, item)))
@@ -647,6 +695,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "proof": _verify_proof,
         "ball": _verify_ball,
         "induction": _verify_induction,
+        "orbit_witnesses": _verify_orbit_witnesses,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -895,6 +944,49 @@ def _verify_induction(cert, limits) -> VerifyReport:
         all(c[1] for c in checks), "induction", False, checks=checks,
         warnings=warnings,
         detail=t("verify.induction.detail", n=len(ks), k0=k0, upto=upto),
+    )
+
+
+
+def _verify_orbit_witnesses(cert, limits) -> VerifyReport:
+    p = cert.payload
+    checks, warnings, free = [], [], True
+
+    sub = p.get("sweep")
+    if sub is None:
+        checks.append((t("verify.witness.sweep"), False,
+                       t("verify.bisect.no_cert")))
+    else:
+        rep = verify(Certificate.from_dict(sub), limits)
+        checks.append((t("verify.witness.sweep"), rep.ok, rep.detail))
+        warnings.extend(rep.warnings)
+        free = free and rep.solver_free
+
+        # The representatives minimised here must be the representatives the
+        # sweep found. Otherwise this is three certificates about three runs.
+        want = {row["representative"] for row in (sub["payload"].get("orbits") or [])}
+        got = {w["representative"] for w in p["witnesses"]}
+        checks.append((t("verify.witness.same_run"), got <= want,
+                       t("verify.witness.stray",
+                         names=", ".join(sorted(got - want)[:3]) or "-")))
+
+    for w in p["witnesses"]:
+        label = t("verify.witness.one", rep=w["representative"])
+        wc = w.get("cert")
+        if wc is None:
+            checks.append((label, False, t("verify.bisect.no_cert")))
+            continue
+        rep = verify(Certificate.from_dict(wc), limits)
+        checks.append((label, rep.ok, "{} -> {}".format(w["minimal"], rep.detail)))
+        warnings.extend("{}: {}".format(w["representative"], x)
+                        for x in rep.warnings)
+        free = free and rep.solver_free
+
+    return VerifyReport(
+        all(c[1] for c in checks), "orbit_witnesses", free, checks=checks,
+        warnings=warnings,
+        detail=t("verify.witness.detail", labelled=p["labelled"],
+                 orbits=p["orbits"]),
     )
 
 
@@ -1471,6 +1563,14 @@ def _verify_domain_sweep(cert, limits) -> VerifyReport:
         checks += orb.check(p)
 
     pchecks, pwarn, level = _predicate_level(cert, limits, "domain")
+    if p.get("by_orbit"):
+        spot = p.get("spot_checks") or []
+        pchecks.append((t("verify.orbits.spot"),
+                        all(s_.get("agreed") for s_ in spot) and bool(spot),
+                        t("verify.orbits.spot_n", n=len(spot))))
+        pwarn.insert(0, t("verify.orbits.assumed",
+                          evaluated=p.get("evaluated", "?"),
+                          n=len(spot)))
     checks += pchecks
     free = cert.solver_free and level is not REPRODUCIBLE
 

@@ -162,22 +162,35 @@ def products(rows):
     whole trick, and it is the reason nlinarith is a heuristic: which products
     to add is a guess, not a search.
     """
-    extra = []
+    extra, origin = [], {}
     for (n1, p1, _), (n2, p2, _) in combinations(rows, 2):
         prod = _mul(p1, p2)
         extra.append(("{}*{}".format(n1, n2), {m: -c for m, c in prod.items()}, "<="))
+        origin["{}*{}".format(n1, n2)] = {"kind": "product", "of": [n1, n2]}
     for name, p, _ in rows:                       # each hypothesis squared
         sq = _mul(p, p)
         extra.append(("{}^2".format(name), {m: -c for m, c in sq.items()}, "<="))
+        origin["{}^2".format(name)] = {"kind": "square", "of": _ser(p)}
     atoms = sorted({v for _, p, _ in rows for m in p for v in m})
     for v in atoms:                               # x^2 >= 0
         extra.append(("sq_{}".format(v), {(v, v): Fraction(-1)}, "<="))
+        origin["sq_{}".format(v)] = {"kind": "square",
+                                     "of": _ser({(v,): Fraction(1)})}
     for a, b in combinations(atoms, 2):           # (x - y)^2 >= 0
         sq = _mul({(a,): Fraction(1), (b,): Fraction(-1)},
                   {(a,): Fraction(1), (b,): Fraction(-1)})
         extra.append(("sq_{}_{}".format(a, b), {m: -c for m, c in sq.items()},
                       "<="))
-    return extra
+        origin["sq_{}_{}".format(a, b)] = {
+            "kind": "square",
+            "of": _ser({(a,): Fraction(1), (b,): Fraction(-1)})}
+    # The names alone are ambiguous -- a variable may contain an underscore --
+    # so what each derived row is a square OF travels as a polynomial.
+    return extra, origin
+
+
+def _ser(poly) -> dict:
+    return {" ".join(m) if m else "1": str(c) for m, c in poly.items()}
 
 
 def combination(rows, multipliers) -> dict:

@@ -40,7 +40,8 @@ def _binary(name, args=("--version",), must_run=False):
         return False, ""
     try:
         out = subprocess.run([path, *args], capture_output=True, text=True,
-                             timeout=20)
+                             timeout=20, encoding="utf-8",
+                             errors="replace")
     except (OSError, subprocess.SubprocessError):
         return not must_run, path
     first = (out.stdout or out.stderr or "").strip().splitlines()
@@ -150,7 +151,8 @@ def mcp_status(workspace=None) -> dict:
 
     probe = subprocess.run(
         [sys.executable, "-c", "import certo.mcp_server as m; print(m.__name__)"],
-        capture_output=True, text=True, timeout=60)
+        capture_output=True, text=True, timeout=60,
+        encoding="utf-8", errors="replace")
     out["starts"] = probe.returncode == 0
     out["detail"] = ((probe.stderr or "").strip().splitlines() or [""])[-1][:200] \
         if probe.returncode else ""

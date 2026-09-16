@@ -770,6 +770,7 @@ async def enum(n: int, filters: list[str] | None = None,
     "finite domain, not just graphs."))
 @_guard
 async def sweep(spec_path: str | None = None, spec_source: str | None = None,
+                by_orbit: bool = False,
                 timeout_ms: int = 60_000, cert_mode: str = "failures",
                 n_range: str | None = None,
                 stop_on_first: bool = False) -> dict:
@@ -788,7 +789,8 @@ async def sweep(spec_path: str | None = None, spec_source: str | None = None,
         res = await _off(graphsearch.sweep_range, sp, lo, hi,
                          _limits(timeout_ms), stop_on_first, cert_mode)
     elif isinstance(sp, DomainSpec):
-        res = await _off(domain.sweep_domain, sp, _limits(timeout_ms), cert_mode)
+        res = await _off(domain.sweep_domain, sp, _limits(timeout_ms),
+                         cert_mode, by_orbit)
     elif isinstance(sp, SweepSpec):
         res = await _off(graphsearch.sweep, sp, _limits(timeout_ms), True,
                          cert_mode)

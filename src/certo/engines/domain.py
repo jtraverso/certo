@@ -11,6 +11,7 @@ guarantees non-isomorphism; here the domain is the user's to define.
 """
 from __future__ import annotations
 
+import random
 import time
 
 from .. import exact
@@ -43,18 +44,88 @@ def _evaluate(spec, item) -> Outcome:
     return out
 
 
+SPOT_CHECKS = 12
+
+
+def orbit_codes(spec, items, groups):
+    """The verdict vector a `--by-orbit` run produces: representatives
+    evaluated, the rest inferred and marked in lower case.
+
+    Shared with verification, so a replay reproduces the inference instead of
+    re-evaluating everything and disagreeing with itself.
+    """
+    reps = {c: groups.representative(c) for c in groups.order}
+    evaluated = {c: _evaluate(spec, items[i]) for c, i in reps.items()}
+    outcomes, codes = [], []
+    for i in range(len(items)):
+        c = groups.canon[i]
+        out = evaluated[c]
+        outcomes.append(out)
+        code = outcome_code(out)
+        codes.append(code if i == reps[c] else code.lower())
+    return outcomes, codes, reps, evaluated
+
+
+def _by_orbit(spec, items, groups, rng):
+    """Evaluate one item per orbit, then go and look at some of the rest.
+
+    `--by-orbit` reports a representative's verdict for its whole orbit. That
+    is sound only if the predicate cannot tell members of an orbit apart, and
+    nothing can prove it can't: `canonicalize` and the predicate are both
+    arbitrary Python. So the assumption is named in the certificate, like a
+    bridge -- and then tested, which is the part that costs nothing and
+    catches a wrong symmetry immediately instead of in a referee's report.
+
+    Returns (outcomes, codes, spot, clash). `clash` is the pair that broke the
+    assumption, and when it is set the sweep is not sound and says so.
+    """
+    outcomes, codes, reps, evaluated = orbit_codes(spec, items, groups)
+    pool = [(c, i) for c, members in groups.groups.items() for i in members
+            if i != reps[c]]
+    spot, clash = [], None
+    for c, idx in rng.sample(pool, min(SPOT_CHECKS, len(pool))):
+        got = outcome_code(_evaluate(spec, items[idx]))
+        want = outcome_code(evaluated[c])
+        spot.append({"index": idx, "id": spec.id_of(items[idx]),
+                     "representative": spec.id_of(items[reps[c]]),
+                     "agreed": got == want})
+        if got != want:
+            clash = (spec.id_of(items[idx]), spec.id_of(items[reps[c]]))
+            break
+    return outcomes, codes, spot, clash
+
+
 def sweep_domain(spec, limits: Limits | None = None,
-                 cert_mode: str = "failures") -> Result:
+                 cert_mode: str = "failures", by_orbit: bool = False) -> Result:
     t0 = time.perf_counter()
     items = spec.enumerate()
     groups = orb.build(spec, items, [spec.id_of(i) for i in items])
 
+    if by_orbit and groups is None:
+        return Result("sweep", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      "certo/domain", (time.perf_counter() - t0) * 1000, None,
+                      detail=t("engine.sweep.no_canonicalize"))
+
+    spot, clash = [], None
+    precomputed = None
+    if by_orbit:
+        rng = random.Random((limits or Limits()).seed or 0)
+        precomputed, pre_codes, spot, clash = _by_orbit(spec, items, groups, rng)
+        if clash is not None:
+            return Result(
+                "sweep", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                "certo/domain", (time.perf_counter() - t0) * 1000, None,
+                detail=t("engine.sweep.not_invariant", item=clash[0],
+                         rep=clash[1]),
+                meta={"spot_checks": spot})
+
     failures, errors, unknowns, certs, values = [], [], [], [], []
     codes = []
-    for item in items:
-        out = _evaluate(spec, item)
+    for pos, item in enumerate(items):
+        out = precomputed[pos] if precomputed is not None else _evaluate(spec, item)
         key = spec.id_of(item)
-        codes.append(outcome_code(out))
+        codes.append(pre_codes[pos] if precomputed is not None
+                     else outcome_code(out))
         if out.value is not None:
             values.append({"id": key, "value": exact.serialize(out.value)})
         if out.errored:
@@ -85,7 +156,7 @@ def sweep_domain(spec, limits: Limits | None = None,
     # thousand failures that are four objects relabelled is one answer told a
     # thousand times, and the structure of everything that passed is rarely
     # what anyone wanted to read.
-    failure_idx = {i for i, c in enumerate(codes) if c == "F"}
+    failure_idx = {i for i, c in enumerate(codes) if c in ("F", "f")}
     orbit_rows = (groups.summary(only=failure_idx)
                   if groups is not None and failure_idx else None)
     cert = domain_sweep_certificate(
@@ -94,6 +165,8 @@ def sweep_domain(spec, limits: Limits | None = None,
         stats=calib["stats"] if calib else None, title=spec.title,
         outcomes="" if spec.predicate is None else "".join(codes),
         orbits=orbit_rows, labelled=len(failure_idx),
+        by_orbit=by_orbit, spot_checks=spot or None,
+        evaluated=groups.count if by_orbit else 0,
     )
     if spec.predicate is None:
         cert.payload["no_predicate"] = True
@@ -118,6 +191,11 @@ def sweep_domain(spec, limits: Limits | None = None,
     if spec.predicate is not None:
         base["level"] = level
         base["banner_key"] = "scope.sweep." + level
+    if by_orbit:
+        base["by_orbit"] = True
+        base["evaluated"] = groups.count
+        base["inferred"] = len(items) - groups.count
+        base["spot_checks"] = len(spot)
     if groups is not None:
         base["domain_orbits"] = groups.count
         base["labelled"] = len(failure_idx)

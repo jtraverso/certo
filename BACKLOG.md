@@ -34,42 +34,32 @@ Last updated: 2026-09-16 (after 0.2.0).
 | ✅ | **Native combinatorial types** *(user feedback P2)* | `SetFamily` — hypergraphs, designs, codes, mask systems. Supplies `key()`, `canonical()` and `reductions()` itself, so a `DomainSpec` over one leaves all three at `"auto"`. The canonical form is exact and **raises** rather than falling back to an invariant that could merge two orbits. |
 | ✅ | **`certo induct`** *(P2)* | Base cases + step, with the join checked: no gap in `k0..base_upto`, and the step starting no later than the base ends. Z3 has no induction schema; the principle is applied here and said so on every verification. |
 | ✅ | **Symmetries on graph sweeps** *(P2)* | `SweepSpec(canonicalize=...)`, for a symmetry finer than isomorphism. `"auto"` asks the item for its own canonical form. |
+| ✅ | **`sweep --by-orbit`** *(P1)* | Evaluate one item per orbit. Sound only under an invariance nothing can prove, so it is named in the certificate AND spot-checked against real non-representatives; a predicate that is not invariant stops the run by name. |
+| ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
+| ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
 
 ---
 
 ## P1 — next
 
-### 1. `--by-orbit`: sweep one item per orbit
+### 1. `--by-orbit` for graph sweeps
 
-Split out of the symmetry work deliberately. Reporting orbits is sound with no
-assumptions; **evaluating only representatives is not** — it needs the
-predicate to be invariant under the declared symmetry, and nothing can prove
-that, since `canonicalize` and the predicate are both arbitrary Python.
+It is on `DomainSpec` only. Graph sweeps take `canonicalize` but still
+evaluate every graph; the same spot-checked inference applies.
 
-The design that makes it honest: evaluate representatives, then **spot-check**
-a sample of real non-representatives against their representative's verdict.
-That cannot make the sweep sound, but it turns a silent assumption into a
-tested one and makes a wrong symmetry surface immediately. The certificate
-records the assumption by name, like a bridge in `compose`, and the count of
-spot checks that agreed.
+### 2. Lean statements, not only structure
 
-Worth doing because it is what makes 31,494 configurations cheap rather than
-merely legible.
+`proof_to_lean` emits `theorem name : True` with the SMT-LIB2 statement in a
+comment, because certo does not know the Mathlib encoding of the user's
+objects. Translating linear-arithmetic statements is mechanical and would
+remove most of the retyping; anything involving a graph or a set family is
+not, and should stay a comment rather than be guessed at.
 
-### 2. Structural comparison, end to end *(user feedback)*
+### 3. `--check` in CI
 
-*1,400 labelled → 3–4 orbits → minimal representative of each.* The first two
-thirds now exist; what is missing is `shrink` running automatically on each
-orbit representative and reporting the three minimal witnesses together.
-
-### 3. Deeper Lean export *(user feedback)*
-
-- Farkas multipliers as the `linarith` combination they correspond to;
-- finite classifications as verifiable lists;
-- a manifest with hashes, ready to import;
-- a skeleton with **the exact boundary between theorem and bridge** — which
-  `compose` already computes, so this part is nearly free;
-- and actually **compiling** the output (Mathlib is installed locally).
+`--check` compiles locally when a toolchain is there. A GitHub Action that
+runs the examples' exports against Mathlib would catch the next
+`Mathlib.Tactic.Linarith` does not bring the `ℝ` instances before a user does.
 
 ---
 

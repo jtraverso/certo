@@ -74,9 +74,10 @@ def farkas(spec, limits: Limits | None = None, nonlinear: bool = False,
                       "certo/farkas", (time.perf_counter() - t0) * 1000, None,
                       detail=t("engine.farkas.not_polynomial", detail=str(e)))
 
-    base = len(rows)
+    base, origin = len(rows), {}
     if nonlinear:
-        rows = rows + linarith.products(rows)
+        extra, origin = linarith.products(rows)
+        rows = rows + extra
 
     degree = max((len(m) for _, p, _ in rows for m in p), default=0)
     if degree > 1 and not nonlinear:
@@ -106,7 +107,7 @@ def farkas(spec, limits: Limits | None = None, nonlinear: bool = False,
         multipliers=[exact.serialize(l) for l in lams],
         constant=exact.serialize(const), strict=strict,
         nonlinear=nonlinear, base_rows=base, sorts=_sorts(spec),
-        vacuous=vacuous, spec_path=str(spec_path))
+        vacuous=vacuous, derived=origin, spec_path=str(spec_path))
 
     return Result(
         "farkas", Status.UNSAT, Verdict.PROVED, "certo/farkas", ms, cert,
