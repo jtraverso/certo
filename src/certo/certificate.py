@@ -558,6 +558,43 @@ def number_certificate(kind, tree, title="") -> Certificate:
     )
 
 
+
+def mixed_design_certificate(assignment, continuous, kinds, system, objective,
+                             sense, discrete_gain, conditional, achieved,
+                             residual_cert, relaxation_cert, bound, target,
+                             globally_optimal, title="") -> Certificate:
+    """A discrete skeleton, the exact packing inside it, and what that reaches.
+
+    Three numbers that are not the same number, kept apart on purpose:
+
+      achieved     what this construction attains. Exact, and a genuine LOWER
+                   bound on the true optimum, because the thing exists.
+      conditional  the best the continuous part can do WITH THIS SKELETON,
+                   from the residual LP's exact dual.
+      bound        the relaxation over ALL skeletons: an UPPER bound.
+
+    What is certified: the assignment is integral and in range, the full point
+    satisfies every original constraint exactly, the residual LP really is the
+    original problem with that assignment substituted, and its dual is exact.
+
+    What is NOT certified, unless `achieved` meets `bound`: that this skeleton
+    is the best one. The search was CBC and nothing here re-does it. For an
+    existence proof that is the right amount to claim -- exhibiting a
+    construction that reaches the target is the whole job.
+    """
+    return Certificate(
+        kind="mixed_design", solver_free=True,
+        payload={"assignment": assignment, "continuous": continuous,
+                 "kinds": kinds, "system": system, "objective": objective,
+                 "sense": sense, "discrete_gain": discrete_gain,
+                 "conditional": conditional, "achieved": achieved,
+                 "residual": residual_cert, "relaxation": relaxation_cert,
+                 "bound": bound, "target": target,
+                 "globally_optimal": bool(globally_optimal), "title": title},
+        note_key="cert.note.mixed_design",
+    )
+
+
 def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     h = hashlib.sha256("\n".join(sorted(g6)).encode()).hexdigest()
     return Certificate(
@@ -758,6 +795,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "ideal": _verify_ideal,
         "sos": _verify_sos,
         "number": _verify_number,
+        "mixed_design": _verify_mixed_design,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -1118,6 +1156,132 @@ def _verify_number(cert, limits) -> VerifyReport:
         all(c[1] for c in checks), "number", True, checks=checks,
         detail=t("verify.number.detail", n=p["n"], checks=len(checks)),
     )
+
+
+
+def _verify_mixed_design(cert, limits) -> VerifyReport:
+    """The construction, checked; the optimality, not claimed."""
+    from fractions import Fraction
+
+    from . import exact
+
+    p = cert.payload
+    kinds = p["kinds"]
+    assign = {k: exact.to_fraction(v) for k, v in p["assignment"].items()}
+    cont = {k: exact.to_fraction(v) for k, v in p["continuous"].items()}
+    point = dict(assign)
+    point.update(cont)
+    checks, warnings = [], []
+
+    # 1. the discrete part really is discrete
+    off = [k for k, v in assign.items() if v.denominator != 1]
+    binary_off = [k for k, v in assign.items()
+                  if kinds.get(k) == "binary" and v not in (0, 1)]
+    checks.append((t("verify.mixed.integral"), not off and not binary_off,
+                   t("verify.mixed.offenders",
+                     names=", ".join((off + binary_off)[:3]) or "-")))
+
+    # 2. every ORIGINAL constraint, at the full point
+    bad = []
+    for row in p["system"]:
+        lhs = sum((exact.to_fraction(c) * point.get(v, Fraction(0))
+                   for v, c in row["coeffs"].items()), Fraction(0))
+        rhs = exact.to_fraction(row["rhs"])
+        ok = (lhs <= rhs if row["sense"] == "<=" else
+              lhs >= rhs if row["sense"] == ">=" else lhs == rhs)
+        if not ok:
+            bad.append(row["name"])
+    checks.append((t("verify.mixed.feasible"), not bad,
+                   t("verify.mixed.violated", names=", ".join(bad[:3]) or "-",
+                     n=len(p["system"]))))
+
+    # 3. the value it claims to attain
+    got = sum((exact.to_fraction(c) * point.get(v, Fraction(0))
+               for v, c in p["objective"].items()), Fraction(0))
+    checks.append((t("verify.mixed.value"),
+                   got == exact.to_fraction(p["achieved"]),
+                   t("verify.lp.declared", value=p["achieved"])))
+
+    # 4. the residual LP is the original with THIS assignment substituted.
+    #    Without this the sub-certificate could be about a different problem,
+    #    which is the same gap `compose` closes between a lemma and its use.
+    sub = p.get("residual")
+    if sub is None:
+        checks.append((t("verify.mixed.residual"), False,
+                       t("verify.bisect.no_cert")))
+    else:
+        rep = verify(Certificate.from_dict(sub), limits)
+        checks.append((t("verify.mixed.residual"), rep.ok, rep.detail))
+        warnings.extend(rep.warnings)
+        checks.append((t("verify.mixed.substituted"),
+                       _residual_matches(p, assign, sub), ""))
+
+    # 5. the target, compared exactly.
+    #    A design that falls short is not an INVALID certificate -- it is a
+    #    valid certificate for a design that falls short, and saying otherwise
+    #    would read as "something is broken" when nothing is. So the shortfall
+    #    is a warning and what gets CHECKED is that the arithmetic is right.
+    if p.get("target") is not None:
+        want = exact.to_fraction(p["target"])
+        got = exact.to_fraction(p["achieved"])
+        if got < want:
+            warnings.append(t("verify.mixed.short",
+                              value=p["achieved"], target=p["target"],
+                              deficit=exact.serialize(want - got)))
+        else:
+            checks.append((t("verify.mixed.target"), True,
+                           t("verify.mixed.margin", value=p["achieved"],
+                             target=p["target"],
+                             margin=exact.serialize(got - want))))
+
+    # 6. optimality: claimed only when the two bounds meet
+    if p.get("globally_optimal"):
+        bound = p.get("bound")
+        checks.append((t("verify.mixed.optimal"),
+                       bound is not None
+                       and exact.to_fraction(bound) == exact.to_fraction(p["achieved"]),
+                       t("verify.lp.declared", value=bound or "-")))
+    else:
+        warnings.append(t("verify.mixed.not_optimal",
+                          bound=p.get("bound") or "-"))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "mixed_design", True, checks=checks,
+        warnings=warnings,
+        detail=t("verify.mixed.detail", value=p["achieved"],
+                 n=len([k for k, v in assign.items() if v])),
+    )
+
+
+def _residual_matches(p, assign, sub) -> bool:
+    """Is the sub-certificate's system the original one, frozen at `assign`?"""
+    from fractions import Fraction
+
+    from . import exact
+
+    names = sub["payload"].get("names") or []
+    var_names = sub["payload"].get("var_names") or []
+    A = [exact.parse_all(r) for r in sub["payload"]["A"]]
+    b = exact.parse_all(sub["payload"]["b"])
+    by_name = dict(zip(names, zip(A, b)))
+
+    for row in p["system"]:
+        if row["name"] not in by_name:
+            return False
+        got_row, got_rhs = by_name[row["name"]]
+        moved = sum((exact.to_fraction(c) * assign[v]
+                     for v, c in row["coeffs"].items() if v in assign),
+                    Fraction(0))
+        want_rhs = exact.to_fraction(row["rhs"]) - moved
+        # `as_leq_system` flips a >= row, so compare up to that sign.
+        flip = -1 if row["sense"] == ">=" else 1
+        if got_rhs != flip * want_rhs:
+            return False
+        for j, v in enumerate(var_names):
+            want = exact.to_fraction(row["coeffs"].get(v, 0)) * flip
+            if got_row[j] != want:
+                return False
+    return True
 
 
 def _verify_model(cert, limits) -> VerifyReport:

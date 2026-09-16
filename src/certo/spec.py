@@ -114,19 +114,93 @@ class LPSpec:
     """
 
     sense: str = "max"
-    integer: bool = False
+    integer: bool = False          # every variable integer; see `kind` below
     title: str = ""
     var_names: list = field(default_factory=list)
     bounds: dict = field(default_factory=dict)
     obj: dict = field(default_factory=dict)
     cons: list = field(default_factory=list)  # [(name, {var: coef}, sense, rhs)]
+    kinds: dict = field(default_factory=dict)  # name -> continuous|integer|binary
+    target: object = None          # a value `mixed` compares the result against
 
-    def variable(self, name, lo=0.0, hi=None):
+    KINDS = ("continuous", "integer", "binary")
+
+    def variable(self, name, lo=0.0, hi=None, kind="continuous"):
+        """A variable, and what kind of number it is.
+
+        `integer=True` on the spec makes EVERY variable integer, which is the
+        wrong shape for a genuinely mixed problem: a design where the discrete
+        part chooses a structure and the continuous part packs inside it has
+        both, and forcing the continuous variables to be integers changes the
+        problem rather than restricting it.
+        """
         if name in self.var_names:
             raise ValueError(t("spec.duplicate_variable", name=name))
+        if kind not in LPSpec.KINDS:
+            raise ValueError(t("spec.bad_kind", kind=kind,
+                               known=", ".join(LPSpec.KINDS)))
         self.var_names.append(name)
+        if kind == "binary":
+            lo, hi = 0, 1 if hi is None else hi
         self.bounds[name] = (lo, hi)
+        self.kinds[name] = kind
         return self
+
+    def kind_of(self, name) -> str:
+        """`integer=True` still means what it used to: all of them."""
+        if self.integer:
+            return "integer"
+        return self.kinds.get(name, "continuous")
+
+    @property
+    def discrete(self) -> list:
+        return [v for v in self.var_names
+                if self.kind_of(v) in ("integer", "binary")]
+
+    @property
+    def continuous(self) -> list:
+        return [v for v in self.var_names if self.kind_of(v) == "continuous"]
+
+    @property
+    def is_mixed(self) -> bool:
+        return bool(self.discrete) and bool(self.continuous)
+
+    def frozen(self, assignment: dict):
+        """The residual LP: the discrete variables fixed, the rest free.
+
+        Returns (LPSpec, constant) where `constant` is the objective the frozen
+        variables already contribute. An LPSpec has no constant term, so it
+        travels separately rather than being folded in and lost.
+        """
+        from .exact import to_fraction
+
+        out = LPSpec(sense=self.sense, title=self.title)
+        for v in self.continuous:
+            lo, hi = self.bounds[v]
+            out.variable(v, lo, hi)
+        out.objective({v: c for v, c in self.obj.items()
+                       if v in set(self.continuous)})
+        const = sum((to_fraction(self.obj.get(v, 0)) * to_fraction(assignment[v])
+                     for v in self.discrete), to_fraction(0))
+        for name, coeffs, sense, rhs in self.cons:
+            moved = sum((to_fraction(c) * to_fraction(assignment[v])
+                         for v, c in coeffs.items() if v in set(self.discrete)),
+                        to_fraction(0))
+            rest = {v: c for v, c in coeffs.items()
+                    if v not in set(self.discrete)}
+            out.constraint(rest, sense, to_fraction(rhs) - moved, name=name)
+        return out, const
+
+    def relaxed(self):
+        """Every variable continuous. The bound over ALL discrete choices."""
+        out = LPSpec(sense=self.sense, title=self.title)
+        for v in self.var_names:
+            lo, hi = self.bounds[v]
+            out.variable(v, lo, hi)
+        out.objective(dict(self.obj))
+        for name, coeffs, sense, rhs in self.cons:
+            out.constraint(dict(coeffs), sense, rhs, name=name)
+        return out
 
     def objective(self, coeffs: dict):
         from .exact import to_fraction

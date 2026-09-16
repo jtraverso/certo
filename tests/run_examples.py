@@ -32,6 +32,7 @@ CASES = [
     ("number_mersenne.py", "number", []),
     ("induct_sum.py", "induct", []),
     ("lp_mixed_packing.py", "opt", []),
+    ("mixed_design.py", "mixed", []),
     ("packing_mixed.py", "opt", ["--by-type"]),
     ("synth_constant.py", "synth", []),
     ("synth_prove_identity.py", "synth", ["--prove-candidate"]),

@@ -2191,6 +2191,167 @@ def test_the_real_packing_that_found_this():
     assert integral.meta["objective"] == "7"
     assert verify(_roundtrip(frac.certificate), LIM).ok
 
+# --- mixed designs: a searched skeleton, an exact residual -----------------
+
+
+def _mixed_spec(slots=4, shared="2/3", cap=3):
+    from fractions import Fraction
+
+    from certo import LPSpec
+
+    lp = LPSpec(sense="max")
+    for i in range(slots):
+        lp.variable("y{}".format(i), kind="binary")
+        lp.variable("q{}".format(i))
+    lp.objective({**{"y{}".format(i): 2 for i in range(slots)},
+                  **{"q{}".format(i): 5 for i in range(slots)}})
+    for i in range(slots):
+        lp.constraint({"y{}".format(i): 1, "q{}".format(i): 1}, "<=", 1,
+                      name="slot{}".format(i))
+    lp.constraint({"q{}".format(i): 1 for i in range(slots)}, "<=",
+                  Fraction(shared), name="shared")
+    lp.constraint({"y{}".format(i): 1 for i in range(slots)}, "<=", cap,
+                  name="count")
+    return lp
+
+
+def test_kinds_are_per_variable_not_per_spec():
+    """`integer=True` makes EVERY variable integer, which is a different
+    problem, not a restriction of this one."""
+    spec = _mixed_spec()
+    assert spec.is_mixed
+    assert spec.discrete == ["y0", "y1", "y2", "y3"]
+    assert spec.continuous == ["q0", "q1", "q2", "q3"]
+    assert spec.kind_of("y0") == "binary" and spec.kind_of("q0") == "continuous"
+
+
+def test_an_unknown_kind_is_refused():
+    from certo import LPSpec
+
+    try:
+        LPSpec().variable("x", kind="fuzzy")
+    except ValueError as e:
+        assert "binary" in str(e)
+    else:
+        raise AssertionError("it accepted a kind that does not exist")
+
+
+def test_freezing_moves_the_discrete_contribution_to_the_right_hand_side():
+    from fractions import Fraction
+
+    spec = _mixed_spec(slots=2)
+    residual, const = spec.frozen({"y0": 1, "y1": 0})
+    assert const == 2                              # one slot reserved, gain 2
+    assert residual.var_names == ["q0", "q1"]
+    rhs = {n: r for n, _, _, r in residual.cons}
+    assert rhs["slot0"] == 0 and rhs["slot1"] == 1
+
+
+def test_a_mixed_design_is_certified_and_verifies_without_a_solver():
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM)
+    assert r.verdict is Verdict.SATISFIABLE
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+
+def test_the_three_numbers_are_kept_apart():
+    from fractions import Fraction
+
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM)
+    achieved = Fraction(r.meta["achieved"])
+    assert achieved == (Fraction(r.meta["discrete_gain"])
+                        + Fraction(r.meta["conditional"]))
+    assert achieved <= Fraction(r.meta["bound"])    # the relaxation bounds it
+
+
+def test_meeting_the_relaxation_bound_certifies_global_optimality_for_free():
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM)
+    assert r.meta["globally_optimal"] is True
+    assert "global optimum" in r.detail or "óptimo global" in r.detail
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert not any("NOT CLAIMED" in w or "NO SE AFIRMA" in w
+                   for w in rep.warnings)
+
+
+def test_otherwise_global_optimality_is_explicitly_not_claimed():
+    from certo.certificate import Certificate
+    from certo.engines import mixed
+
+    cert = _roundtrip(mixed.mixed(_mixed_spec(), LIM).certificate)
+    cert.payload["globally_optimal"] = False       # as it would be with a gap
+    rep = verify(cert, LIM)
+    assert rep.ok
+    assert any("NOT CLAIMED" in w or "NO SE AFIRMA" in w for w in rep.warnings)
+
+
+def test_a_design_short_of_its_target_is_valid_but_insufficient():
+    """A shortfall is not an invalid certificate -- it is a valid certificate
+    for a design that falls short, and the difference matters to a reader."""
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM, target="1000")
+    assert r.verdict is Verdict.REFUTED            # the design misses
+    assert r.meta["deficit"]
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok                                  # the CERTIFICATE is fine
+    assert any("SHORT OF TARGET" in w or "POR DEBAJO" in w
+               for w in rep.warnings)
+
+
+def test_a_forged_assignment_fails_the_original_constraints():
+    from certo.engines import mixed
+
+    cert = _roundtrip(mixed.mixed(_mixed_spec(), LIM).certificate)
+    assert verify(cert, LIM).ok
+    for k in cert.payload["assignment"]:
+        cert.payload["assignment"][k] = "1"        # every slot reserved
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("original constraint" in c and not ok
+               for c, ok, _ in rep.checks)
+
+
+def test_a_fractional_binary_is_caught():
+    from certo.engines import mixed
+
+    cert = _roundtrip(mixed.mixed(_mixed_spec(), LIM).certificate)
+    cert.payload["assignment"]["y0"] = "1/2"
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("really is discrete" in c and not ok
+               for c, ok, _ in rep.checks)
+
+
+def test_the_residual_must_be_the_original_problem_frozen():
+    """Otherwise the sub-certificate could be about a different problem --
+    the same gap `compose` closes between a lemma and its use."""
+    from certo.engines import mixed
+
+    cert = _roundtrip(mixed.mixed(_mixed_spec(), LIM).certificate)
+    cert.payload["system"][0]["rhs"] = "99"        # the original moved
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("substituted" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_a_spec_with_no_discrete_variables_says_to_use_opt():
+    from certo import LPSpec
+    from certo.engines import mixed
+
+    lp = LPSpec(sense="max")
+    lp.variable("x")
+    lp.objective({"x": 1})
+    lp.constraint({"x": 1}, "<=", 1, name="c")
+    r = mixed.mixed(lp, LIM)
+    assert r.status is Status.OUT_OF_THEORY
+    assert "opt" in r.detail
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

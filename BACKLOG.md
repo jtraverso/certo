@@ -38,6 +38,7 @@ Last updated: 2026-09-16 (after 0.3.0).
 | ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
 | ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
 | ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
 
@@ -91,7 +92,23 @@ items below still say "build against a real problem".
 It is on `DomainSpec` only. Graph sweeps take `canonicalize` but still
 evaluate every graph; the same spot-checked inference applies.
 
-### 2. Packings, from the shape the corpus actually uses
+### 2. Full MILP optimality *(user feedback, deliberately deferred)*
+
+`mixed` certifies a construction and says plainly it does not claim the
+skeleton is optimal. Certifying the MILP optimum needs a branch-and-bound
+certificate: an exact dual or an infeasibility proof at every leaf, each
+branch verified, and the integer domain shown to be covered.
+
+The user who asked for `mixed` was explicit that this is not what their proof
+needs -- exhibiting a construction that reaches the target is the whole job --
+and they are right. Worth building only when someone needs the optimum itself
+rather than a witness.
+
+Note that `mixed` already closes the easy half for free: when the achieved
+value meets the relaxation bound, global optimality IS certified, no
+branch-and-bound required.
+
+### 3. Packings, from the shape the corpus actually uses
 
 The `(list, pair)` packing above is not one instance, it is the shape 51
 scripts share. A `PackingSpec.lists(L)` constructor, the integrality gap
@@ -100,7 +117,7 @@ carried as a `SetFamily` so `canonicalize="auto"` gives the orbits -- that
 turns a recurring fifteen-line rebuild into three lines, on the problem the
 tool is actually being used for.
 
-### 3. Close the loop on `opt --by-type` for gaps
+### 4. Close the loop on `opt --by-type` for gaps
 
 `--by-type` answers "does mixing buy anything". The corpus asks a neighbouring
 question constantly: "how far is `ν` from `μ*`, and which resources are tight

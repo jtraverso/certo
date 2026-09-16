@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Twenty-one commands to discover objects, destroy false formulations, calibrate
+Twenty-two commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -90,7 +90,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-one commands
+## The twenty-two commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -102,6 +102,7 @@ and what to expect.
 | `induct` | Base cases + a step, and the check that the chain joins | Z3 | **induction**: both halves, and the two numbers that matter |
 | `synth` | CEGIS: ∃obj ∀input ∃aux | CEGIS/Z3 | object + the counterexamples that forced it |
 | `opt` | LP/ILP, or a packing | CBC | **dual in exact rationals** = the load certificate |
+| `mixed` | A discrete skeleton searched, the continuous part certified | CBC + exact LP | **mixed design**: assignment, exact dual, and a bound |
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
@@ -179,6 +180,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `ball` | a real quantity lies in an interval, and that settles the claim | **yes** for the claim; the interval needs the spec |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |
 | `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
+| `mixed_design` | a construction exists and attains a value; NOT that it is optimal | **yes**, exact arithmetic |
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
@@ -572,6 +574,91 @@ In `compose` the check lands where it matters most. Two *derived* lemmas can
 never contradict each other — both are true. Only **bridges** can, because a
 bridge is asserted rather than derived. Two bridges that clash make the whole
 theorem vacuous, and that is reported by name.
+
+## `mixed`: certify the construction, not the search
+
+A MILP that chooses a discrete structure *and* a compatible fractional packing
+at the same time is a shape `opt` could not express at all: `LPSpec(integer=
+True)` makes **every** variable integer, which is a different problem, not a
+restriction of this one. Variables now carry a kind:
+
+```python
+lp.variable("y17", kind="binary")     # reserve this triangle
+lp.variable("q42")                    # pack fractionally inside what is left
+```
+
+The point is what gets certified. For an **existence proof**, whether the
+discrete choice was optimal does not matter — exhibiting a construction that
+reaches the target is the whole job. So the flow is deliberately not "certify
+the MILP":
+
+```
+search (CBC, heuristic)  →  freeze the discrete part
+                         →  residual LP over the continuous part
+                         →  exact dual, exact everything
+                         →  compare against the target
+```
+
+```
+$ certo mixed examples/mixed_design.py --target 10
+SATISFIABLE  [sat]
+  certified design reaching 28/3, target 10
+  achieved 28/3 = 6 discrete + 10/3 continuous | relaxation bound 28/3
+  3 discrete choices: y0, y2, y3
+  the achieved value meets the relaxation bound, so this IS the global optimum
+```
+
+### Three numbers, kept apart
+
+| | What it is |
+|---|---|
+| **achieved** | what this construction attains. Exact, and a genuine **lower** bound on the true optimum, because the thing exists |
+| **conditional** | the best the continuous part can do **with this skeleton**, from the residual LP's exact dual |
+| **bound** | the relaxation over **all** skeletons: an **upper** bound |
+
+That third number is not in the obvious design and costs one extra LP. It buys
+something real: **when `achieved` meets `bound`, global MILP optimality is
+certified for free.** That happens more often than people expect, and when it
+does not, the gap is printed rather than left to be inferred from silence.
+
+### What is certified, and what is not
+
+```
+$ certo verify out/mixed.json
+VALID  mixed_design certificate (verified without a solver)
+  [ok] the discrete assignment really is discrete
+  [ok] the full point satisfies every original constraint
+  [ok] it attains the value it claims
+  [ok] the residual LP's own certificate holds
+  [ok] and that residual IS the original problem with this assignment substituted
+```
+
+That fourth check is the one that makes this more than three files in a
+folder. Without it the sub-certificate could be about a *different* problem —
+the same gap `compose` closes between a lemma and the statement it is used
+for.
+
+CBC's answer is a **guess until something checks it**: it returns `0.9999997`
+for a binary as often as not, so the assignment is rounded and then verified
+against the original constraints in exact arithmetic. A design that does not
+survive that check is refused rather than reported.
+
+And when the bounds do not meet:
+
+> **GLOBAL OPTIMALITY IS NOT CLAIMED.** The discrete skeleton came from a
+> search that nothing here re-does; what is certified is that this
+> construction exists and attains what it says.
+
+### A shortfall is not an invalid certificate
+
+A design that misses its target verifies as **VALID** with a warning. The
+certificate is correct; the design is insufficient, and those are different
+statements. Reading `INVALID` there would say something is broken when
+nothing is.
+
+Full MILP optimality — a branch-and-bound certificate with an exact dual or an
+infeasibility proof at every leaf — is a different and much larger thing. It
+is in the backlog, and it is not what an existence proof needs.
 
 ## Three engines that are not a solver
 
@@ -1401,7 +1488,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-210 of them, no test framework required.
+228 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

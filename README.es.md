@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Veintiún comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Veintidós comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -89,7 +89,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintiún comandos
+## Los veintidós comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -101,6 +101,7 @@ esperar.
 | `induct` | Casos base + un paso, y la comprobación de que la cadena se junta | Z3 | **induction**: las dos mitades y los dos números que importan |
 | `synth` | CEGIS: ∃obj ∀entrada ∃aux | CEGIS/Z3 | objeto + contraejemplos que lo forzaron |
 | `opt` | LP/ILP, o un packing | CBC | **dual exacto** = el certificado de cargas |
+| `mixed` | Un esqueleto discreto buscado, la parte continua certificada | CBC + LP exacto | **diseño mixto**: asignación, dual exacto y una cota |
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
@@ -177,6 +178,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `ball` | una cantidad real cae en un intervalo, y eso zanja la afirmación | **sí** para la afirmación; el intervalo necesita la spec |
 | `proof` | los lemas **y** que cada uno se usa como su certificado permite | no, re-resuelve |
 | `induction` | los casos base, el paso **y** que encadenan sin hueco | no, re-resuelve |
+| `mixed_design` | una construcción existe y alcanza un valor; NO que sea óptima | **sí**, aritmética exacta |
 | `ideal` | `f = Σ hᵢgᵢ` | **sí**, expandir un producto |
 | `sos` | `p = Σ dᵢqᵢ²` en racionales exactos | **sí**, expandir un producto |
 | `number` | primalidad, o una factorización | **sí**, exponenciación modular |
@@ -574,6 +576,90 @@ En `compose` la comprobación cae donde más importa. Dos lemas *derivados* no
 pueden contradecirse nunca: los dos son ciertos. Solo pueden los **puentes**,
 porque un puente se aserta en vez de derivarse. Dos puentes que chocan hacen
 vacuo el teorema entero, y eso se informa con nombre y apellido.
+
+## `mixed`: certificar la construcción, no la búsqueda
+
+Un MILP que elige una estructura discreta *y* un packing fraccional
+compatible a la vez es una forma que `opt` no podía expresar: `LPSpec(integer=
+True)` hace enteras **todas** las variables, que es otro problema, no una
+restricción de este. Las variables llevan ahora un tipo:
+
+```python
+lp.variable("y17", kind="binary")     # reservar este triángulo
+lp.variable("q42")                    # empaquetar fraccionalmente en lo que queda
+```
+
+Lo importante es qué queda certificado. Para una **prueba de existencia**, si
+la elección discreta era óptima da igual — exhibir una construcción que
+alcance el objetivo es todo el trabajo. Así que el flujo deliberadamente no es
+«certificar el MILP»:
+
+```
+búsqueda (CBC, heurística)  →  congelar la parte discreta
+                            →  LP residual sobre la parte continua
+                            →  dual exacto, todo exacto
+                            →  comparar contra el objetivo
+```
+
+```
+$ certo mixed examples/mixed_design.py --target 10
+SATISFIABLE  [sat]
+  certified design reaching 28/3, target 10
+  alcanzado 28/3 = 6 discreto + 10/3 continuo | cota de relajación 28/3
+  3 elecciones discretas: y0, y2, y3
+  el valor alcanzado iguala la cota de relajación, así que ESTE es el óptimo global
+```
+
+### Tres números, separados
+
+| | Qué es |
+|---|---|
+| **alcanzado** | lo que consigue esta construcción. Exacto, y una cota **inferior** genuina del óptimo verdadero, porque la cosa existe |
+| **condicional** | lo mejor que puede hacer la parte continua **con este esqueleto**, del dual exacto del LP residual |
+| **cota** | la relajación sobre **todos** los esqueletos: una cota **superior** |
+
+Ese tercer número no está en el diseño obvio y cuesta un LP extra. Compra algo
+real: **cuando `alcanzado` iguala `cota`, la optimalidad MILP global queda
+certificada gratis.** Pasa más de lo que uno espera, y cuando no pasa, el hueco
+se imprime en vez de dejarlo deducir del silencio.
+
+### Qué se certifica y qué no
+
+```
+$ certo verify out/mixed.json
+VALID  mixed_design certificate (verified without a solver)
+  [ok] the discrete assignment really is discrete
+  [ok] the full point satisfies every original constraint
+  [ok] it attains the value it claims
+  [ok] the residual LP's own certificate holds
+  [ok] and that residual IS the original problem with this assignment substituted
+```
+
+Esa cuarta comprobación es la que hace que esto sea más que tres ficheros en
+una carpeta. Sin ella el subcertificado podría ser de *otro* problema — el
+mismo hueco que `compose` cierra entre un lema y el enunciado con que se usa.
+
+La respuesta de CBC es una **conjetura hasta que algo la comprueba**: devuelve
+`0.9999997` para un binario tan a menudo como no, así que la asignación se
+redondea y luego se verifica contra las restricciones originales en aritmética
+exacta. Un diseño que no sobrevive a esa comprobación se rechaza, no se
+reporta.
+
+Y cuando las cotas no se juntan:
+
+> **NO SE AFIRMA OPTIMALIDAD GLOBAL.** El esqueleto discreto salió de una
+> búsqueda que aquí no se rehace; lo certificado es que esta construcción
+> existe y alcanza lo que dice.
+
+### Quedarse corto no es un certificado inválido
+
+Un diseño que no llega a su objetivo verifica como **VALID** con un aviso. El
+certificado es correcto; el diseño es insuficiente, y son afirmaciones
+distintas. Leer `INVALID` ahí diría que algo está roto cuando no lo está.
+
+La optimalidad MILP completa —un certificado de branch-and-bound con dual
+exacto o prueba de infactibilidad en cada hoja— es otra cosa, y mucho mayor.
+Está en el backlog, y no es lo que necesita una prueba de existencia.
 
 ## Tres motores que no son un solver
 
@@ -1389,7 +1475,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-210, y sin necesidad de ningún framework de tests.
+228, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

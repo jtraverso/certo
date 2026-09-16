@@ -55,12 +55,28 @@ def _integral_point(spec, A, b, c, sol_float):
     return x, sum(ci * xi for ci, xi in zip(c, x))
 
 
-def _build(spec, A, b, c, cons_names, integer):
-    cat = pulp.LpInteger if integer else pulp.LpContinuous
+def _build(spec, A, b, c, cons_names, relax=False):
+    """`relax=True` forces every variable continuous -- that is what a
+    relaxation IS, and reading the spec's kinds there would rebuild the
+    integer problem and leave the dual meaningless."""
+    # A single category for every variable is the wrong shape for a mixed
+    # problem, so ask the spec per variable -- `integer=True` on the spec
+    # still means all of them.
+    def _cat(v):
+        if relax:
+            return pulp.LpContinuous
+        kind = spec.kind_of(v) if hasattr(spec, "kind_of") else (
+            "integer" if getattr(spec, "integer", False) else "continuous")
+        return {"continuous": pulp.LpContinuous,
+                "integer": pulp.LpInteger,
+                "binary": pulp.LpBinary}[kind]
     name = "".join(ch if ch.isalnum() or ch in "._-" else "_"
                    for ch in (spec.title or "opt"))
     prob = pulp.LpProblem(name, pulp.LpMaximize)
-    x = {v: pulp.LpVariable(v, lowBound=0, cat=cat) for v in spec.var_names}
+    x = {v: pulp.LpVariable(v, lowBound=0,
+                            upBound=(1 if _cat(v) is pulp.LpBinary else None),
+                            cat=_cat(v))
+         for v in spec.var_names}
     prob += pulp.lpSum(float(c[j]) * x[v] for j, v in enumerate(spec.var_names))
     for i, row in enumerate(A):
         prob += (
@@ -91,7 +107,7 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
     A, b, c, cons_names = spec.as_leq_system()
     solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=max(1, lim.timeout_ms // 1000))
 
-    prob, xvars = _build(spec, A, b, c, cons_names, spec.integer)
+    prob, xvars = _build(spec, A, b, c, cons_names)
     code = prob.solve(solver)
     st_name = pulp.LpStatus[code]
     ms = lambda: (time.perf_counter() - t0) * 1000  # noqa: E731
@@ -105,18 +121,22 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
 
     sol_float = [float(xvars[v].value() or 0.0) for v in spec.var_names]
 
+    # "Has a discrete part" is the condition, not "the whole thing is an ILP":
+    # a mixed problem has a dual for its relaxation just the same.
+    discrete = bool(getattr(spec, "discrete", [])) or spec.integer
+
     # An ILP has two numbers and they are not the same number. CBC's integer
     # answer is one; the relaxation the dual certifies is another, and it is
     # only a BOUND on the first. Reporting the bound as "the objective" is
     # exactly the kind of overclaim this tool exists to prevent -- and it did
     # it, until a real instance where nu = 7 was reported as 15/2.
     integral = None
-    if spec.integer:
+    if discrete:
         integral = _integral_point(spec, A, b, c, sol_float)
 
-    # El dual siempre sale de la relajacion continua: en ILP no hay dual.
-    if spec.integer:
-        rprob, rx = _build(spec, A, b, c, cons_names, False)
+    # The dual always comes from the continuous relaxation: an ILP has none.
+    if discrete:
+        rprob, rx = _build(spec, A, b, c, cons_names, relax=True)
         rprob.solve(solver)
         dual_src = rprob
         relax_x = [float(rx[v].value() or 0.0) for v in spec.var_names]
@@ -144,7 +164,7 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
             A=[exact.serialize_all(r) for r in A], b=exact.serialize_all(b),
             c=exact.serialize_all(c), names=cons_names,
             var_names=list(spec.var_names), is_exact=True,
-            integer=spec.integer,
+            integer=discrete,
             integral_point=None if integral is None
             else exact.serialize_all(integral[0]),
             integral_objective=None if integral is None
@@ -154,10 +174,10 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
                    denom=denom)
         meta_obj = exact.serialize(objective_ex)
         meta_sol = {v: exact.serialize(x_ex[j])
-                    for j, v in enumerate(spec.var_names)} if not spec.integer else {
+                    for j, v in enumerate(spec.var_names)} if not discrete else {
             v: repr(sol_float[j]) for j, v in enumerate(spec.var_names)}
 
-        if spec.integer:
+        if discrete:
             bound = exact.serialize(rep["objective"])
             if integral is None:
                 # No feasible integral point survived the check, so there is
@@ -192,9 +212,9 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
               "objective_float": (None if meta_obj is None
                                   else float(exact.to_fraction(meta_obj))),
               "bound": (exact.serialize(rep["objective"])
-                        if exact_ok and spec.integer else None),
+                        if exact_ok and discrete else None),
               "exact": exact_ok, "solution": meta_sol,
-              "integer": spec.integer, "denominator": denom,
+              "integer": discrete, "denominator": denom,
               "min_dual": exact.serialize(min(y_ex)) if exact_ok
               else min([abs(v) for v in dual_float], default=0.0)},
     )

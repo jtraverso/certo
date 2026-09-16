@@ -6,8 +6,46 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Added
+
+- **`certo mixed`** — a discrete skeleton found by search, with the continuous
+  part certified exactly. From a user's report on a MILP that chooses a
+  structure and a compatible fractional packing at the same time, which
+  `LPSpec(integer=True)` could not express: that flag makes **every** variable
+  integer, a different problem rather than a restriction of this one.
+
+  Variables now carry a kind — `lp.variable("y", kind="binary")` next to
+  `lp.variable("q")` — and `mixed` runs the flow the user had been running by
+  hand: search with CBC (heuristic, uncertified), freeze the discrete part,
+  solve the residual LP with an exact rational dual, and compare against a
+  `--target`.
+
+  Three numbers come back and they are deliberately not merged: what the
+  design **achieves** (exact, a genuine lower bound, because the construction
+  exists), the **conditional** optimum given that skeleton, and the
+  **relaxation bound** over all skeletons. That third one is not in the
+  obvious design and costs one extra LP — and when the first meets it, global
+  MILP optimality is certified for free.
+
+  What is checked: the assignment is integral and in range, the full point
+  satisfies every original constraint exactly, and **the residual LP really is
+  the original problem with that assignment substituted** — the same gap
+  `compose` closes between a lemma and the statement it is used for. CBC's
+  answer is a guess until checked: it returns `0.9999997` for a binary as
+  often as not, so the rounding is verified in exact arithmetic and a design
+  that does not survive is refused rather than reported.
+
+  What is not claimed, and says so: that the skeleton is the best one.
+
+- `LPSpec.variable(kind=...)`, `spec.discrete`, `spec.continuous`,
+  `spec.frozen(assignment)` and `spec.relaxed()`.
+
 ### Fixed
 
+- **`opt` treated "has a discrete part" as "is entirely integer".** The
+  relaxation was built from the spec's kinds, so for a mixed problem it
+  rebuilt the integer problem and the dual meant nothing. A relaxation is
+  continuous by definition and is now built that way.
 - **`opt` on an ILP reported the relaxation as the objective.** `meta["objective"]`
   carried the LP relaxation's value, so an integer optimum of 7 came back as
   `15/2`. The detail text was half-honest about it; every programmatic reader —

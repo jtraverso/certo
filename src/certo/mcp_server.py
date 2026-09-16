@@ -198,6 +198,15 @@ of these objects. You can pass the file (`spec_path`) or the code itself
     # canonical() is EXACT and RAISES on a family too symmetric to do exactly,
     # rather than returning a cheaper invariant that could merge two orbits.
 
+## LPSpec -> opt, and `mixed` when some variables are discrete
+    lp.variable("y", kind="binary")     # or kind="integer"
+    lp.variable("q")                    # continuous, the default
+    # `integer=True` on the SPEC makes every variable integer, which is the
+    # wrong shape for a design whose discrete part chooses a structure and
+    # whose continuous part packs inside it. Declare kinds per variable and
+    # use `mixed`, which certifies the construction and says plainly that it
+    # does not claim MILP optimality.
+
 ## LPSpec -> opt (the certificate is the DUAL)
     from certo import LPSpec
     def spec():
@@ -576,6 +585,36 @@ async def bounds(spec_path: str | None = None, spec_source: str | None = None,
     res = await _off(bd.bounds, sp, _limits(timeout_ms), str(f))
     out = _emit(res, spec_file=f)
     for k in ("lo", "hi", "width", "prec", "backend"):
+        out[k] = res.meta.get(k)
+    return out
+
+
+@mcp.tool(description=(
+    "A MIXED design: a discrete skeleton found by search, with the continuous "
+    "part certified exactly. This is NOT MILP optimality and does not claim "
+    "to be. CBC chooses the discrete structure (uncertified); the assignment "
+    "is then rounded and CHECKED exactly, the residual LP over the continuous "
+    "variables is solved with an exact rational dual, and every original "
+    "constraint is re-checked at the full point. Use it for EXISTENCE proofs, "
+    "where exhibiting a construction that reaches a target is the whole job. "
+    "The spec declares kinds per variable: lp.variable('y', kind='binary') "
+    "next to lp.variable('q'). Three numbers come back and they differ: what "
+    "the design achieves, the conditional optimum given that skeleton, and "
+    "the relaxation bound over all skeletons -- and if the first meets the "
+    "third, global optimality is certified for free."))
+@_guard
+async def mixed(spec_path: str | None = None, spec_source: str | None = None,
+                target: str | None = None, timeout_ms: int = 120_000) -> dict:
+    from .engines import mixed as mx
+    from .spec import LPSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    sp = await _off(load_spec, f, LPSpec)
+    res = await _off(mx.mixed, sp, _limits(timeout_ms), str(f),
+                     target if target is not None else sp.target)
+    out = _emit(res, spec_file=f)
+    for k in ("achieved", "conditional", "bound", "target", "deficit",
+              "globally_optimal", "selected"):
         out[k] = res.meta.get(k)
     return out
 

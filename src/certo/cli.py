@@ -60,7 +60,8 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
                 "banner_key", "level", "orbits", "spot_checks",
-                "by_orbit", "evaluated", "inferred", "cofactors", "squares")
+                "by_orbit", "evaluated", "inferred", "cofactors", "squares",
+                "achieved", "conditional", "discrete_gain", "selected")
 
 
 def _item_id(entry) -> str:
@@ -438,6 +439,29 @@ def cmd_number(args):
     if not args.json and res.meta.get("nodes"):
         print("  " + t("cli.number.tree", n=res.meta["nodes"],
                        depth=res.meta["depth"]))
+    return rc
+
+
+def cmd_mixed(args):
+    from .engines import mixed
+    from .spec import LPSpec, load_spec
+
+    spec = load_spec(args.spec, LPSpec)
+    target = args.target if args.target is not None else spec.target
+    res = mixed.mixed(spec, limits_from(args), spec_path=args.spec,
+                      target=target)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("achieved"):
+        print("  " + t("cli.mixed.numbers",
+                       achieved=res.meta["achieved"],
+                       discrete=res.meta["discrete_gain"],
+                       conditional=res.meta["conditional"],
+                       bound=res.meta.get("bound") or "-"))
+        sel = res.meta.get("selected") or []
+        print("  " + t("cli.mixed.selected", n=len(sel),
+                       names=", ".join(sel[:8]) or "-"))
+        print("  " + t("cli.mixed.scope" if not res.meta["globally_optimal"]
+                       else "cli.mixed.scope_optimal"))
     return rc
 
 
@@ -1032,6 +1056,13 @@ def build_parser():
                     help="with a PackingSpec: also report the optimum of each "
                          "item kind on its own, to see if mixing buys anything")
     sp.set_defaults(func=cmd_opt)
+
+    sp = add("mixed", "a discrete skeleton found by search, with the "
+                      "continuous part certified exactly against a target")
+    sp.add_argument("spec", help=".py file returning an LPSpec with kinds")
+    sp.add_argument("--target", metavar="VALUE",
+                    help="the value to reach, as an exact rational like 602/9")
+    sp.set_defaults(func=cmd_mixed)
 
     sp = add("farkas", "linarith/nlinarith: non-negative multipliers that "
                        "close the system, in exact rationals")
