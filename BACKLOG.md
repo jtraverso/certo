@@ -216,7 +216,7 @@ instance that hits the cap.
 
 | | What | Why it is down here |
 |---|---|---|
-| | Lean statements, not only structure | `proof_to_lean` emits `theorem name : True` with the statement in a comment. Translating linear-arithmetic statements is mechanical; graphs and set families are not. **Deliberately parked**: Lean generation is another tool's job. |
+| | Lean statements for `proof` and the sweep kinds | Half done since 0.5.1: `unsat_core` emits real binders, hypotheses and a positively stated goal, which shows the linear-arithmetic case IS mechanical. `proof_to_lean` still emits `theorem name : True` with the statement in a comment, and graphs and set families are not mechanical at all. **Deliberately parked**: Lean generation is another tool's job. |
 | | `certo qe` | Quantifier elimination to **derive** the optimal constant instead of bracketing it with `bisect`. Genuinely distinctive; no demand yet. |
 | | Cutting-plane certificates | Gomory–Chvátal for **integer** infeasibility, not just the LP relaxation. Relevant to packing bounds. |
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
