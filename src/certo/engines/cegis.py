@@ -1,0 +1,180 @@
+"""Motor CEGIS: sintesis guiada por contraejemplos.
+
+Reimplementacion del algoritmo de marcelwa/CEGIS, no del codigo. El original
+(C++, 9 commits, ejemplo vacio, sin tests) arrastra cuatro fallos que aqui no
+se heredan:
+
+  (a) desfase de uno entre el id del contraejemplo y el usado al sustituir,
+      que desconectaba las restricciones del contraejemplo de la formula;
+  (b) puntero colgante en `(templ % i % id).str().c_str()`;
+  (c) `boost::format` reutilizado dentro de un bucle (falla con >1 variable);
+  (d) contador de contraejemplos `static`, compartido entre instancias.
+
+Ademas se sustituyen las entradas por sus VALORES concretos en vez de crear
+constantes frescas y forzarlas con una igualdad: menos variables, formulas mas
+pequenas, y el desfase (a) deja de ser posible por construccion.
+"""
+from __future__ import annotations
+
+import time
+
+import z3
+
+from .. import z3util
+from ..certificate import cegis_certificate
+from ..i18n import t
+from ..limits import Limits
+from ..status import Result, Status, Verdict, classify_unknown
+
+ENGINE = "cegis/z3:" + z3.get_version_string()
+
+
+def _remaining_ms(deadline):
+    return max(1, int((deadline - time.perf_counter()) * 1000))
+
+
+def synth(spec, limits: Limits | None = None, on_round=None) -> Result:
+    lim = limits or Limits()
+    t0 = time.perf_counter()
+    deadline = t0 + lim.timeout_ms / 1000.0
+
+    impl_cons, behav, corr = spec.normalized()
+    impl_vars = list(spec.impl_vars)
+    input_vars = list(spec.input_vars)
+    helper_vars = list(spec.helper_vars)
+
+    impl_solver = z3.Solver()
+    ce_solver = z3.Solver()
+    for s in (impl_solver, ce_solver):
+        lim.apply_to(s)
+    impl_solver.add(impl_cons)
+    ce_solver.add(z3.And(behav, z3.Not(corr)))
+
+    counterexamples = []
+    trace = []
+    spec_smt2 = {
+        "impl_constraints": z3util.smt2(impl_cons),
+        "behavior": z3util.smt2(behav),
+        "correctness": z3util.smt2(corr),
+    }
+
+    domain = str(z3.simplify(behav)).replace("\n", " ")
+    if len(domain) > 200:
+        domain = domain[:197] + "..."
+
+    def done(status, verdict, detail, cert=None, k=0, impl=None):
+        meta = {"iterations": k, "counterexamples": len(counterexamples),
+                "domain": domain, "trace": trace}
+        if impl is not None:
+            # El objeto encontrado es el resultado, no un detalle del
+            # certificado: tiene que verse sin abrir un JSON.
+            meta["implementation"] = {n: v for n, (_, v) in impl.items()}
+        return Result(
+            "synth", status, verdict, ENGINE,
+            (time.perf_counter() - t0) * 1000, cert, detail, meta=meta,
+        )
+
+    for k in range(lim.max_iterations):
+        if time.perf_counter() >= deadline:
+            return done(Status.TIMEOUT, Verdict.INCONCLUSIVE,
+                        t("engine.synth.timeout", rounds=k), k=k)
+
+        # --- 1. proponer una implementacion compatible con lo visto -------
+        impl_solver.set("timeout", _remaining_ms(deadline))
+        r = impl_solver.check()
+        if r == z3.unsat:
+            return done(Status.UNSAT, Verdict.UNSATISFIABLE,
+                        t("engine.synth.none", ces=len(counterexamples)),
+                        k=k)
+        if r != z3.sat:
+            st = classify_unknown(impl_solver.reason_unknown())
+            return done(st, Verdict.INCONCLUSIVE,
+                        t("engine.synth.impl_unknown",
+                          reason=impl_solver.reason_unknown()), k=k)
+
+        model = impl_solver.model()
+        impl_assign = z3util.assignment(model, impl_vars)
+        fixed = [v == model.eval(v, model_completion=True) for v in impl_vars]
+
+        # --- 2. buscar un contraejemplo para ESA implementacion -----------
+        ce_solver.push()
+        try:
+            ce_solver.add(*fixed)
+            ce_solver.set("timeout", _remaining_ms(deadline))
+            r2 = ce_solver.check()
+
+            if r2 == z3.unsat:
+                cert = cegis_certificate(impl_assign, counterexamples, spec_smt2, k + 1)
+                return done(Status.SAT, Verdict.PROVED,
+                            t("engine.synth.found", rounds=k + 1,
+                              ces=len(counterexamples)),
+                            cert, k + 1, impl=impl_assign)
+            if r2 != z3.sat:
+                st = classify_unknown(ce_solver.reason_unknown())
+                return done(st, Verdict.INCONCLUSIVE,
+                            t("engine.synth.ce_unknown",
+                              reason=ce_solver.reason_unknown()), k=k)
+
+            ce_model = ce_solver.model()
+            ce_assign = z3util.assignment(ce_model, input_vars)
+            ce_concrete = [
+                (x, ce_model.eval(x, model_completion=True)) for x in input_vars
+            ]
+        finally:
+            ce_solver.pop()  # (d) del original: el pop faltaba en dos ramas
+
+        counterexamples.append(ce_assign)
+        trace.append({"round": k + 1, "implementation": impl_assign,
+                      "counterexample": ce_assign})
+        if on_round is not None:
+            on_round(trace[-1])
+
+        # --- 3. aprender: instanciar la spec en ese contraejemplo ---------
+        subs = list(ce_concrete)
+        for h in helper_vars:
+            subs.append((h, z3.Const("{}__ce{}".format(h, k), h.sort())))
+        impl_solver.add(z3.substitute(z3.And(behav, corr), *subs))
+
+    return done(Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
+                t("engine.synth.max_iter", n=lim.max_iterations),
+                k=lim.max_iterations)
+
+
+# ---------------------------------------------------------------------------
+# de candidato acotado a obligacion universal
+# ---------------------------------------------------------------------------
+
+
+def prove_candidate(spec, impl_assign, limits: Limits | None = None):
+    """Fija el objeto sintetizado y demuestra el enunciado GENERAL.
+
+    Cierra a mano el hueco que queda tras `synth`: la sintesis vive en un
+    dominio acotado, y pasar de ahi al enunciado universal era un paso manual
+    donde se cuelan los errores.
+
+    La spec tiene que decir cual es ese enunciado, porque no es deducible:
+    normalmente cambia el dominio Y el sort (se busca sobre enteros acotados,
+    se demuestra sobre los reales, que es donde el polinomio es decidible).
+    """
+    from . import smt
+
+    values = {n: v for n, (_, v) in impl_assign.items()}
+
+    if spec.universal is not None:
+        uspec = spec.universal(values)
+    elif spec.universal_behavior is not None:
+        from ..spec import Spec
+
+        _, _, corr = spec.normalized()
+        subs = [(z3util.const(n, srt), z3util.value_of(srt, v))
+                for n, (srt, v) in impl_assign.items()]
+        uspec = Spec(title="obligacion universal")
+        uspec.assume("dominio_universal", spec.universal_behavior)
+        uspec.claim(z3.substitute(corr, *subs))
+    else:
+        raise ValueError(t("engine.synth.no_universal"))
+
+    res = smt.prove(uspec, limits)
+    res.command = "prove_candidate"
+    res.meta["candidate"] = values
+    return res

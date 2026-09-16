@@ -1,0 +1,271 @@
+"""MCP server tests. `python tests/test_mcp.py`, or with pytest."""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from pathlib import Path
+
+import anyio
+
+_WS = tempfile.mkdtemp(prefix="certo_mcp_")
+os.environ["CERTO_WORKSPACE"] = _WS
+
+from certo.mcp_server import mcp  # noqa: E402
+
+AMGM = """
+import z3
+from certo import Spec
+def spec():
+    a, b, c, t = z3.Reals("a b c t")
+    s = Spec()
+    s.assume("a_pos", a > 0); s.assume("b_pos", b > 0); s.assume("c_pos", c > 0)
+    s.assume("ruido", t == 42)
+    s.claim((a+b)*(b+c)*(a+c) >= 8*a*b*c)
+    return s
+"""
+
+RAMSEY = """
+from itertools import combinations
+from certo import CNF, CNFSpec
+N = %d
+def spec():
+    cnf = CNF(title="R33")
+    def x(i, j): return cnf.var("e%%d_%%d" %% (min(i,j), max(i,j)))
+    for i, j in combinations(range(N), 2): x(i, j)
+    for t in combinations(range(N), 3):
+        a, b, c = x(t[0],t[1]), x(t[0],t[2]), x(t[1],t[2])
+        cnf.add(-a,-b,-c); cnf.add(a,b,c)
+    return CNFSpec(cnf=cnf)
+"""
+
+
+async def call(name, args):
+    r = await mcp.call_tool(name, args)
+    sc = getattr(r, "structuredContent", None)
+    if sc is not None:
+        return sc.get("result", sc) if isinstance(sc, dict) else sc
+    text = r.content[0].text
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def run(coro):
+    return anyio.run(lambda: coro)
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_every_command_is_exposed():
+    tools = {t.name for t in run(mcp.list_tools())}
+    expected = {"prove", "check", "core", "synth", "opt", "cases", "enum",
+                "sweep", "shrink", "bisect", "verify", "export", "dsl_guide"}
+    assert expected <= tools, expected - tools
+
+
+def test_dsl_guide_covers_every_spec_type():
+    guide = run(call("dsl_guide", {}))
+    text = guide if isinstance(guide, str) else json.dumps(guide)
+    for t in ("Spec", "SynthSpec", "LPSpec", "CNFSpec", "SweepSpec", "BisectSpec"):
+        assert t in text
+
+
+def test_inline_spec_then_verify_by_path():
+    out = run(call("core", {"spec_source": AMGM}))
+    assert out["verdict"] == "proved"
+    assert out["meta"]["hypotheses_dropped"] == ["ruido"]
+
+    path = out["certificate"]["path"]
+    assert (Path(_WS) / path).exists()
+    assert run(call("verify", {"certificate_path": path}))["ok"]
+
+
+def test_certificates_go_to_disk_not_into_the_response():
+    out = run(call("cases", {"spec_source": RAMSEY % 7}))
+    assert out["verdict"] == "proved"
+
+    blob = json.dumps(out)
+    assert "p cnf" not in blob          # the DIMACS does not travel
+    assert len(blob) < 4000             # the response stays small
+    cert = json.loads((Path(_WS) / out["certificate"]["path"]).read_text("utf-8"))
+    assert "dimacs" in cert["payload"] and cert["payload"]["proof"]
+
+
+def test_refusal_outside_the_workspace():
+    for bad in ("../../etc/passwd", "..\\..\\secret.json"):
+        out = run(call("verify", {"certificate_path": bad}))
+        assert out.get("ok") is False, bad
+        assert "workspace" in out["error"].lower()
+        assert out["hint"]
+
+
+def test_wrong_spec_type_is_rejected_with_an_actionable_message():
+    """The SDK turns any exception into "Error executing tool X" and swallows
+    the reason; a model reading that cannot fix its spec. The server returns
+    the error as DATA, hint included."""
+    out = run(call("cases", {"spec_source": AMGM}))   # returns a Spec, not a CNFSpec
+    assert out.get("ok") is False
+    assert "CNFSpec" in out["error"] and "Spec" in out["error"]
+    assert "dsl_guide" in out["hint"]
+
+
+def test_a_broken_spec_reports_the_python_error():
+    out = run(call("prove", {"spec_source": "def spec(): return no_existe"}))
+    assert out.get("ok") is False
+    assert out["error_type"] == "NameError"
+    assert out["hint"]
+
+
+def test_missing_spec_function_is_explained():
+    out = run(call("prove", {"spec_source": "x = 1"}))
+    assert out.get("ok") is False
+    assert "spec()" in out["error"]
+    assert "def spec()" in out["hint"]
+
+
+def test_big_lists_are_capped():
+    out = run(call("enum", {"n": 6, "filters": ["connected"]}))
+    assert out["graphs_total"] == 112
+    assert len(out["graphs_sample"]) <= 10
+
+
+def test_bisect_over_mcp_computes_ramsey():
+    src = RAMSEY % 0  # placeholder, replaced below
+    src = """
+from itertools import combinations
+from certo import CNF, CNFSpec, BisectSpec
+def build(n):
+    cnf = CNF()
+    def x(i, j): return cnf.var("e%d_%d" % (min(i,j), max(i,j)))
+    for i, j in combinations(range(n), 2): x(i, j)
+    for t in combinations(range(n), 3):
+        a, b, c = x(t[0],t[1]), x(t[0],t[2]), x(t[1],t[2])
+        cnf.add(-a,-b,-c); cnf.add(a,b,c)
+    return CNFSpec(cnf=cnf)
+def spec():
+    return BisectSpec(build=build, lo=3, hi=8, integer=True)
+"""
+    out = run(call("bisect", {"spec_source": src}))
+    assert out["meta"]["threshold"] == 6
+    assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
+
+
+def test_farkas_returns_the_multipliers_and_the_lean_line():
+    src = """
+import z3
+from certo import Spec
+def spec():
+    x, y, z = z3.Reals("x y z")
+    s = Spec()
+    s.assume("x_ge_1", x >= 1)
+    s.assume("y_ge_1", y >= 1)
+    s.assume("noise", z <= 100)
+    s.claim(x + y >= 2)
+    return s
+"""
+    out = run(call("farkas", {"spec_source": src}))
+    assert out["verdict"] == "proved"
+    assert set(out["multipliers"]) == {"x_ge_1", "y_ge_1", "__goal__"}
+    assert out["lean"] == "linarith [x_ge_1, y_ge_1]"
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"] and rep["solver_free"]
+
+
+def test_farkas_nonlinear_is_opt_in_and_says_so():
+    src = """
+import z3
+from certo import Spec
+def spec():
+    a, b = z3.Reals("a b")
+    s = Spec()
+    s.claim(a * a + b * b >= 2 * a * b)
+    return s
+"""
+    off = run(call("farkas", {"spec_source": src}))
+    assert off["status"] == "out_of_theory"
+    assert "nonlinear" in off["detail"]
+
+    on = run(call("farkas", {"spec_source": src, "nonlinear": True}))
+    assert on["verdict"] == "proved"
+    assert "sq_a_b" in on["multipliers"]
+    assert run(call("verify", {"certificate_path": on["certificate"]["path"]}))["ok"]
+
+def test_compose_over_mcp_reports_bridges_and_unused_lemmas():
+    import json as _json
+    import os
+    from pathlib import Path
+
+    from certo import Limits, Spec
+    from certo.engines import smt
+
+    ws = Path(os.environ["CERTO_WORKSPACE"])
+    (ws / "certs").mkdir(exist_ok=True)
+    import z3
+
+    x = z3.Real("x")
+    src = Spec()
+    src.assume("h", x >= 1)
+    src.claim(x >= 1)
+    sub = smt.prove(src, Limits(timeout_ms=10_000)).certificate
+    (ws / "certs" / "bridge.json").write_text(
+        _json.dumps(sub.to_dict()), encoding="utf-8")
+
+    spec_src = """
+import z3
+from certo import ProofSpec, Spec
+k = z3.Int("k")
+def spec():
+    p = ProofSpec(title="mcp compose")
+    p.assume("k_ge_6", k >= 6)
+    p.lemma("finite", certificate="certs/bridge.json", states=(k <= 10),
+            bridge="checked exhaustively")
+    sub = Spec(); sub.assume("h", k >= 6); sub.claim(k >= 0)
+    p.lemma("spare", proves=sub)
+    p.conclude(z3.And(k >= 6, k <= 10))
+    return p
+"""
+    out = run(call("compose", {"spec_source": spec_src, "timeout_ms": 60_000}))
+    assert out["verdict"] == "proved", out
+    assert out["bridges"] == ["finite"]
+    assert out["unused"] == ["spare"]
+    assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
+
+def test_bounds_over_mcp_settles_a_transcendental_claim():
+    src = """
+from certo import BoundSpec
+def spec():
+    return BoundSpec(value=lambda m: m.e / m.pi, claim=("<", "0.866"),
+                     describe="e / pi", prec=64)
+"""
+    out = run(call("bounds", {"spec_source": src}))
+    assert out["verdict"] == "proved", out
+    assert out["backend"]
+    assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
+
+
+def test_bounds_over_mcp_reports_running_out_of_precision_as_such():
+    src = """
+from certo import BoundSpec
+def spec():
+    return BoundSpec(value=lambda m: m.exp(1) - m.e, claim=("!=", "0"),
+                     prec=64, max_prec=256)
+"""
+    out = run(call("bounds", {"spec_source": src}))
+    assert out["status"] == "resource_exhausted"
+    assert out["certificate"] is None
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print("[ok] " + fn.__name__)
+        except Exception as e:  # noqa: BLE001
+            fails += 1
+            print("[XX] {}: {}: {}".format(fn.__name__, type(e).__name__, e))
+    print("\n{}/{} passed   (workspace: {})".format(len(fns) - fails, len(fns), _WS))
+    raise SystemExit(1 if fails else 0)

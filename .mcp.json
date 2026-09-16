@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "certo": {
+      "command": "certo-mcp",
+      "env": {
+        "CERTO_WORKSPACE": "."
+      }
+    }
+  }
+}

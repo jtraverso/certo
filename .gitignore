@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Certificates, proofs and ledgers are OUTPUT. They are meant to be produced
+# by a run and re-verified, not committed: a stale certificate in a repo is
+# exactly the thing `verify` exists to catch.
+out/
+certs/
+specs/
+*.drat
+ledger.jsonl
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

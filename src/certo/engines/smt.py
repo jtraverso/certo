@@ -1,0 +1,215 @@
+"""SMT engine: prove, check, core.
+
+Uses boolean assumptions (`check(p1, ..., pk)`) rather than assert_and_track,
+so that deletion-based MUS does not have to rebuild the solver at every step.
+"""
+from __future__ import annotations
+
+import time
+
+import z3
+
+from .. import z3util
+from ..certificate import (core_matrix_certificate, model_certificate,
+                           unsat_core_certificate)
+from ..limits import Limits
+from ..i18n import t
+from ..status import Result, Status, Verdict, classify_unknown
+
+ENGINE = "z3:" + z3.get_version_string()
+
+
+def _tracked(spec, negate_goal: bool):
+    """Return (solver, {name: indicator}, formulas) ready for check()."""
+    s = z3.Solver()
+    items = list(spec.assumptions)
+    if spec.goal is not None:
+        items.append(("__goal__", z3.Not(spec.goal) if negate_goal else spec.goal))
+    ind = {}
+    for name, f in items:
+        p = z3.Bool("__p_" + name)
+        ind[name] = p
+        s.add(z3.Implies(p, f))
+    return s, ind, dict(items)
+
+
+def _outcome(r, s):
+    if r == z3.sat:
+        return Status.SAT
+    if r == z3.unsat:
+        return Status.UNSAT
+    return classify_unknown(s.reason_unknown())
+
+
+def _model_cert(spec, formulas, model, used_names):
+    exprs = [formulas[n] for n in used_names]
+    consts = z3util.free_consts(*exprs)
+    return model_certificate(z3util.smt2(*exprs), z3util.assignment(model, consts))
+
+
+def _mus(s, ind, names, limits):
+    """Deletion-based MUS: guaranteed minimal, not necessarily minimum."""
+    core = list(names)
+    for name in list(core):
+        trial = [n for n in core if n != name]
+        if s.check(*[ind[n] for n in trial]) == z3.unsat:
+            core = trial
+    return core
+
+
+
+def _vacuous(s, ind, names, limits) -> bool:
+    """Are the hypotheses contradictory among themselves?
+
+    `prove` succeeds when `hypotheses AND not goal` is unsatisfiable -- and if
+    the hypotheses alone are already unsatisfiable, that happens for EVERY
+    goal. The proof is valid and says nothing, which is the most embarrassing
+    way to be wrong and the easiest to miss: the output looks like success.
+
+    One extra solver call, on a strictly easier problem than the one just
+    solved, and only on the successful path.
+    """
+    hyps = [n for n in names if n != "__goal__"]
+    if not hyps:
+        return False
+    return s.check(*[ind[n] for n in hyps]) == z3.unsat
+
+
+# ---------------------------------------------------------------------------
+
+
+def prove(spec, limits: Limits | None = None) -> Result:
+    """Negate the claim and look for unsat. unsat => proved."""
+    lim = limits or Limits()
+    t0 = time.perf_counter()
+    s, ind, formulas = _tracked(spec, negate_goal=True)
+    lim.apply_to(s)
+    all_names = list(formulas)
+    r = s.check(*[ind[n] for n in all_names])
+    st = _outcome(r, s)
+    ms = (time.perf_counter() - t0) * 1000
+
+    if st is Status.UNSAT:
+        raw = {str(p)[4:] for p in s.unsat_core()}
+        core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
+        dropped = [n for n in all_names if n not in core]
+        vacuous = _vacuous(s, ind, all_names, lim)
+        cert = unsat_core_certificate(
+            z3util.smt2(*[formulas[n] for n in core]), core, dropped,
+            vacuous=vacuous,
+        )
+        used = [n for n in core if n != "__goal__"]
+        # When the proof is vacuous that IS the headline; "proved using 2 of
+        # 2 hypotheses" underneath it would read as reassurance.
+        detail = (t("engine.prove.vacuous") if vacuous
+                  else t("engine.prove.proved", used=len(used),
+                         total=len(spec.assumptions)))
+        return Result(
+            "prove", st, Verdict.PROVED, ENGINE, ms, cert, detail=detail,
+            meta={"hypotheses_used": used, "hypotheses_dropped": dropped,
+                  "vacuous": vacuous},
+        )
+
+    if st is Status.SAT:
+        cert = _model_cert(spec, formulas, s.model(), all_names)
+        return Result(
+            "prove", st, Verdict.REFUTED, ENGINE, ms, cert,
+            detail=t("engine.prove.refuted"),
+        )
+
+    return Result(
+        "prove", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
+        detail=t("engine.inconclusive", status=st.value,
+                 reason=s.reason_unknown()),
+    )
+
+
+def check(spec, limits: Limits | None = None) -> Result:
+    """Plain satisfiability of hypotheses plus claim."""
+    lim = limits or Limits()
+    t0 = time.perf_counter()
+    s, ind, formulas = _tracked(spec, negate_goal=False)
+    lim.apply_to(s)
+    all_names = list(formulas)
+    r = s.check(*[ind[n] for n in all_names])
+    st = _outcome(r, s)
+    ms = (time.perf_counter() - t0) * 1000
+
+    if st is Status.SAT:
+        cert = _model_cert(spec, formulas, s.model(), all_names)
+        return Result("check", st, Verdict.SATISFIABLE, ENGINE, ms, cert,
+                      detail=t("engine.check.sat"))
+    if st is Status.UNSAT:
+        raw = {str(p)[4:] for p in s.unsat_core()}
+        core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
+        cert = unsat_core_certificate(
+            z3util.smt2(*[formulas[n] for n in core]), core,
+            [n for n in all_names if n not in core],
+        )
+        return Result("check", st, Verdict.UNSATISFIABLE, ENGINE, ms, cert,
+                      detail=t("engine.check.unsat"))
+    return Result("check", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
+                  detail=t("engine.inconclusive", status=st.value,
+                           reason=s.reason_unknown()))
+
+
+def core(spec, limits: Limits | None = None) -> Result:
+    """MUS: which hypotheses are actually needed. This is "simplify"."""
+    res = prove(spec, limits)
+    res.command = "core"
+    if res.status is Status.UNSAT and res.certificate is not None:
+        used = res.meta.get("hypotheses_used", [])
+        drop = [n for n in res.meta.get("hypotheses_dropped", []) if n != "__goal__"]
+        none = t("engine.core.none")
+        res.detail = t("engine.core.summary",
+                       used=", ".join(used) or none,
+                       dropped=", ".join(drop) or none)
+    return res
+
+
+def core_matrix(spec, limits: Limits | None = None) -> Result:
+    """Which hypotheses each goal actually needs, side by side.
+
+    Running `core` once per goal already gives the columns; what the table
+    adds is the comparison. A hypothesis needed by one goal and not another is
+    exactly what decides how small a downstream interface can be, and it is
+    invisible when the goals are looked at one at a time.
+    """
+    lim = limits or Limits()
+    t0 = time.perf_counter()
+
+    columns, subcerts, inconclusive = {}, {}, []
+    for goal in spec.goal_names:
+        res = prove(spec.single(goal), lim)
+        if res.status is not Status.UNSAT:
+            inconclusive.append((goal, res.status.value, res.detail))
+            columns[goal] = None
+            continue
+        columns[goal] = set(res.meta.get("hypotheses_used", []))
+        if res.certificate is not None:
+            subcerts[goal] = res.certificate.to_dict()
+
+    table = {h: {g: (None if columns[g] is None else h in columns[g])
+                 for g in spec.goal_names}
+             for h in spec.names}
+    never = [h for h in spec.names
+             if all(v is False for v in table[h].values())]
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = core_matrix_certificate(
+        hypotheses=spec.names, goals=spec.goal_names, table=table,
+        subcerts=subcerts, inconclusive=inconclusive)
+
+    if all(columns[g] is None for g in spec.goal_names):
+        return Result("core", Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
+                      ENGINE, ms, cert,
+                      detail=t("engine.core.matrix_none", n=len(spec.goals)),
+                      meta={"table": table, "inconclusive": inconclusive})
+
+    return Result(
+        "core", Status.UNSAT, Verdict.PROVED, ENGINE, ms, cert,
+        detail=t("engine.core.matrix", goals=len(spec.goals),
+                 hyps=len(spec.names),
+                 unused=", ".join(never) or t("engine.core.none")),
+        meta={"table": table, "never_used": never, "inconclusive": inconclusive},
+    )
