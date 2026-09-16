@@ -661,6 +661,78 @@ La optimalidad MILP completa —un certificado de branch-and-bound con dual
 exacto o prueba de infactibilidad en cada hoja— es otra cosa, y mucho mayor.
 Está en el backlog, y no es lo que necesita una prueba de existencia.
 
+### Tres niveles, con nombre
+
+Un usuario pidió exactamente esta taxonomía, con estas palabras, y los nombres
+son lo que necesita quien lee:
+
+| Nivel | Qué se sostiene |
+|---|---|
+| `feasible` | un punto mixto satisface toda restricción y alcanza un valor |
+| `conditional_optimum` | y el LP residual es óptimo **dado este esqueleto** |
+| `global_optimum` | e iguala la cota de relajación, así que ningún esqueleto lo mejora |
+
+```
+$ certo verify out/mixed.json
+VALID  mixed_design certificate (verified without a solver)
+  ...
+  ÓPTIMO GLOBAL: iguala la cota de relajación, así que ningún esqueleto lo mejora
+```
+
+### `--freeze`: tu solver, no el nuestro
+
+Un MILP real puede resolverlo HiGHS, Gurobi, algo a medida o una persona.
+Exigir que el CBC de certo lo reproduzca pondría **los límites de certo
+delante de una construcción que ya existe**, que es al revés.
+
+```bash
+certo mixed spec.py --freeze mi_solucion.json --target 602/9
+```
+
+El fichero es `{"y17": 1, "y23": 0, ...}` — o `{"assignment": {...}}`. Se
+redondea y se comprueba exactamente igual que cualquier otro, así que de dónde
+venga no cambia nada de lo certificado. Lo que sí cambia queda registrado:
+
+> El esqueleto vino de **otro solver** y aquí se congeló. Eso no cambia nada
+> de lo certificado —se redondeó y comprobó exactamente igual que cualquier
+> otro— pero significa que certo no vio la búsqueda que lo produjo.
+
+## `opt --target`
+
+Para una prueba de existencia la pregunta rara vez es «cuál es el mejor valor
+posible» y casi siempre «se alcanza esta cota»:
+
+```
+$ certo opt examples/packing_mixed.py --target 12
+  25/2 REACHES the target 12
+```
+
+El objetivo viaja en el certificado, así que `verify` repite la comparación en
+racionales exactos:
+
+```
+  [ok] the certified value reaches the target  (25/2 against 12, margin 1/2)
+```
+
+Quedarse corto es un **aviso sobre un certificado válido**, no invalidez — el
+certificado es correcto y la cota es insuficiente, y son afirmaciones
+distintas.
+
+## Entero en un tipo, fraccional en otro
+
+```python
+PackingSpec(items=..., integer={"K3"})     # triángulos enteros, K4 fraccionales
+```
+
+`integer=True` sigue significando todos. Un packing cuyos ítems estructurales
+se colocan enteros mientras el resto es una relajación fraccional es la forma
+habitual, y forzar todo-o-nada cambia el problema en vez de restringirlo.
+
+En un problema así `opt` reporta **solo la cota de relajación** y lo dice:
+redondear todas las variables convertiría un peso de K4 de 1/6 en cero y
+reportaría un diseño que no vale nada. El valor alcanzable sale de congelar la
+parte discreta y reresolver el resto, que es `certo mixed`.
+
 ## Tres motores que no son un solver
 
 `prove`, `check`, `core`, `synth` y `compose` son Z3 con distintos sombreros.
@@ -1475,7 +1547,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-228, y sin necesidad de ningún framework de tests.
+240, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

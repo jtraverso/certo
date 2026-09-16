@@ -61,7 +61,8 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
                 "banner_key", "level", "orbits", "spot_checks",
                 "by_orbit", "evaluated", "inferred", "cofactors", "squares",
-                "achieved", "conditional", "discrete_gain", "selected")
+                "achieved", "conditional", "discrete_gain", "selected",
+                "skeleton_from")
 
 
 def _item_id(entry) -> str:
@@ -448,8 +449,15 @@ def cmd_mixed(args):
 
     spec = load_spec(args.spec, LPSpec)
     target = args.target if args.target is not None else spec.target
+    freeze = None
+    if args.freeze:
+        # Their MILP, not ours. A real search may be HiGHS, Gurobi, something
+        # bespoke or a person; making certo's solver reproduce it would put
+        # certo's limits in front of a construction that already exists.
+        data = json.loads(Path(args.freeze).read_text(encoding="utf-8"))
+        freeze = data.get("assignment", data)
     res = mixed.mixed(spec, limits_from(args), spec_path=args.spec,
-                      target=target)
+                      target=target, freeze=freeze)
     rc = emit(res, args)
     if not args.json and res.meta.get("achieved"):
         print("  " + t("cli.mixed.numbers",
@@ -460,8 +468,9 @@ def cmd_mixed(args):
         sel = res.meta.get("selected") or []
         print("  " + t("cli.mixed.selected", n=len(sel),
                        names=", ".join(sel[:8]) or "-"))
-        print("  " + t("cli.mixed.scope" if not res.meta["globally_optimal"]
-                       else "cli.mixed.scope_optimal"))
+        print("  " + t("cli.mixed.level." + res.meta["level"]))
+        if res.meta.get("skeleton_from") == "external":
+            print("  " + t("cli.mixed.external"))
     return rc
 
 
@@ -543,7 +552,8 @@ def cmd_opt(args):
               + type(spec).__name__, file=sys.stderr)
         return 1
 
-    res = lp.opt(spec, limits_from(args), use_exact=not args.no_exact)
+    res = lp.opt(spec, limits_from(args), use_exact=not args.no_exact,
+                 target=args.target)
     rc = emit(res, args)
     if not args.json:
         sol = res.meta.get("solution") or {}
@@ -553,6 +563,12 @@ def cmd_opt(args):
             print("    {} = {}".format(name, val))
         if len(nz) > args.top:
             print("    " + t("cli.solution.more", n=len(nz) - args.top))
+        if res.meta.get("target") is not None:
+            met = res.meta.get("meets_target")
+            print("  " + t("cli.opt.target.met" if met else
+                           "cli.opt.target.short",
+                           value=res.meta["objective"],
+                           target=res.meta["target"]))
     return rc
 
 
@@ -1052,6 +1068,11 @@ def build_parser():
                          "certificate (faster, NOT citable)")
     sp.add_argument("--top", type=int, default=10, metavar="K",
                     help="how many non-zero variables to show (default 10)")
+    sp.add_argument("--target", metavar="VALUE",
+                    help="certify objective >= VALUE rather than only "
+                         "reporting the optimum. For an existence proof the "
+                         "question is usually whether a bound is reached, not "
+                         "what the best possible value is")
     sp.add_argument("--by-type", action="store_true", dest="by_type",
                     help="with a PackingSpec: also report the optimum of each "
                          "item kind on its own, to see if mixing buys anything")
@@ -1062,6 +1083,12 @@ def build_parser():
     sp.add_argument("spec", help=".py file returning an LPSpec with kinds")
     sp.add_argument("--target", metavar="VALUE",
                     help="the value to reach, as an exact rational like 602/9")
+    sp.add_argument("--freeze", metavar="FILE",
+                    help="a JSON assignment for the discrete variables, from "
+                         "YOUR solver rather than CBC: {\"y17\": 1, ...} or "
+                         "{\"assignment\": {...}}. It is rounded and checked "
+                         "exactly like any other, so where it came from does "
+                         "not matter")
     sp.set_defaults(func=cmd_mixed)
 
     sp = add("farkas", "linarith/nlinarith: non-negative multipliers that "

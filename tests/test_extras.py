@@ -2352,6 +2352,159 @@ def test_a_spec_with_no_discrete_variables_says_to_use_opt():
     assert r.status is Status.OUT_OF_THEORY
     assert "opt" in r.detail
 
+# --- the second round of feedback ------------------------------------------
+
+
+def test_a_literal_exponent_on_a_real_is_not_a_non_constant_exponent():
+    """`S**4` on a REAL S gives z3 a RATIONAL literal 4, not an integer one,
+    so is_int_value said no and an ordinary quartic was rejected."""
+    import z3
+
+    from certo.linarith import polynomial
+
+    S = z3.Real("S")
+    n = z3.Int("n")
+    assert polynomial(S ** 4) == polynomial(S * S * S * S)
+    assert polynomial(n ** 3) == polynomial(n * n * n)
+    assert polynomial(S ** 0) == {(): 1}
+
+
+def test_fractional_and_symbolic_exponents_are_still_refused():
+    import z3
+
+    from certo.linarith import NotPolynomial, polynomial
+
+    S, n = z3.Real("S"), z3.Int("n")
+    for bad in (S ** z3.RealVal("1/2"), S ** -2, S ** n):
+        try:
+            polynomial(bad)
+        except NotPolynomial:
+            pass
+        else:
+            raise AssertionError("accepted {}".format(bad))
+
+
+def test_a_quartic_identity_certifies_through_ideal():
+    """The shape that was rejected: powers written with `**`."""
+    import z3
+
+    from certo import IdealSpec
+    from certo.engines import algebra
+
+    S = z3.Real("S")
+    r = algebra.ideal(IdealSpec(variables=["S"], equations=[S ** 2 - 4],
+                                claim=S ** 4 - 16), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_the_three_milp_levels_are_named():
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM)
+    assert r.meta["level"] == "global_optimum"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert "GLOBAL OPTIMUM" in rep.detail or "ÓPTIMO GLOBAL" in rep.detail
+
+
+def test_a_skeleton_can_come_from_someone_elses_solver():
+    """A real MILP may be HiGHS, Gurobi or a person; requiring CBC to
+    reproduce it would put certo's limits in front of a real construction."""
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM,
+                    freeze={"y0": 1, "y1": 1, "y2": 0, "y3": 1})
+    assert r.verdict is Verdict.SATISFIABLE
+    assert r.meta["skeleton_from"] == "external"
+    assert sorted(r.meta["selected"]) == ["y0", "y1", "y3"]
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("ANOTHER solver" in w or "OTRO solver" in w
+               for w in rep.warnings)
+
+
+def test_a_frozen_assignment_is_checked_like_any_other():
+    """Where it came from changes nothing about what is certified."""
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM,
+                    freeze={"y0": 1, "y1": 1, "y2": 1, "y3": 1})   # 4 > cap 3
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+
+
+def test_an_incomplete_frozen_assignment_names_what_is_missing():
+    from certo.engines import mixed
+
+    r = mixed.mixed(_mixed_spec(), LIM, freeze={"y0": 1})
+    assert r.status is Status.OUT_OF_THEORY
+    assert "y1" in r.detail
+
+
+def test_opt_takes_a_target_and_certifies_reaching_it():
+    """For an existence proof the question is whether a bound is reached."""
+    from certo.engines import lp
+
+    r = lp.opt(_knapsack(3, False), LIM, target="2")
+    assert r.meta["meets_target"] is True
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("reaches the target" in c and ok for c, ok, _ in rep.checks)
+
+
+def test_falling_short_of_an_opt_target_is_a_warning_not_invalidity():
+    from certo.engines import lp
+
+    r = lp.opt(_knapsack(3, False), LIM, target="99")
+    assert r.meta["meets_target"] is False
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("SHORT OF TARGET" in w or "POR DEBAJO" in w
+               for w in rep.warnings)
+
+
+def test_a_packing_can_be_whole_in_one_item_kind_only():
+    from certo import Graph, PackingSpec
+
+    g = Graph.from_edges(6, [(i, j) for i in range(6) for j in range(i + 1, 6)])
+    base = PackingSpec.cliques_in_graph(g, gains={3: 2, 4: 5})
+    pk = PackingSpec(items=base.items, capacities=base.capacities,
+                     sense="max", integer={"K3"})
+    assert pk.discrete_kinds() == {"K3"}
+    lp_spec = pk.to_lp()
+    assert lp_spec.is_mixed
+    assert all(lp_spec.kind_of(n) == "integer"
+               for n, _, _, k in pk.items if k == "K3")
+    assert all(lp_spec.kind_of(n) == "continuous"
+               for n, _, _, k in pk.items if k == "K4")
+
+
+def test_opt_refuses_to_report_a_design_on_a_mixed_problem():
+    """Rounding every variable would round the fractional weights to zero and
+    report a design worth nothing. That number is `mixed`'s to compute."""
+    from certo import Graph, PackingSpec
+    from certo.engines import lp, mixed
+
+    g = Graph.from_edges(6, [(i, j) for i in range(6) for j in range(i + 1, 6)])
+    base = PackingSpec.cliques_in_graph(g, gains={3: 2, 4: 5})
+    pk = PackingSpec(items=base.items, capacities=base.capacities,
+                     sense="max", integer={"K3"}).to_lp()
+
+    r = lp.opt(pk, LIM)
+    assert r.meta["objective"] is None          # no design claimed
+    assert r.meta["bound"] == "25/2"
+    assert "mixed" in r.detail
+
+    assert mixed.mixed(pk, LIM).meta["achieved"] == "25/2"
+
+
+def test_the_certificate_records_which_variables_are_discrete():
+    from certo.engines import lp
+
+    p = lp.opt(_mixed_spec(), LIM).certificate.payload
+    assert p["kinds"]["y0"] == "binary"
+    assert p["kinds"]["q0"] == "continuous"
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

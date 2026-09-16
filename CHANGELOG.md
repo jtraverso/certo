@@ -40,8 +40,38 @@ payload — each such change says so and what still reads the old shape.
 - `LPSpec.variable(kind=...)`, `spec.discrete`, `spec.continuous`,
   `spec.frozen(assignment)` and `spec.relaxed()`.
 
+- **The three MILP levels, named.** A second round of the same user's feedback
+  asked for exactly this taxonomy, in these words: `feasible` (a mixed point
+  satisfies everything), `conditional_optimum` (and the residual LP is optimal
+  given that skeleton), `global_optimum` (and it meets the relaxation bound).
+  The information was already there; naming it is what a reader needs, and
+  "declare exactly what was proved" is the whole discipline.
+- **`mixed --freeze`** — take the discrete assignment from **your** solver
+  rather than CBC. A real MILP may be solved by HiGHS, Gurobi, something
+  bespoke or a person, and requiring certo's own solver to reproduce it would
+  put certo's limits in front of a construction that already exists. The
+  frozen assignment is rounded and checked exactly like any other, so where it
+  came from changes nothing about what is certified — but the certificate
+  records that certo never saw the search, and `verify` says so.
+- **`opt --target`** — certify `objective >= T` rather than only reporting the
+  optimum. For an existence proof the question is usually whether a bound is
+  reached. Falling short is a warning on a valid certificate, not invalidity.
+- **`PackingSpec(integer={"K3"})`** — integrality per item kind, so structural
+  items can be whole while the rest stays fractional.
+- Certificates record **each variable's kind** by name, so a reader of the
+  certificate alone can tell a design from a relaxation.
+
 ### Fixed
 
+- **`ideal` and `farkas` rejected `S**4`.** With a REAL base, z3 coerces the
+  exponent to a rational literal, so `is_int_value` said no and an ordinary
+  quartic was refused as a "non-constant exponent". The exponent's sort was
+  never the question — whether it is a literal natural number is. Reported by
+  a user who worked around it as `S*S*S*S`.
+- **`opt` rounded every variable on a mixed problem**, turning fractional
+  weights of 1/6 into zero and reporting a "design" worth nothing. On a mixed
+  problem it now certifies the relaxation bound and points at `mixed`, which
+  is where the achievable value comes from.
 - **`opt` treated "has a discrete part" as "is entirely integer".** The
   relaxation was built from the spec's kinds, so for a mixed problem it
   rebuilt the integer problem and the dual meant nothing. A relaxation is

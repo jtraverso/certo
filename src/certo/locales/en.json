@@ -528,5 +528,20 @@
   "cli.mixed.scope": "continuous optimum CONDITIONAL on the selected skeleton; global MILP optimality not claimed",
   "cli.mixed.scope_optimal": "the achieved value meets the relaxation bound, so this IS the global optimum",
   "verify.mixed.short": "SHORT OF TARGET: this design attains {value}, against a target of {target} -- a deficit of {deficit}. The certificate is valid; the design is insufficient.",
-  "verify.mixed.margin": "{value} against {target}, margin {margin}"
+  "verify.mixed.margin": "{value} against {target}, margin {margin}",
+  "engine.mixed.freeze_missing": "the frozen assignment does not cover every discrete variable: {n} missing, including {names}",
+  "verify.mixed.level.feasible": "FEASIBLE: a mixed point satisfying everything",
+  "verify.mixed.level.conditional_optimum": "CONDITIONAL OPTIMUM: optimal for the continuous part, given this skeleton",
+  "verify.mixed.level.global_optimum": "GLOBAL OPTIMUM: it meets the relaxation bound, so no skeleton does better",
+  "verify.mixed.external": "The skeleton came from ANOTHER solver and was frozen here. That changes nothing about what is certified -- it was rounded and checked exactly like any other -- but it means certo never saw the search that produced it.",
+  "cli.mixed.level.feasible": "FEASIBLE design; no optimality claimed at all",
+  "cli.mixed.level.conditional_optimum": "CONDITIONAL OPTIMUM: continuous optimum conditional on the selected skeleton; global MILP optimality not claimed",
+  "cli.mixed.level.global_optimum": "GLOBAL OPTIMUM: the achieved value meets the relaxation bound, so no skeleton does better",
+  "cli.mixed.external": "skeleton frozen from an external solver, not searched here",
+  "verify.lp.target": "the certified value reaches the target",
+  "verify.lp.margin": "{value} against {target}, margin {margin}",
+  "verify.lp.short": "SHORT OF TARGET: the certified value is {value}, against a target of {target} -- a deficit of {deficit}. The certificate is valid; the bound is insufficient.",
+  "cli.opt.target.met": "{value} REACHES the target {target}",
+  "cli.opt.target.short": "{value} falls short of the target {target}",
+  "engine.opt.mixed_bound_only": "this problem is MIXED, so the relaxation bound {bound} is all `opt` certifies: the achievable value needs the discrete part frozen and the rest re-solved, which is `certo mixed`"
 }

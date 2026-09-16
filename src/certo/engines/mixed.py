@@ -45,6 +45,14 @@ from ..status import Result, Status, Verdict
 
 ENGINE = "certo/mixed+CBC"
 
+# Three levels, and the distance between them is the point. A user asked for
+# exactly this taxonomy, in these words, which is the strongest argument for
+# it: the names are what a reader needs, and "declare exactly what was proved"
+# is the whole discipline here.
+FEASIBLE = "feasible"                    # a mixed point satisfies everything
+CONDITIONAL = "conditional_optimum"      # and the residual LP is optimal
+GLOBAL = "global_optimum"                # and it meets the relaxation bound
+
 
 def _round_assignment(spec, solution):
     """The discrete variables, rounded -- and only rounded.
@@ -83,7 +91,7 @@ def _violations(spec, values):
 
 
 def mixed(spec, limits: Limits | None = None, spec_path: str = "",
-          target=None) -> Result:
+          target=None, freeze=None) -> Result:
     from . import lp
 
     lim = limits or Limits()
@@ -96,18 +104,31 @@ def mixed(spec, limits: Limits | None = None, spec_path: str = "",
         return Result("mixed", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
                       ENGINE, ms(), None, detail=t("engine.mixed.no_discrete"))
 
-    # --- 1. search -------------------------------------------------------
-    # CBC decides the skeleton. Nothing about this step is certified and the
+    # --- 1. the skeleton -------------------------------------------------
+    # Either CBC finds it, or it arrives already found. `freeze` matters more
+    # than it looks: a real MILP may be solved by HiGHS, Gurobi, a bespoke
+    # search or a person, and requiring certo's own solver to reproduce it
+    # would put certo's limits in the way of a construction that already
+    # exists. Nothing about this step is certified either way, and the
     # certificate never pretends otherwise.
-    search_spec = spec.relaxed()
-    search_spec.integer = False
-    found = lp.opt(_as_milp(spec), lim, use_exact=False)
-    if found.verdict is not Verdict.SATISFIABLE:
-        return Result("mixed", found.status, Verdict.INCONCLUSIVE, ENGINE,
-                      ms(), None, detail=t("engine.mixed.search_failed",
-                                           detail=found.detail))
+    if freeze is not None:
+        raw, engine_used = dict(freeze), "external"
+        missing = [v for v in spec.discrete if v not in raw]
+        if missing:
+            return Result("mixed", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                          ENGINE, ms(), None,
+                          detail=t("engine.mixed.freeze_missing",
+                                   names=", ".join(missing[:5]),
+                                   n=len(missing)))
+    else:
+        found = lp.opt(_as_milp(spec), lim, use_exact=False)
+        if found.verdict is not Verdict.SATISFIABLE:
+            return Result("mixed", found.status, Verdict.INCONCLUSIVE, ENGINE,
+                          ms(), None, detail=t("engine.mixed.search_failed",
+                                               detail=found.detail))
+        raw, engine_used = found.meta.get("solution") or {}, "CBC"
 
-    assignment, bad_var = _round_assignment(spec, found.meta.get("solution") or {})
+    assignment, bad_var = _round_assignment(spec, raw)
     if assignment is None:
         return Result("mixed", Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
                       ENGINE, ms(), None,
@@ -150,10 +171,16 @@ def mixed(spec, limits: Limits | None = None, spec_path: str = "",
     deficit = None if want is None else want - achieved
     meets = want is None or achieved >= want
 
+    # The residual dual is exact by the time we get here, so the level is at
+    # least conditional; `feasible` is what a frozen assignment reaches when
+    # its LP was not certified, and that path returns earlier.
+    level = GLOBAL if globally_optimal else CONDITIONAL
+
     cert = mixed_design_certificate(
         assignment={k: exact.serialize(v) for k, v in assignment.items()},
         continuous={k: exact.serialize(v) for k, v in cont_values.items()},
         kinds={v: spec.kind_of(v) for v in spec.var_names},
+        skeleton_from=engine_used,
         system=_system(spec),
         objective={k: exact.serialize(exact.to_fraction(v))
                    for k, v in spec.obj.items()},
@@ -165,7 +192,7 @@ def mixed(spec, limits: Limits | None = None, spec_path: str = "",
         relaxation_cert=relax.certificate.to_dict() if bound is not None else None,
         bound=None if bound is None else exact.serialize(bound),
         target=None if want is None else exact.serialize(want),
-        globally_optimal=globally_optimal,
+        globally_optimal=globally_optimal, level=level,
         title=spec.title,
     ).stamp(spec_path or None)
 
@@ -185,7 +212,8 @@ def mixed(spec, limits: Limits | None = None, spec_path: str = "",
         "mixed", Status.SAT,
         Verdict.SATISFIABLE if meets else Verdict.REFUTED,
         ENGINE, ms(), cert, detail=detail,
-        meta={"achieved": exact.serialize(achieved),
+        meta={"level": level,
+              "achieved": exact.serialize(achieved),
               "conditional": exact.serialize(conditional),
               "discrete_gain": exact.serialize(discrete_gain),
               "bound": None if bound is None else exact.serialize(bound),
@@ -194,7 +222,8 @@ def mixed(spec, limits: Limits | None = None, spec_path: str = "",
               "globally_optimal": globally_optimal,
               "selected": sorted(k for k, v in assignment.items() if v),
               "discrete_vars": len(spec.discrete),
-              "continuous_vars": len(spec.continuous)},
+              "continuous_vars": len(spec.continuous),
+              "skeleton_from": engine_used},
     )
 
 

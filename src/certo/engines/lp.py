@@ -96,7 +96,8 @@ def _duals(prob, cons_names):
     return out
 
 
-def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
+def opt(spec, limits: Limits | None = None, use_exact: bool = True,
+        target=None) -> Result:
     lim = limits or Limits()
     t0 = time.perf_counter()
 
@@ -130,8 +131,13 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
     # only a BOUND on the first. Reporting the bound as "the objective" is
     # exactly the kind of overclaim this tool exists to prevent -- and it did
     # it, until a real instance where nu = 7 was reported as 15/2.
+    # Rounding EVERY variable is only right when every variable is discrete.
+    # On a mixed problem it rounds the fractional weights to zero and reports
+    # a "design" worth nothing; the achievable value there comes from freezing
+    # the discrete part and re-solving the rest, which is `mixed`.
+    all_discrete = discrete and not getattr(spec, "continuous", [])
     integral = None
-    if discrete:
+    if all_discrete:
         integral = _integral_point(spec, A, b, c, sol_float)
 
     # The dual always comes from the continuous relaxation: an ILP has none.
@@ -165,6 +171,11 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
             c=exact.serialize_all(c), names=cons_names,
             var_names=list(spec.var_names), is_exact=True,
             integer=discrete,
+            kinds={v: (spec.kind_of(v) if hasattr(spec, "kind_of")
+                       else ("integer" if spec.integer else "continuous"))
+                   for v in spec.var_names},
+            target=None if target is None else exact.serialize(
+                exact.to_fraction(target)),
             integral_point=None if integral is None
             else exact.serialize_all(integral[0]),
             integral_objective=None if integral is None
@@ -180,9 +191,8 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
         if discrete:
             bound = exact.serialize(rep["objective"])
             if integral is None:
-                # No feasible integral point survived the check, so there is
-                # nothing to report but the bound -- and it is named a bound.
-                detail = t("engine.opt.ilp_bound_only", bound=bound)
+                # Nothing to report but the bound -- and it is named a bound.
+                detail = t("engine.opt.mixed_bound_only", bound=bound)                         if not all_discrete else                                                   t("engine.opt.ilp_bound_only", bound=bound)
                 meta_obj = None
             else:
                 meta_obj = exact.serialize(integral[1])
@@ -216,5 +226,10 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
               "exact": exact_ok, "solution": meta_sol,
               "integer": discrete, "denominator": denom,
               "min_dual": exact.serialize(min(y_ex)) if exact_ok
-              else min([abs(v) for v in dual_float], default=0.0)},
+              else min([abs(v) for v in dual_float], default=0.0),
+              "target": None if target is None else exact.serialize(
+                  exact.to_fraction(target)),
+              "meets_target": (None if target is None or not exact_ok else
+                               exact.to_fraction(meta_obj)
+                               >= exact.to_fraction(target))},
     )

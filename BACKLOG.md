@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after 0.3.0).
+Last updated: 2026-09-16 (after 0.3.0, two rounds of feedback in).
 
 ---
 
@@ -38,6 +38,8 @@ Last updated: 2026-09-16 (after 0.3.0).
 | ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
 | ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
 | ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **MILP levels named, `--freeze`, `opt --target`, per-kind packing integrality** *(user feedback, 2nd round)* | The taxonomy the user asked for — feasible / conditional_optimum / global_optimum — plus taking the skeleton from their own solver, certifying a target rather than an optimum, and whole-or-fractional per item kind. |
+| ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
@@ -143,7 +145,20 @@ place `qe` would reach, and it is exact. The certificate wants the Bézout
 identity `Res(f,g) = Af + Bg`, which is verifiable by expansion exactly like
 the cofactors.
 
-### 6. Combinatorial types beyond set families
+### 6. `SetFamily` canonicalisation for matchings and coloured hypergraphs
+*(user feedback)*
+
+`canonical()` quotients by relabelling the ground set. A family of MATCHINGS
+has more structure than that — the blocks partition, and a factorisation of
+K_{s+1} into perfect matchings has the matchings themselves permutable — and a
+coloured hypergraph has colours that may or may not be permutable. Both would
+benefit from a canonical form that knows it.
+
+Worth building against the real instance rather than in the abstract: which
+symmetries are genuine depends on the problem, and guessing wrong merges two
+orbits, which nothing downstream would notice.
+
+### 7. Combinatorial types beyond set families
 
 `SetFamily` covers hypergraphs, designs, codes and mask systems, because they
 are all one shape. What it does not cover: ordered structures (sequences,
@@ -151,7 +166,7 @@ words, permutation patterns) and edge-coloured or directed objects. Worth
 adding when a real problem asks, not before — the value of a native type is
 the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
-### 7. A canonical form that scales past the cap
+### 8. A canonical form that scales past the cap
 
 `SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
 very regular family on more than ~10 points will hit. The fix is individual-

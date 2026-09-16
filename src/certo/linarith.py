@@ -91,13 +91,34 @@ def polynomial(e) -> dict:
         return {m: c / db[CONST] for m, c in polynomial(a).items()}
     if z3.is_app_of(e, z3.Z3_OP_POWER):
         base, exp = e.children()
-        if not z3.is_int_value(exp) or exp.as_long() < 0:
+        n = _literal_exponent(exp)
+        if n is None:
             raise NotPolynomial("non-constant or negative exponent: {}".format(e))
         out = {CONST: Fraction(1)}
-        for _ in range(exp.as_long()):
+        for _ in range(n):
             out = _mul(out, polynomial(base))
         return out
     raise NotPolynomial("not polynomial arithmetic: {}".format(e))
+
+
+def _literal_exponent(exp):
+    """A literal natural-number exponent, or None.
+
+    `x**4` on a REAL x gives z3 a rational literal 4, not an integer one, so
+    `is_int_value` says no and a perfectly ordinary quartic gets rejected. The
+    exponent's SORT is not the question -- whether it is a literal natural
+    number is.
+    """
+    if z3.is_int_value(exp):
+        n = exp.as_long()
+    elif z3.is_rational_value(exp):
+        frac = exp.as_fraction()
+        if frac.denominator != 1:
+            return None
+        n = frac.numerator
+    else:
+        return None
+    return n if n >= 0 else None
 
 
 def as_row(e):

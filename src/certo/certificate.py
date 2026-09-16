@@ -179,7 +179,8 @@ def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
 def lp_dual_certificate(sense, objective, dual, A, b, c, names,
                         primal=None, var_names=None, is_exact=False,
                         integer=False, integral_point=None,
-                        integral_objective=None) -> Certificate:
+                        integral_objective=None, kinds=None,
+                        target=None) -> Certificate:
     return Certificate(
         kind="lp_dual",
         solver_free=True,
@@ -191,6 +192,10 @@ def lp_dual_certificate(sense, objective, dual, A, b, c, names,
             # The integral point is the other side of it.
             "integer": bool(integer), "integral_point": integral_point,
             "integral_objective": integral_objective,
+            # Which variables are discrete, by name. `integer: true` says a
+            # discrete part exists; this says WHICH, so a reader of the
+            # certificate alone can tell a design from a relaxation.
+            "kinds": kinds or {}, "target": target,
         },
         note_key="cert.note.lp_dual.exact" if is_exact else "cert.note.lp_dual.float",
     )
@@ -562,7 +567,8 @@ def number_certificate(kind, tree, title="") -> Certificate:
 def mixed_design_certificate(assignment, continuous, kinds, system, objective,
                              sense, discrete_gain, conditional, achieved,
                              residual_cert, relaxation_cert, bound, target,
-                             globally_optimal, title="") -> Certificate:
+                             globally_optimal, level="conditional_optimum",
+                             skeleton_from="CBC", title="") -> Certificate:
     """A discrete skeleton, the exact packing inside it, and what that reaches.
 
     Three numbers that are not the same number, kept apart on purpose:
@@ -590,7 +596,9 @@ def mixed_design_certificate(assignment, continuous, kinds, system, objective,
                  "conditional": conditional, "achieved": achieved,
                  "residual": residual_cert, "relaxation": relaxation_cert,
                  "bound": bound, "target": target,
-                 "globally_optimal": bool(globally_optimal), "title": title},
+                 "globally_optimal": bool(globally_optimal),
+                 "level": level, "skeleton_from": skeleton_from,
+                 "title": title},
         note_key="cert.note.mixed_design",
     )
 
@@ -1244,12 +1252,16 @@ def _verify_mixed_design(cert, limits) -> VerifyReport:
     else:
         warnings.append(t("verify.mixed.not_optimal",
                           bound=p.get("bound") or "-"))
+    if p.get("skeleton_from") == "external":
+        warnings.append(t("verify.mixed.external"))
 
+    level = p.get("level", "conditional_optimum")
     return VerifyReport(
         all(c[1] for c in checks), "mixed_design", True, checks=checks,
         warnings=warnings,
-        detail=t("verify.mixed.detail", value=p["achieved"],
-                 n=len([k for k, v in assign.items() if v])),
+        detail=t("verify.mixed.level." + level) + " -- "
+        + t("verify.mixed.detail", value=p["achieved"],
+            n=len([k for k, v in assign.items() if v])),
     )
 
 
@@ -1376,6 +1388,22 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                 warnings.append(t("verify.lp.ilp_gap",
                                   value=exact.serialize(value),
                                   bound=exact.serialize(rep["objective"])))
+
+    # A target turns "here is the optimum" into "here is a bound that meets
+    # what you needed", which for an existence proof is the whole question.
+    if p.get("target") is not None:
+        want = exact.to_fraction(p["target"])
+        value = exact.to_fraction(p.get("integral_objective")
+                                  or p["objective"])
+        if value >= want:
+            checks.append((t("verify.lp.target"), True,
+                           t("verify.lp.margin", value=exact.serialize(value),
+                             target=p["target"],
+                             margin=exact.serialize(value - want))))
+        else:
+            warnings.append(t("verify.lp.short", value=exact.serialize(value),
+                              target=p["target"],
+                              deficit=exact.serialize(want - value)))
 
     detail = (t("verify.lp.exact.detail", value=exact.serialize(rep["objective"]))
               if not p.get("integer")

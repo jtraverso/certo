@@ -528,5 +528,20 @@
   "cli.mixed.scope": "óptimo continuo CONDICIONADO al esqueleto elegido; no se afirma optimalidad MILP global",
   "cli.mixed.scope_optimal": "el valor alcanzado iguala la cota de relajación, así que ESTE es el óptimo global",
   "verify.mixed.short": "POR DEBAJO DEL OBJETIVO: este diseño alcanza {value}, frente a un objetivo de {target} -- un déficit de {deficit}. El certificado es válido; el diseño es insuficiente.",
-  "verify.mixed.margin": "{value} frente a {target}, margen {margin}"
+  "verify.mixed.margin": "{value} frente a {target}, margen {margin}",
+  "engine.mixed.freeze_missing": "la asignación congelada no cubre todas las variables discretas: faltan {n}, entre ellas {names}",
+  "verify.mixed.level.feasible": "FACTIBLE: un punto mixto que satisface todo",
+  "verify.mixed.level.conditional_optimum": "ÓPTIMO CONDICIONAL: óptimo para la parte continua, dado este esqueleto",
+  "verify.mixed.level.global_optimum": "ÓPTIMO GLOBAL: iguala la cota de relajación, así que ningún esqueleto lo mejora",
+  "verify.mixed.external": "El esqueleto vino de OTRO solver y aquí se congeló. Eso no cambia nada de lo certificado --se redondeó y comprobó exactamente igual que cualquier otro-- pero significa que certo no vio la búsqueda que lo produjo.",
+  "cli.mixed.level.feasible": "diseño FACTIBLE; no se afirma optimalidad alguna",
+  "cli.mixed.level.conditional_optimum": "ÓPTIMO CONDICIONAL: óptimo continuo condicionado al esqueleto elegido; no se afirma optimalidad MILP global",
+  "cli.mixed.level.global_optimum": "ÓPTIMO GLOBAL: el valor alcanzado iguala la cota de relajación, así que ningún esqueleto lo mejora",
+  "cli.mixed.external": "esqueleto congelado de un solver externo, no buscado aquí",
+  "verify.lp.target": "el valor certificado alcanza el objetivo",
+  "verify.lp.margin": "{value} frente a {target}, margen {margin}",
+  "verify.lp.short": "POR DEBAJO DEL OBJETIVO: el valor certificado es {value}, frente a un objetivo de {target} -- un déficit de {deficit}. El certificado es válido; la cota es insuficiente.",
+  "cli.opt.target.met": "{value} ALCANZA el objetivo {target}",
+  "cli.opt.target.short": "{value} se queda por debajo del objetivo {target}",
+  "engine.opt.mixed_bound_only": "este problema es MIXTO, así que la cota de relajación {bound} es todo lo que certifica `opt`: el valor alcanzable necesita congelar la parte discreta y reresolver el resto, que es `certo mixed`"
 }

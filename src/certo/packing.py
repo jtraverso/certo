@@ -34,7 +34,7 @@ class PackingSpec:
     items: list
     capacities: object = 1              # dict resource -> cap, or one number
     sense: str = "max"
-    integer: bool = False
+    integer: object = False             # True, or a set of item kinds
     title: str = ""
     _kinds: dict = field(default_factory=dict, repr=False)
 
@@ -85,15 +85,31 @@ class PackingSpec:
 
     # -- to the LP ---------------------------------------------------------
 
+    def discrete_kinds(self) -> set:
+        """Which item kinds are whole-or-nothing.
+
+        `integer=True` means all of them; `integer={"K3"}` means triangles are
+        placed whole while everything else may be fractional. A packing where
+        the structural items are discrete and the rest is a fractional relaxation
+        is the common shape, and forcing all-or-nothing changes the problem.
+        """
+        if self.integer is True:
+            return {k for _, _, _, k in self.items}
+        if not self.integer:
+            return set()
+        return set(self.integer)
+
     def to_lp(self):
         """An LPSpec. Constraint names are resource names, so the dual reads
         as a load per resource."""
         from .spec import LPSpec
 
-        lp = LPSpec(sense=self.sense, integer=self.integer,
+        discrete = self.discrete_kinds()
+        lp = LPSpec(sense=self.sense, integer=False,
                     title=self.title or "packing")
-        for name, _, _, _ in self.items:
-            lp.variable(name)
+        for name, _, _, kind in self.items:
+            lp.variable(name, kind="integer" if kind in discrete
+                        else "continuous")
         lp.objective({name: gain for name, _, gain, _ in self.items})
 
         by_resource: dict = {}

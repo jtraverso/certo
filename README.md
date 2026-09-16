@@ -660,6 +660,78 @@ Full MILP optimality — a branch-and-bound certificate with an exact dual or an
 infeasibility proof at every leaf — is a different and much larger thing. It
 is in the backlog, and it is not what an existence proof needs.
 
+### Three levels, named
+
+A user asked for exactly this taxonomy, in these words, and the names are what
+a reader needs:
+
+| Level | What holds |
+|---|---|
+| `feasible` | a mixed point satisfies every constraint and attains a value |
+| `conditional_optimum` | and the residual LP is optimal **given this skeleton** |
+| `global_optimum` | and it meets the relaxation bound, so no skeleton does better |
+
+```
+$ certo verify out/mixed.json
+VALID  mixed_design certificate (verified without a solver)
+  ...
+  GLOBAL OPTIMUM: it meets the relaxation bound, so no skeleton does better
+```
+
+### `--freeze`: your solver, not ours
+
+A real MILP may be solved by HiGHS, Gurobi, something bespoke or a person.
+Requiring certo's own CBC to reproduce it would put **certo's limits in front
+of a construction that already exists**, which is backwards.
+
+```bash
+certo mixed spec.py --freeze my_solution.json --target 602/9
+```
+
+The file is `{"y17": 1, "y23": 0, ...}` — or `{"assignment": {...}}`. It is
+rounded and checked exactly like any other, so where it came from changes
+nothing about what is certified. What it does change is recorded:
+
+> The skeleton came from **another solver** and was frozen here. That changes
+> nothing about what is certified — it was rounded and checked exactly like
+> any other — but it means certo never saw the search that produced it.
+
+## `opt --target`
+
+For an existence proof the question is rarely "what is the best possible
+value" and usually "is this bound reached":
+
+```
+$ certo opt examples/packing_mixed.py --target 12
+  25/2 REACHES the target 12
+```
+
+The target travels in the certificate, so `verify` repeats the comparison in
+exact rationals:
+
+```
+  [ok] the certified value reaches the target  (25/2 against 12, margin 1/2)
+```
+
+Falling short is a **warning on a valid certificate**, not invalidity — the
+certificate is correct and the bound is insufficient, and those are different
+statements.
+
+## Whole in one kind, fractional in another
+
+```python
+PackingSpec(items=..., integer={"K3"})     # triangles whole, K4s fractional
+```
+
+`integer=True` still means all of them. A packing whose structural items are
+placed whole while the rest is a fractional relaxation is the common shape,
+and forcing all-or-nothing changes the problem rather than restricting it.
+
+On such a problem `opt` reports **only the relaxation bound** and says so:
+rounding every variable would turn a K4 weight of 1/6 into zero and report a
+design worth nothing. The achievable value comes from freezing the discrete
+part and re-solving the rest, which is `certo mixed`.
+
 ## Three engines that are not a solver
 
 `prove`, `check`, `core`, `synth` and `compose` are Z3 wearing different hats.
@@ -1488,7 +1560,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-228 of them, no test framework required.
+240 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done
