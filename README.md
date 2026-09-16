@@ -150,7 +150,7 @@ and what to expect.
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
 | `prove` | Negate the claim, look for `unsat` | Z3 | unsat core, or counterexample |
-| `check` | Plain satisfiability | Z3 | model, or core |
+| `check` | Satisfiability; `--hypotheses-only` asks if the regime is non-empty | Z3 | model, or core |
 | `core` | MUS: which hypotheses are needed | Z3 | minimal core |
 | `farkas` | `linarith` / `nlinarith`, with the multipliers | exact LP | **Farkas certificate**, solver-free |
 | `compose` | Assemble lemmas into one proof, checking the join | Z3 | **proof**: every lemma, its certificate, and the link |
@@ -1455,6 +1455,89 @@ certo opt examples/packing_mixed.py --by-type
 
 Whether mixing buys anything is the gap between the mixed optimum and the best
 single kind. Here, on K6, it buys nothing over pure K4.
+
+## Is my regime non-empty? Ask it directly
+
+The natural way to ask is `s.claim(z3.BoolVal(False))` — and it is the one
+phrasing that cannot answer. `check` decides `hypotheses AND claim`, so with a
+claim of `False` it reports UNSATISFIABLE whatever the hypotheses are. A user
+asked exactly that, on a system that has models, and was told "no model
+exists". They only found out by going to `core`.
+
+```
+$ certo check regime.py
+UNSATISFIABLE  [unsat]
+  no model exists -- but the claim is the literal False, so this says nothing
+  about the hypotheses. Ask with `--hypotheses-only`.
+  !! the claim is the literal False: `check` decided `hypotheses AND False`,
+     which is unsatisfiable whatever the hypotheses are.
+```
+
+```
+$ certo check regime.py --hypotheses-only
+SATISFIABLE  [sat]
+  the regime is NON-EMPTY: all 3 hypotheses hold together, and here is a
+  point where they do
+  certificate: model (no solver needed)
+```
+
+The certificate is a **model**, which is solver-free: the non-emptiness of a
+regime is one of the few answers here that re-checks by evaluation alone. The
+same user called exhibiting the full parameter set simultaneously the first
+time in four iterations they had done it rather than argued it.
+
+And when the regime IS empty, you get the minimal clash rather than the whole
+hypothesis set:
+
+```
+$ certo check empty.py --hypotheses-only
+UNSATISFIABLE  [unsat]
+  the regime is EMPTY: these hypotheses cannot hold together.
+  The minimal clash is: dens_floor, sparse
+```
+
+`certo lint` warns about a constant claim before any of this, and `prove`
+reports vacuity after the fact. This is the same question asked head on.
+
+## An unsat core, stated in Lean
+
+`export --lean` used to refuse an `unsat_core` — the kind the most-used
+command produces. For a core over linear arithmetic it now emits real Lean:
+binders, hypotheses, the goal stated positively, and `sorry`.
+
+```lean
+theorem from_core (a b : ℤ)
+    (a_big : 10 - a ≤ 0)
+    (b_small : -3 + b ≤ 0)
+    : -7 + a - b ≥ 0 := by
+  sorry    -- certo: a core says WHICH hypotheses suffice, not why.
+           -- `certo farkas` on the same spec produces the multipliers.
+```
+
+The sort is read off the formulas rather than assumed, because an integer
+regime emitted over the reals elaborates fine and says something weaker than
+what was certified. The hypotheses certo **dropped** are listed at the bottom:
+that list is the content of the certificate.
+
+`sorry` and not a tactic call, deliberately. A core says which hypotheses
+suffice; it does not say why, and nothing in it licenses `linarith`. `certo
+farkas` on the same spec produces the multipliers, and its export compiles.
+
+A **vacuous** core is the interesting one. The hypotheses are jointly
+contradictory, so `h₁ → … → False` is a theorem — and that is the emptiness of
+the regime, stated in Lean:
+
+```lean
+theorem regime_empty (dens : ℝ)
+    (dens_floor : (3/4 : ℚ) - dens ≤ 0)
+    (sparse : (-1/2 : ℚ) + dens ≤ 0)
+    : False := by
+  sorry
+```
+
+Outside linear arithmetic it carries the SMT-LIB2 verbatim and says so. certo
+does not know your Mathlib encoding and will not guess at one.
+
 
 ## `lint`: before the compute is spent
 

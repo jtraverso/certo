@@ -24,6 +24,7 @@ OUT = ROOT / "out"
 # exit code alone, which for a linter IS the result.
 CASES = [
     ("lint_vacuous_regime.py", "lint", [], 1),
+    ("regime_nonempty.py", "check", ["--hypotheses-only"]),
     ("amgm.py", "prove", []),
     ("pigeonhole.py", "cases", []),
     ("core_matrix.py", "core", []),

@@ -64,7 +64,9 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "achieved", "conditional", "discrete_gain", "selected",
                 "skeleton_from", "nodes", "by_bound", "infeasible",
                 "leaves", "closed", "integral_level", "tight",
-                "mu", "nu", "gap", "leading")
+                "mu", "nu", "gap", "leading",
+                # both are already said in the detail line, and once loudly
+                "constant_goal", "hypotheses_only", "clash")
 
 
 def _item_id(entry) -> str:
@@ -186,7 +188,14 @@ def cmd_check(args):
     from .engines import smt
     from .spec import Spec, load_spec
 
-    return emit(smt.check(load_spec(args.spec, Spec), limits_from(args)), args)
+    res = smt.check(load_spec(args.spec, Spec), limits_from(args),
+                    hypotheses_only=args.hypotheses_only)
+    rc = emit(res, args)
+    # A constant claim makes `check` decide something other than what the
+    # shape of the spec suggests, and the verdict alone cannot say so.
+    if not args.json and res.meta.get("constant_goal"):
+        print("  !! " + t("cli.check.constant." + res.meta["constant_goal"]))
+    return rc
 
 
 def cmd_core(args):
@@ -1144,7 +1153,13 @@ def _export_lean(args):
         try:
             graphs = lean.graphs_from_certificate(data)
         except ValueError:
-            print(t("cli.lean.no_exporter", kind=kind), file=sys.stderr)
+            # The list comes from the registry: a hand-kept one went
+            # stale the moment a new exporter landed, and an error
+            # message that lies about what is supported is worse than
+            # no message at all.
+            print(t("cli.lean.no_exporter", kind=kind,
+                    kinds=", ".join(sorted(leanexport.EXPORTERS))),
+                  file=sys.stderr)
             return 3
         text = lean.graphs_to_lean(graphs, source)
     return _write_lean(text, args, [path])
@@ -1218,13 +1233,26 @@ def build_parser():
 
     for name, fn, helptext in (
         ("prove", cmd_prove, "negate the claim and look for unsat -> unsat core"),
-        ("check", cmd_check, "satisfiability -> model or core"),
+
         ("core", cmd_core, "MUS: which hypotheses are actually needed "
                            "(a MultiSpec gives the hypothesis-by-goal table)"),
     ):
         sp = add(name, helptext)
         sp.add_argument("spec", help=".py file with a spec() function")
         sp.set_defaults(func=fn)
+
+    #  no longer fits the three-liner block above: asking whether the
+    # regime is non-empty is a different question from asking whether the
+    # claim holds in it, and it needed its own flag to stop being asked by
+    # accident.
+    sp = add("check", "satisfiability of hypotheses AND claim; "
+                      "--hypotheses-only asks if the regime is non-empty")
+    sp.add_argument("spec", help=".py file with a spec() function")
+    sp.add_argument("--hypotheses-only", action="store_true",
+                    dest="hypotheses_only",
+                    help="drop the claim and ask whether the hypotheses alone "
+                         "have a model; on unsat, name the minimal clash")
+    sp.set_defaults(func=cmd_check)
 
     sp = add("opt", "LP/ILP -> dual certificate in EXACT rationals")
     sp.add_argument("spec", help=".py file with a spec() function")

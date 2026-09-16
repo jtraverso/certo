@@ -134,13 +134,38 @@ def prove(spec, limits: Limits | None = None) -> Result:
     )
 
 
-def check(spec, limits: Limits | None = None) -> Result:
-    """Plain satisfiability of hypotheses plus claim."""
+def _constant_goal(goal):
+    """Is the claim a boolean literal? Then `check` is not asking what you think.
+
+    `claim(False)` makes `hypotheses AND claim` unsatisfiable however
+    satisfiable the hypotheses are, and `claim(True)` makes it exactly the
+    hypotheses. Both are legal and neither answers the question the shape of
+    the spec suggests, so both are named.
+    """
+    if goal is None:
+        return None
+    if z3.is_false(goal):
+        return "false"
+    return "true" if z3.is_true(goal) else None
+
+
+def check(spec, limits: Limits | None = None,
+          hypotheses_only: bool = False) -> Result:
+    """Plain satisfiability of hypotheses plus claim.
+
+    With `hypotheses_only`, the claim is dropped and the question becomes "is
+    this regime non-empty?" -- which is what people were reaching for when
+    they wrote `claim(False)` and got told, correctly and uselessly, that
+    `hypotheses AND False` has no model.
+    """
     lim = limits or Limits()
     t0 = time.perf_counter()
+    if hypotheses_only:
+        return _hypotheses_only(spec, lim, t0)
     s, ind, formulas = _tracked(spec, negate_goal=False)
     lim.apply_to(s)
     all_names = list(formulas)
+    constant = _constant_goal(spec.goal)
     r = s.check(*[ind[n] for n in all_names])
     st = _outcome(r, s)
     ms = (time.perf_counter() - t0) * 1000
@@ -148,7 +173,8 @@ def check(spec, limits: Limits | None = None) -> Result:
     if st is Status.SAT:
         cert = _model_cert(spec, formulas, s.model(), all_names)
         return Result("check", st, Verdict.SATISFIABLE, ENGINE, ms, cert,
-                      detail=t("engine.check.sat"))
+                      detail=t("engine.check.sat"),
+                      meta=_constant_meta(constant))
     if st is Status.UNSAT:
         raw = {str(p)[4:] for p in s.unsat_core()}
         core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
@@ -157,10 +183,64 @@ def check(spec, limits: Limits | None = None) -> Result:
             [n for n in all_names if n not in core],
         )
         return Result("check", st, Verdict.UNSATISFIABLE, ENGINE, ms, cert,
-                      detail=t("engine.check.unsat"))
+                      detail=t("engine.check.unsat_constant")
+                      if constant == "false" else t("engine.check.unsat"),
+                      meta=_constant_meta(constant))
     return Result("check", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
                   detail=t("engine.inconclusive", status=st.value,
-                           reason=s.reason_unknown()))
+                           reason=s.reason_unknown()),
+                  meta=_constant_meta(constant))
+
+
+def _constant_meta(constant):
+    return {} if constant is None else {"constant_goal": constant}
+
+
+def _hypotheses_only(spec, lim, t0) -> Result:
+    """Is this regime non-empty? The question, asked directly.
+
+    Satisfiable gives a MODEL: the parameter set exhibited rather than argued.
+    Unsatisfiable gives the MINIMAL clash rather than the whole hypothesis
+    set, because "which of these do I have to give up" is what anyone asks
+    next.
+    """
+    import copy
+
+    bare = copy.copy(spec)
+    bare.goal = None
+    s, ind, formulas = _tracked(bare, negate_goal=False)
+    lim.apply_to(s)
+    names = [n for n in formulas if n != "__goal__"]
+    if not names:
+        ms = (time.perf_counter() - t0) * 1000
+        return Result("check", Status.SAT, Verdict.SATISFIABLE, ENGINE, ms,
+                      None, detail=t("engine.check.no_hypotheses"))
+
+    r = s.check(*[ind[n] for n in names])
+    st = _outcome(r, s)
+    ms = (time.perf_counter() - t0) * 1000
+
+    if st is Status.SAT:
+        cert = _model_cert(bare, formulas, s.model(), names)
+        return Result("check", st, Verdict.SATISFIABLE, ENGINE, ms, cert,
+                      detail=t("engine.check.regime_nonempty", n=len(names)),
+                      meta={"hypotheses_only": True})
+    if st is Status.UNSAT:
+        raw = {str(pp)[4:] for pp in s.unsat_core()}
+        clash = _mus(s, ind, [n for n in names if n in raw] or names, lim)
+        cert = unsat_core_certificate(
+            z3util.smt2(*[formulas[n] for n in clash]), clash,
+            [n for n in names if n not in clash],
+            vacuous=True, clash=clash,
+        )
+        return Result("check", st, Verdict.UNSATISFIABLE, ENGINE, ms, cert,
+                      detail=t("engine.check.regime_empty",
+                               names=", ".join(clash)),
+                      meta={"hypotheses_only": True, "clash": clash})
+    return Result("check", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
+                  detail=t("engine.inconclusive", status=st.value,
+                           reason=s.reason_unknown()),
+                  meta={"hypotheses_only": True})
 
 
 def core(spec, limits: Limits | None = None) -> Result:

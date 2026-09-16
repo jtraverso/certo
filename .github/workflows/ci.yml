@@ -75,7 +75,11 @@ jobs:
           mkdir -p out
           certo farkas examples/farkas_linear.py --cert out/fk.json
           certo farkas examples/farkas_nonlinear.py --nonlinear --cert out/fk2.json
-          for c in out/fk.json out/fk2.json; do
+          # The core exporter emits real binders and hypotheses for a linear
+          # regime, so "it compiles" is a claim about it too.
+          certo check examples/lint_vacuous_regime.py --hypotheses-only \
+            --cert out/regime.json || true
+          for c in out/fk.json out/fk2.json out/regime.json; do
             certo export "$c" --lean \
               --out .github/lean/CertoEmitted.lean \
               --lean-project .github/lean --check

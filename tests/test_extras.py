@@ -3262,6 +3262,170 @@ def test_a_mixed_problems_continuous_weights_may_be_fractional():
     assert r.certificate.payload["continuous"]["w"] == "1/6"
 
 
+
+# --- the question people actually ask -------------------------------------
+
+
+def _regime():
+    """Satisfiable hypotheses. dens = 1/2, kappa = 4 is a point in it."""
+    import z3
+
+    from certo import Spec
+
+    d, k = z3.Reals("dens kappa")
+    s = Spec(title="a regime that is NOT empty")
+    s.assume("dens_ok", d > z3.RealVal(1) / 4)
+    s.assume("kappa_large", k >= 4)
+    s.assume("sparse", d <= z3.RealVal(1) / 2)
+    return s, d, k
+
+
+def test_claim_false_answers_the_opposite_of_the_question_and_says_so():
+    """The footgun, pinned: `check` is right and the reading is inverted.
+
+    A user wrote `claim(False)` to ask "are my hypotheses satisfiable?" and
+    got UNSATISFIABLE on a system with models. The verdict does not change --
+    `hypotheses AND False` really is unsat -- but it can no longer be read as
+    a statement about the hypotheses without being told otherwise.
+    """
+    import z3
+
+    from certo.engines import smt
+
+    spec, _, _ = _regime()
+    spec.claim(z3.BoolVal(False))
+
+    r = smt.check(spec, LIM)
+    assert r.verdict is Verdict.UNSATISFIABLE      # correct, and useless
+    assert r.meta["constant_goal"] == "false"
+    assert "hypotheses-only" in r.detail
+
+
+def test_hypotheses_only_exhibits_a_point_in_a_non_empty_regime():
+    """Not an argument that one exists: the parameters, on the table."""
+    from certo.engines import smt
+
+    spec, _, _ = _regime()
+    r = smt.check(spec, LIM, hypotheses_only=True)
+    assert r.verdict is Verdict.SATISFIABLE
+    assert r.meta["hypotheses_only"] is True
+    # A model certificate needs no solver to re-check: the non-emptiness of
+    # the regime is the one answer here that verifies by evaluation.
+    assert r.certificate.kind == "model"
+    assert r.certificate.solver_free
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_hypotheses_only_names_the_minimal_clash_when_the_regime_is_empty():
+    import z3
+
+    from certo.engines import smt
+
+    from certo import Spec
+
+    d, k = z3.Reals("dens kappa")
+    s = Spec(title="an empty one")
+    s.assume("innocent", k >= 4)
+    s.assume("dens_floor", d >= z3.RealVal(3) / 4)
+    s.assume("sparse", d <= z3.RealVal(1) / 2)
+    s.claim(z3.BoolVal(True))
+
+    r = smt.check(s, LIM, hypotheses_only=True)
+    assert r.verdict is Verdict.UNSATISFIABLE
+    assert set(r.meta["clash"]) == {"dens_floor", "sparse"}
+    assert "innocent" not in r.detail
+    assert r.certificate.payload["vacuous"] is True
+
+
+def test_hypotheses_only_ignores_the_claim_entirely():
+    """Whatever the claim says, the question is about the hypotheses."""
+    import z3
+
+    from certo.engines import smt
+
+    spec, d, _ = _regime()
+    spec.claim(d > 10 ** 6)                # false in the regime, and irrelevant
+    r = smt.check(spec, LIM, hypotheses_only=True)
+    assert r.verdict is Verdict.SATISFIABLE
+
+
+# --- an unsat core, stated in Lean ----------------------------------------
+
+
+def test_a_linear_core_exports_real_lean_hypotheses():
+    from certo import leanexport
+    from certo.engines import smt
+
+    from certo import Spec
+    import z3
+
+    a, b = z3.Ints("a b")
+    s = Spec(title="an integer core")
+    s.assume("a_big", a >= 10)
+    s.assume("b_small", b <= 3)
+    s.assume("unused", a + b >= 0)
+    s.claim(a - b >= 7)
+
+    cert = smt.core(s, LIM).certificate
+    text = leanexport.core_to_lean(cert.to_dict())
+
+    # The sort is read off the formulas, not assumed: an integer regime
+    # emitted over the reals would elaborate and say something weaker.
+    assert "(a b : \u2124)" in text
+    assert "a_big" in text and "b_small" in text
+    assert "unused" not in text.split("## What this file does")[0]
+    assert "sorry" in text          # a core says WHICH, never why
+    assert "certo farkas" in text   # and where to get the proof
+
+
+def test_a_vacuous_core_states_the_regime_is_empty():
+    """`h1 -> ... -> False` IS the theorem, and it is the useful one."""
+    import z3
+
+    from certo import Spec, leanexport
+    from certo.engines import smt
+
+    d = z3.Real("dens")
+    s = Spec(title="empty")
+    s.assume("dens_floor", d >= z3.RealVal(3) / 4)
+    s.assume("sparse", d <= z3.RealVal(1) / 2)
+    s.claim(z3.BoolVal(True))
+
+    cert = smt.check(s, LIM, hypotheses_only=True).certificate
+    text = leanexport.core_to_lean(cert.to_dict())
+    assert "theorem regime_empty" in text
+    assert ": False := by" in text
+    assert "(dens : \u211d)" in text
+
+
+def test_a_nonlinear_core_carries_the_smt2_rather_than_guessing():
+    """Division by a variable is not linear arithmetic, and it is not faked."""
+    import z3
+
+    from certo import Spec, leanexport
+    from certo.engines import smt
+
+    d, k = z3.Reals("dens kappa")
+    s = Spec(title="nonlinear")
+    s.assume("dens_high", d > 1 - 1 / k)
+    s.assume("kappa_large", k >= 4)
+    s.assume("sparse", d <= z3.RealVal(1) / 2)
+    s.claim(z3.BoolVal(True))
+
+    cert = smt.check(s, LIM, hypotheses_only=True).certificate
+    text = leanexport.core_to_lean(cert.to_dict())
+    assert "declare-fun" in text            # the SMT-LIB2, verbatim
+    assert "theorem from_core : True" in text
+    assert "will not guess" in text
+
+
+def test_export_lean_now_accepts_an_unsat_core():
+    """It used to refuse, with an otherwise excellent message."""
+    from certo.leanexport import EXPORTERS
+
+    assert "unsat_core" in EXPORTERS
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

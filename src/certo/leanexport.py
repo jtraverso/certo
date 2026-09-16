@@ -59,6 +59,7 @@ IMPORTS = {
     # the whole reason it exists.
     "farkas": ["Mathlib.Data.Real.Basic", "Mathlib.Tactic.Linarith"],
     "classification": ["Mathlib.Data.List.Basic"],
+    "unsat_core": ["Mathlib.Data.Real.Basic", "Mathlib.Tactic.Linarith"],
     "proof": ["Mathlib"],
 }
 
@@ -321,6 +322,152 @@ def proof_to_lean(data: dict, source="") -> str:
     return "\n".join(lines)
 
 
+def _core_rows(payload):
+    """The core's formulas as linarith rows, or None if they are not linear.
+
+    The certificate stores SMT-LIB2, which is the portable form and not a
+    structure anything can render. Parsing it back with z3 and running it
+    through the same `as_row` the Farkas exporter uses means the two exporters
+    agree by construction rather than by inspection.
+    """
+    import z3
+
+    from . import linarith, z3util
+
+    smt2 = payload.get("core_smt2") or ""
+    if not smt2.strip():
+        return None
+    try:
+        formulas = list(z3.parse_smt2_string(smt2))
+    except z3.Z3Exception:
+        return None
+
+    names = list(payload.get("names") or [])
+    if len(names) != len(formulas):
+        # The names and the formulas are written from the same list in the
+        # same order; if that ever stops being true, say nothing rather than
+        # attaching a hypothesis to the wrong name.
+        return None
+    rows, sorts = [], {}
+    for name, f in zip(names, formulas):
+        try:
+            poly, rel = linarith.as_row(f)
+        except Exception:
+            return None
+        rows.append((name, poly, rel))
+        # The sort comes from the formulas themselves rather than a stored
+        # field: an integer regime emitted over the reals would elaborate and
+        # mean something weaker than what was certified.
+        for c in z3util.free_consts(f):
+            sorts[str(c)] = c.sort().name()
+    return rows, sorts
+
+
+def core_to_lean(data: dict, source="") -> str:
+    """An unsat core as a theorem skeleton: the hypotheses, and no proof."""
+    p = data["payload"]
+    parsed = _core_rows(p)
+    if parsed is None:
+        return _core_structure_only(data, source)
+    rows, sorts = parsed
+
+    hyps = [(n, poly, rel) for n, poly, rel in rows if n != "__goal__"]
+    goal = next(((poly, rel) for n, poly, rel in rows if n == "__goal__"), None)
+    variables = sorted({v for _, poly, _ in rows for m in poly for v in m})
+    binder = " ".join(variables) or "_x"
+    types = "ℤ" if any(sorts.get(v) == "Int" for v in variables) else "ℝ"
+
+    lines = [_header("unsat_core", data.get("digest", "?"), source), ""]
+    if p.get("vacuous"):
+        lines.append("/-- These hypotheses cannot hold together: the regime is")
+        lines.append("EMPTY. Anything proved under them is vacuously true, "
+                     "which is")
+        lines.append("what no `#print axioms` will tell you. -/")
+    else:
+        lines.append("/-- The hypotheses the core actually needed, and the "
+                     "goal they")
+        lines.append("close. The ones certo DROPPED are listed at the bottom: "
+                     "that")
+        lines.append("list is the content of the certificate. -/")
+    lines.append("theorem {} ({} : {})".format(
+        "regime_empty" if p.get("vacuous") else "from_core", binder, types))
+    for name, poly, rel in hyps:
+        lines.append("    ({} : {} {} 0)".format(
+            _safe(name), _poly_to_lean(poly), _op(rel)))
+
+    if goal is None:
+        # No goal in the core means the hypotheses alone are unsatisfiable,
+        # so what they entail is False -- and that IS the statement.
+        lines.append("    : False := by")
+        lines.append("  sorry    -- certo: `linarith` closes this when the "
+                     "clash is linear;")
+        lines.append("           -- `certo farkas` gives the exact "
+                     "multipliers.")
+    else:
+        poly, rel = goal
+        lines.append("    : {} {} 0 := by".format(
+            _poly_to_lean(poly), _positive(rel)))
+        lines.append("  sorry    -- certo: a core says WHICH hypotheses "
+                     "suffice, not why.")
+        lines.append("           -- `certo farkas` on the same spec produces "
+                     "the")
+        lines.append("           -- multipliers, and exports a file that "
+                     "compiles.")
+
+    lines.append("")
+    lines.append("/-!")
+    lines.append("## What this file does and does not say")
+    lines.append("")
+    dropped = [d for d in (p.get("dropped") or []) if d != "__goal__"]
+    if dropped:
+        lines.append("certo dropped these hypotheses as unnecessary: "
+                     + ", ".join("`{}`".format(_safe(d)) for d in dropped))
+    else:
+        lines.append("Every hypothesis was needed: certo could drop none.")
+    lines.append("")
+    if p.get("vacuous"):
+        lines.append("The core is VACUOUS. The statement above is that the "
+                     "regime is empty,")
+        lines.append("and it is the useful one: a theorem proved under these "
+                     "hypotheses is")
+        lines.append("true, `sorry`-free, clean on `#print axioms`, and about "
+                     "nothing.")
+    else:
+        lines.append("The single `sorry` is the proof. certo established this "
+                     "with a solver,")
+        lines.append("which is a different thing from a Lean proof, and the "
+                     "file does not")
+        lines.append("pretend otherwise.")
+    lines.append("-/")
+    lines.append(FOOTER)
+    return "\n".join(lines)
+
+
+def _core_structure_only(data: dict, source="") -> str:
+    """Not linear arithmetic: carry the structure, not a guessed encoding."""
+    p = data["payload"]
+    lines = [_header("unsat_core", data.get("digest", "?"), source,
+                     imports=["Mathlib"]), ""]
+    lines.append("/-- The core, as SMT-LIB2. certo does not know your Mathlib")
+    lines.append("encoding for this theory and will not guess at one, so the")
+    lines.append("statement is carried verbatim for you to transcribe.")
+    lines.append("")
+    lines.append("    needed: {}".format(
+        ", ".join(n for n in (p.get("names") or []) if n != "__goal__")
+        or "(none)"))
+    lines.append("    dropped: {}".format(
+        ", ".join(d for d in (p.get("dropped") or []) if d != "__goal__")
+        or "(none)"))
+    lines.append("")
+    for line in (p.get("core_smt2") or "").strip().splitlines()[:40]:
+        lines.append("      " + line)
+    lines.append("-/")
+    lines.append("theorem from_core : True := by")
+    lines.append("  trivial  -- certo: restate from the SMT-LIB2 above")
+    lines.append(FOOTER)
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # manifest
 # ---------------------------------------------------------------------------
@@ -376,7 +523,13 @@ def check(path, project=None, timeout=900) -> dict:
        not (root / "lakefile.toml").exists():
         return {"ran": False, "reason": t("lean.check.no_project", path=str(root))}
     try:
-        out = subprocess.run([lake, "env", "lean", str(p)], cwd=str(root),
+        # ABSOLUTE: the file is named relative to wherever the user ran certo,
+        # and lake runs with cwd inside the Lean project. Passing it through
+        # as given made lake look for `.github/lean/.github/lean/...` and
+        # report "no such file or directory" -- which read as a compile
+        # failure, so `--check` had never actually compiled anything in CI.
+        out = subprocess.run([lake, "env", "lean", str(p.resolve())],
+                             cwd=str(root),
                              capture_output=True, text=True, timeout=timeout,
                              encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError) as e:
@@ -389,6 +542,7 @@ def check(path, project=None, timeout=900) -> dict:
 
 EXPORTERS = {
     "farkas": farkas_to_lean,
+    "unsat_core": core_to_lean,
     "proof": proof_to_lean,
     "sweep": classification_to_lean,
     "domain_sweep": classification_to_lean,

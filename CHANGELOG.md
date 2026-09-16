@@ -6,6 +6,49 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### The last two items of a user report
+
+**`check --hypotheses-only`.** The natural way to ask "are my hypotheses
+satisfiable at all?" is `s.claim(z3.BoolVal(False))`, and it is the one
+phrasing that cannot answer: `check` decides `hypotheses AND claim`, so a
+claim of `False` reports UNSATISFIABLE whatever the hypotheses are. A user
+asked exactly that, on a system with models, and was told "no model exists".
+They found out only by going to `core`.
+
+The flag asks it head on. Satisfiable returns a **model** — solver-free, the
+whole parameter set exhibited rather than argued. Unsatisfiable returns the
+**minimal clash** rather than the hypothesis set. And a constant claim is now
+named wherever it appears, in `check` and in `lint`, because a flag only helps
+someone who already knows it exists.
+
+**`export --lean` for `unsat_core`.** It used to refuse the kind the most-used
+command produces. For a core over linear arithmetic it now emits real Lean:
+binders, hypotheses, the goal stated positively, and `sorry` — not a tactic
+call, because a core says which hypotheses suffice and not why. A vacuous core
+becomes `h₁ → … → False`, which is the emptiness of the regime stated in Lean.
+Outside linear arithmetic it carries the SMT-LIB2 verbatim and says so.
+
+The sort is read off the formulas rather than assumed: an integer regime
+emitted over the reals elaborates fine and says something weaker.
+
+### Fixed
+
+- **`export --lean --check` had never compiled anything.** It passed the file
+  path as given while running `lake` with its cwd inside the Lean project, so
+  lake looked for `.github/lean/.github/lean/…` and reported "no such file or
+  directory" — which surfaced as `compiled: FAILED`. Now absolute.
+- **The lean CI job had never once passed**, for a different reason:
+  `lean-action` refuses without a `lake-manifest.json` and there is no input
+  that generates one. The manifest is now committed, pinning Mathlib and its
+  eight transitive dependencies to exact revisions.
+- **A confinement test asserted Windows path semantics on every platform.**
+  `..\..\secret.json` escapes a directory on Windows and is a legal filename
+  on POSIX; the tool was right on both and the test was not.
+- **The "no Lean exporter for this kind" message listed a hand-kept set** that
+  went stale the moment a new exporter landed. It is generated from the
+  registry now.
+
+
 ## [0.5.0] — 2026-09-16
 
 **The certificate schema is unchanged: `SCHEMA_VERSION` stays 4.** Everything

@@ -410,6 +410,30 @@ def spec():
     assert "too_big" in hollow and "too_small" in hollow
 
 
+
+def test_check_over_mcp_can_ask_whether_the_regime_is_non_empty():
+    """The flag has to reach the model: it is who writes claim(False)."""
+    src = """
+import z3
+from certo import Spec
+def spec():
+    d, k = z3.Reals("dens kappa")
+    s = Spec(title="a regime")
+    s.assume("dens_ok", d > z3.RealVal(1)/4)
+    s.assume("kappa_large", k >= 4)
+    s.assume("sparse", d <= z3.RealVal(1)/2)
+    s.claim(z3.BoolVal(False))
+    return s
+"""
+    plain = run(call("check", {"spec_source": src}))
+    assert plain["verdict"] == "unsatisfiable"
+    assert "hypotheses-only" in plain["detail"]
+
+    asked = run(call("check", {"spec_source": src, "hypotheses_only": True}))
+    assert asked["verdict"] == "satisfiable"
+    assert asked["certificate"]["kind"] == "model"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

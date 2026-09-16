@@ -158,6 +158,15 @@ def _contradictory(assumptions, limits):
 def _check_spec(spec, limits):
     if spec.goal is None:
         yield _f(ERROR, "spec.no_goal")
+    else:
+        import z3
+
+        # `claim(False)` is how people ask "are my hypotheses satisfiable?",
+        # and it is the one phrasing that cannot answer it.
+        if z3.is_false(spec.goal):
+            yield _f(WARN, "spec.claim_false")
+        elif z3.is_true(spec.goal):
+            yield _f(WARN, "spec.claim_true")
     if not spec.assumptions:
         yield _f(NOTE, "spec.no_hypotheses")
     clash = _contradictory(spec.assumptions, limits)

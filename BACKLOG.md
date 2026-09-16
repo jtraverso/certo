@@ -48,6 +48,9 @@ Last updated: 2026-09-16 (after the second user report: the integral-point hole 
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
+| ✅ | **`export --lean` for `unsat_core`** *(user feedback)* | The kind the most-used command produces used to be refused. Linear arithmetic gets real binders, hypotheses and a positively stated goal with `sorry`; a vacuous core becomes `h₁ → … → False`, the emptiness of the regime stated in Lean. The sort is read off the formulas. Everything else carries the SMT-LIB2 and says so. |
+| ✅ | **`--check` had never compiled anything** | A relative path against a cwd inside the Lean project; lake reported "no such file or directory" and it surfaced as a compile failure. Found because the lean CI job, fixed in the same round, finally got far enough to run it. |
 | ✅ | **A fractional "integral point" verified as valid** *(user feedback)* | `_verify_lp_dual` checked the declared integral point for feasibility and for matching its objective, and never that the values were integers: `x = 3/2` passed. Now checked per DECLARED KIND, so a mixed problem's continuous weights stay fractional on purpose. `mixed_design` had it right all along; `lp_dual`, which `opt` produces, did not. |
 | ✅ | **`certo status`** *(P1)* | Reads a directory of certificates and reports where the work stands: RESULTS (nothing else builds on them), STILL OWED (every bridge and unclaimed optimality, including ones three levels down), HOLLOW (vacuous proofs with their clash named, sweeps that certified nothing), STALE (the spec moved under the certificate). Emits no certificate of its own: it makes no claim. |
 | ✅ | **`certo lint`** *(P1)* | The dry pass before the compute. Contradictory hypotheses found BEFORE the proof rather than after a valid-and-empty win; an inductive step that starts after the base cases end, caught by comparing two integers instead of discharging six sweeps; a `bool` predicate named as `reproducible` in advance. Counts a domain without materialising it and reads a graph family's size from a table. |
@@ -159,14 +162,6 @@ inequalities in `s`, certified for all `s >= s0` by `sos` or
 That turns "checked for s = 7..20" into "holds for every s >= 7", which is the
 one thing the tool keeps saying it cannot do. Wanted: an instance where the
 dual weights follow a visible pattern in `s`.
-
-### 5. `export --lean` for `unsat_core` *(user feedback)*
-
-A `theorem` skeleton carrying the core's hypotheses and the statement, no
-proof. The user's words were that it "would close the circle": every other
-certificate kind that can reach Lean already does, and the one produced by the
-most-used command does not. Worth doing after item 2, which changes what that
-certificate contains.
 
 ---
 

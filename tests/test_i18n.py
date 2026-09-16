@@ -107,6 +107,10 @@ def test_the_runtime_built_key_families_are_complete():
     for command, verdict in cli.SCOPE_NOTE:
         assert "note.{}.{}".format(command, verdict.value) in en
 
+    # `check` names a constant claim by what the literal was.
+    for which in ("false", "true"):
+        assert "cli.check.constant." + which in en, which
+
 
 def test_certificates_carry_the_note_key_not_the_rendered_text():
     """A certificate must read correctly whatever language produced it."""

@@ -533,15 +533,23 @@ async def prove(spec_path: str | None = None, spec_source: str | None = None,
 
 @mcp.tool(description=(
     "Satisfiability of a Spec's hypotheses plus claim. SAT returns a model; "
-    "UNSAT returns the core that explains it."))
+    "UNSAT returns the core that explains it. Set hypotheses_only=true to ask "
+    "the question people actually reach for: IS THIS REGIME NON-EMPTY? It "
+    "drops the claim, returns a model when the hypotheses hold together, and "
+    "the MINIMAL CLASH when they do not. Asking it by writing claim(False) "
+    "instead returns unsat for every regime, empty or not."))
 @_guard
 async def check(spec_path: str | None = None, spec_source: str | None = None,
+                hypotheses_only: bool = False,
                 timeout_ms: int = 10_000, rlimit: int = 20_000_000) -> dict:
     from .engines import smt
-    from .spec import Spec
+    from .spec import Spec, load_spec
 
-    return await _spec_tool(smt.check, Spec)(spec_path, spec_source,
-                                             timeout_ms, rlimit)
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), Spec)
+    res = await _off(smt.check, spec, _limits(timeout_ms, rlimit),
+                     hypotheses_only)
+    return _emit(res, spec_file=f)
 
 
 @mcp.tool(description=(

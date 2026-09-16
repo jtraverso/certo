@@ -442,7 +442,7 @@
   "cli.lean.checked": "compiled: {state}{sorries}",
   "cli.lean.not_checked": "NOT compiled: {reason}",
   "cli.lean.sorries": ", {n} `sorry` remaining",
-  "cli.lean.no_exporter": "no deep Lean export for a {kind} certificate; `--lean` reads farkas, proof, sweep, domain_sweep and graph_set, and graph counterexamples come out as data",
+  "cli.lean.no_exporter": "no deep Lean export for a {kind} certificate; `--lean` reads {kinds}, and graph counterexamples come out as data",
   "poly.budget.pairs": "Buchberger gave up after {n} S-pairs: this ideal is too big for an exact computation here. Raise the budget, or reduce the number of variables",
   "poly.budget.terms": "a polynomial grew past {n} terms during the Groebner computation",
   "numbers.not_prime": "{n} is not prime, so there is no primality certificate for it",
@@ -703,5 +703,13 @@
   "lint.packing.fractional": "`integer=False`: `opt` solves the RELAXATION, so the answer is mu*, not the packing number",
   "lint.packing.integer_kinds": "whole in {names}, fractional elsewhere",
   "verify.lp.integral_integral": "every variable declared integer holds one",
-  "verify.lp.offenders": "not integral: {names}"
+  "verify.lp.offenders": "not integral: {names}",
+  "engine.check.unsat_constant": "no model exists -- but the claim is the literal False, so this says nothing about the hypotheses. Ask with `--hypotheses-only`.",
+  "engine.check.regime_nonempty": "the regime is NON-EMPTY: all {n} hypotheses hold together, and here is a point where they do",
+  "engine.check.regime_empty": "the regime is EMPTY: these hypotheses cannot hold together. The minimal clash is: {names}",
+  "engine.check.no_hypotheses": "there are no hypotheses, so the regime is everything",
+  "lint.spec.claim_false": "the claim is the literal False: `prove` and `check` will both report unsat whatever the hypotheses are. To ask whether the regime is non-empty, use `certo check --hypotheses-only`.",
+  "lint.spec.claim_true": "the claim is the literal True, so there is nothing to prove; `certo check --hypotheses-only` asks about the hypotheses and says so in the verdict",
+  "cli.check.constant.false": "the claim is the literal False: `check` decided `hypotheses AND False`, which is unsatisfiable whatever the hypotheses are. To ask whether the regime is non-empty, use `--hypotheses-only`.",
+  "cli.check.constant.true": "the claim is the literal True, so this checked the hypotheses alone. `--hypotheses-only` says so in the verdict, and names the clash when there is one."
 }

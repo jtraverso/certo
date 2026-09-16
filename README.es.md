@@ -145,7 +145,7 @@ esperar.
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
 | `prove` | Niega la tesis y busca `unsat` | Z3 | núcleo insatisfacible, o contraejemplo |
-| `check` | Satisfacibilidad directa | Z3 | modelo, o núcleo |
+| `check` | Satisfacibilidad; `--hypotheses-only` pregunta si el régimen no es vacío | Z3 | modelo, o núcleo |
 | `core` | MUS: qué hipótesis hacen falta | Z3 | núcleo minimal |
 | `farkas` | `linarith` / `nlinarith`, con los multiplicadores | LP exacto | **certificado de Farkas**, sin solver |
 | `compose` | Ensambla lemas en una demostración, comprobando el empalme | Z3 | **proof**: cada lema, su certificado y el enlace |
@@ -1499,6 +1499,87 @@ contradiga a otra es una línea nueva, no una edición— y **no copia
 certificados**, guarda su ruta y su digest. `ledger verify` los relee y los
 re-verifica, así que un certificado manipulado o ausente sale como fallo en
 vez de quedar duplicado en el log.
+
+## ¿Mi régimen no es vacío? Pregúntalo directo
+
+La forma natural de preguntarlo es `s.claim(z3.BoolVal(False))` —y es la única
+formulación que no puede responder—. `check` decide `hipótesis AND afirmación`,
+así que con una afirmación `False` reporta INSATISFACIBLE sean cuales sean las
+hipótesis. Un usuario preguntó exactamente eso, sobre un sistema que sí tiene
+modelos, y le dijeron «no existe modelo». Solo se enteró yendo a `core`.
+
+```
+$ certo check regimen.py
+INSATISFACIBLE  [unsat]
+  no existe modelo --pero la afirmación es el literal False, así que esto no
+  dice nada de las hipótesis--. Pregúntalo con `--hypotheses-only`.
+```
+
+```
+$ certo check regimen.py --hypotheses-only
+SATISFACIBLE  [sat]
+  el régimen NO ES VACÍO: las 3 hipótesis se sostienen a la vez, y aquí hay
+  un punto donde lo hacen
+  certificado: model (no necesita solver)
+```
+
+El certificado es un **modelo**, que es sin-solver: que un régimen no sea
+vacío es de las pocas respuestas aquí que se re-comprueban solo evaluando. Ese
+mismo usuario dijo que exhibir el conjunto completo de parámetros
+simultáneamente era la primera vez en cuatro iteraciones que lo hacía en vez
+de argumentarlo.
+
+Y cuando el régimen **sí** es vacío, obtienes el choque minimal en vez del
+conjunto entero de hipótesis:
+
+```
+$ certo check vacio.py --hypotheses-only
+INSATISFACIBLE  [unsat]
+  el régimen es VACÍO: estas hipótesis no pueden sostenerse a la vez.
+  El choque minimal es: dens_floor, sparse
+```
+
+`certo lint` avisa de una afirmación constante antes de todo esto, y `prove`
+reporta la vacuidad después. Esto es la misma pregunta, hecha de frente.
+
+## Un unsat core, enunciado en Lean
+
+`export --lean` se negaba con un `unsat_core` —el tipo que produce el comando
+más usado—. Para un core sobre aritmética lineal ahora emite Lean de verdad:
+ligaduras, hipótesis, el objetivo en positivo, y `sorry`.
+
+```lean
+theorem from_core (a b : ℤ)
+    (a_big : 10 - a ≤ 0)
+    (b_small : -3 + b ≤ 0)
+    : -7 + a - b ≥ 0 := by
+  sorry    -- certo: un core dice QUÉ hipótesis bastan, no por qué.
+```
+
+El tipo se lee de las fórmulas en vez de suponerse, porque un régimen entero
+emitido sobre los reales elabora sin problema y dice algo más débil que lo que
+se certificó. Las hipótesis que certo **descartó** van listadas al final: esa
+lista es el contenido del certificado.
+
+`sorry` y no una llamada a táctica, deliberadamente. Un core dice qué
+hipótesis bastan; no dice por qué, y nada en él autoriza `linarith`. `certo
+farkas` sobre el mismo spec produce los multiplicadores, y su export compila.
+
+Un core **vacuo** es el interesante. Las hipótesis se contradicen entre sí, así
+que `h₁ → … → False` es un teorema —y eso es la vacuidad del régimen,
+enunciada en Lean—:
+
+```lean
+theorem regime_empty (dens : ℝ)
+    (dens_floor : (3/4 : ℚ) - dens ≤ 0)
+    (sparse : (-1/2 : ℚ) + dens ≤ 0)
+    : False := by
+  sorry
+```
+
+Fuera de la aritmética lineal lleva el SMT-LIB2 literal y lo dice. certo no
+conoce tu codificación de Mathlib y no la va a adivinar.
+
 
 ## `lint`: antes de gastar el cómputo
 

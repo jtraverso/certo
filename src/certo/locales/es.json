@@ -442,7 +442,7 @@
   "cli.lean.checked": "compilado: {state}{sorries}",
   "cli.lean.not_checked": "NO compilado: {reason}",
   "cli.lean.sorries": ", quedan {n} `sorry`",
-  "cli.lean.no_exporter": "no hay export profundo a Lean para un certificado {kind}; `--lean` lee farkas, proof, sweep, domain_sweep y graph_set, y los contraejemplos en grafo salen como datos",
+  "cli.lean.no_exporter": "no hay export profundo a Lean para un certificado {kind}; `--lean` lee {kinds}, y los contraejemplos en grafo salen como datos",
   "poly.budget.pairs": "Buchberger se rindió tras {n} pares-S: este ideal es demasiado grande para un cómputo exacto aquí. Sube el presupuesto, o reduce el número de variables",
   "poly.budget.terms": "un polinomio superó los {n} términos durante el cómputo de Groebner",
   "numbers.not_prime": "{n} no es primo, así que no hay certificado de primalidad para él",
@@ -703,5 +703,13 @@
   "lint.packing.fractional": "`integer=False`: `opt` resuelve la RELAJACIÓN, así que la respuesta es mu*, no el número de empaquetamiento",
   "lint.packing.integer_kinds": "entero en {names}, fraccionario en el resto",
   "verify.lp.integral_integral": "cada variable declarada entera tiene un entero",
-  "verify.lp.offenders": "no son enteras: {names}"
+  "verify.lp.offenders": "no son enteras: {names}",
+  "engine.check.unsat_constant": "no existe modelo --pero la afirmación es el literal False, así que esto no dice nada de las hipótesis--. Pregúntalo con `--hypotheses-only`.",
+  "engine.check.regime_nonempty": "el régimen NO ES VACÍO: las {n} hipótesis se sostienen a la vez, y aquí hay un punto donde lo hacen",
+  "engine.check.regime_empty": "el régimen es VACÍO: estas hipótesis no pueden sostenerse a la vez. El choque minimal es: {names}",
+  "engine.check.no_hypotheses": "no hay hipótesis, así que el régimen es todo",
+  "lint.spec.claim_false": "la afirmación es el literal False: `prove` y `check` van a reportar unsat sean cuales sean las hipótesis. Para preguntar si el régimen no es vacío, usa `certo check --hypotheses-only`.",
+  "lint.spec.claim_true": "la afirmación es el literal True, así que no hay nada que demostrar; `certo check --hypotheses-only` pregunta por las hipótesis y lo dice en el veredicto",
+  "cli.check.constant.false": "la afirmación es el literal False: `check` decidió `hipótesis AND False`, que es insatisfacible sean cuales sean las hipótesis. Para preguntar si el régimen no es vacío, usa `--hypotheses-only`.",
+  "cli.check.constant.true": "la afirmación es el literal True, así que esto comprobó solo las hipótesis. `--hypotheses-only` lo dice en el veredicto, y nombra el choque cuando lo hay."
 }
