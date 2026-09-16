@@ -1146,7 +1146,8 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done
 ```
 
-En [BACKLOG.md](BACKLOG.md) está lo que viene y lo que deliberadamente no.
+Notas de versión en [CHANGELOG.md](CHANGELOG.md); lo que viene, lo bloqueado
+y lo deliberadamente descartado en [BACKLOG.md](BACKLOG.md).
 
 ## Licencia
 

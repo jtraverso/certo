@@ -24,7 +24,7 @@ from .spec import (BisectSpec, BoundSpec, DomainSpec, Lemma, LPSpec,
                    SynthSpec, load_spec)
 from .status import Result, Status, Verdict
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",

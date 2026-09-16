@@ -101,7 +101,6 @@ symmetry than isomorphism (coloured or rooted graphs) has the same problem.
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
 | | `certo repro` | Bundle spec + certificates + versions + hashes for a paper appendix. Partly absorbed by the Lean manifest in P1 #3. |
 | | A full worked example | The published examples cover each command; none walks one problem from exploration to Lean. `examples/compose_proof.py` also needs two certificates that are deliberately not committed (they are output) — a `make examples` would remove that friction. |
-| | Default branch is `master` | Rename to `main` if wanted. One command, **needs authorisation**. |
 | | Repository topics | `theorem-proving`, `smt`, `z3`, `lean`, `mcp`. **Needs authorisation.** |
 
 ---
@@ -128,6 +127,9 @@ rounding-plus-exact-reverification plan.
 
 ## Release process
 
-The version stays **0.1.0** until the first official release, which the
-project owner authorises. Work lands in local commits; **pushing to the public
-repository is not automatic** and is asked for each time.
+Releases are authorised by the project owner, one at a time. Work lands in
+local commits; **pushing to the public repository is not automatic** and is
+asked for each time. Each release bumps the version, writes its section of
+[CHANGELOG.md](CHANGELOG.md), and is tagged.
+
+Current: **0.2.0**.

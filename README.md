@@ -1162,7 +1162,8 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done
 ```
 
-See [BACKLOG.md](BACKLOG.md) for what is planned and what is deliberately not.
+Release notes in [CHANGELOG.md](CHANGELOG.md); what is planned, blocked
+and deliberately refused in [BACKLOG.md](BACKLOG.md).
 
 ## Licence
 
