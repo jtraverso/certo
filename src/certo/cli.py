@@ -59,7 +59,12 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "domain", "evaluations", "calibration", "table", "multipliers",
                 "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
-                "banner_key", "level")
+                "banner_key", "level", "orbits")
+
+
+def _item_id(entry) -> str:
+    """An entry's id, reading the pre-rename `g6` field too."""
+    return entry.get("id") or entry.get("g6") or "?"
 
 
 def print_calibration(cal, worst_k=3):
@@ -73,7 +78,7 @@ def print_calibration(cal, worst_k=3):
         label = t("cli.label.lowest" if cal["worst_sense"] == "min"
                   else "cli.label.highest")
         print("  " + t("cli.calibration.worst", k=worst_k, label=label,
-                       items=" | ".join("{} {}".format(v["g6"], v["value"])
+                       items=" | ".join("{} {}".format(_item_id(v), v["value"])
                                         for v in worst)))
 
 
@@ -282,6 +287,60 @@ def cmd_bounds(args):
     return rc
 
 
+def cmd_doctor(args):
+    """What this install can do, and what each gap actually costs."""
+    from . import doctor
+
+    rep = doctor.report()
+    if args.json:
+        rep["mcp"] = doctor.mcp_status()
+        if args.register_mcp:
+            rep["registration"] = doctor.register_mcp()
+        print(json.dumps(rep, indent=2, ensure_ascii=False))
+        return 0 if rep["ok"] else 3
+
+    print("  " + t("doctor.header"))
+    for r in rep["rows"]:
+        mark = "[ok]" if r["ok"] else ("[XX]" if r["required"] else "[--]")
+        print("  {:<12} {:<9} {}".format(r["key"], mark, r["what"]))
+        if r["ok"] and r["detail"]:
+            print("  {:<12} {:<9} {}".format("", "", r["detail"]))
+
+    gaps = [r for r in rep["rows"] if not r["ok"] and not r["required"]]
+    if gaps:
+        print()
+        print("  " + t("doctor.optional"))
+        for r in gaps:
+            print("    {:<12} {}".format(r["key"], r["without"]))
+
+    if not rep["numerics"]:
+        print()
+        print("  !! " + t("doctor.numerics.none"))
+
+    print()
+    print("  " + t("doctor.mcp.header"))
+    m = doctor.mcp_status()
+    print("    " + t("doctor.mcp.workspace", path=m["workspace"]))
+    if args.register_mcp:
+        reg = doctor.register_mcp()
+        if not reg["written"]:
+            print("    !! " + reg["detail"])
+        elif reg["already"]:
+            print("    " + t("doctor.mcp.already"))
+        else:
+            print("    " + t("doctor.mcp.registered", path=reg["path"],
+                             servers=", ".join(reg["servers"])))
+    elif not m["config_present"]:
+        print("    " + t("doctor.mcp.not_registered"))
+    print("    " + (t("doctor.mcp.starts") if m["starts"]
+                    else t("doctor.mcp.fails", detail=m["detail"])))
+
+    print()
+    print("  " + (t("doctor.all_required") if rep["ok"]
+                  else t("doctor.required_missing", n=rep["missing_required"])))
+    return 0 if rep["ok"] else 3
+
+
 def cmd_synth(args):
     from .engines import cegis
     from .spec import SynthSpec, load_spec
@@ -430,19 +489,33 @@ def cmd_sweep(args):
     print_calibration(res.meta.get("calibration"), args.worst)
 
     if res.verdict is Verdict.REFUTED:
-        print("  " + t("cli.counterexamples"))
-        for s in res.meta.get("counterexamples", [])[:10]:
-            print("    " + s)
+        # With a symmetry declared, the orbits ARE the answer: printing a
+        # thousand relabelled copies underneath them would bury it again.
+        if res.meta.get("orbits"):
+            print("  " + t("cli.orbits.summary",
+                           labelled=res.meta["labelled"],
+                           orbits=res.meta["orbit_count"]))
+            print("  " + t("cli.orbits.header"))
+            for row in res.meta["orbits"][:10]:
+                print("    " + t("cli.orbits.row", rep=row["representative"],
+                                 size=row["size"],
+                                 members=", ".join(row["members"][:3])))
+        else:
+            print("  " + t("cli.counterexamples.graph" if res.meta.get("graphs")
+                           else "cli.counterexamples"))
+            for c in res.meta.get("counterexamples", [])[:10]:
+                print("    " + c)
         for d in res.meta.get("describe", []):
             print("    -> " + str(d))
 
-    miss = res.meta.get("predicate_uncertified", 0)
-    if miss:
-        print("  " + t("cli.sweep.uncertified", n=miss))
+    # The uncertified count is reported once, by the level line in `emit`,
+    # which also says which of the three levels this run reached. This second
+    # message said less, said "graphs" on a domain of tuples, and made readers
+    # skim both.
     for label, key in ((t("cli.sweep.errors"), "errors_detail"),
                        (t("cli.sweep.inconclusive"), "inconclusive_detail")):
         for e in res.meta.get(key, [])[:3]:
-            print("  {}: {} -> {}".format(label, e["g6"], e["detail"][:70]))
+            print("  {}: {} -> {}".format(label, _item_id(e), e["detail"][:70]))
     return rc
 
 
@@ -606,11 +679,11 @@ def _worst_from_cert(path, obj_sense="min") -> str:
     p = data.get("payload", {})
     # sweep and domain_sweep share the entry shape on purpose, so the same
     # "start from the worst one" works for graphs and for anything else.
-    failures = [e["g6"] for e in p.get("entries", [])]
+    failures = [_item_id(e) for e in p.get("entries", [])]
     if not failures:
         raise ValueError("that certificate carries no counterexample: " + str(path))
-    values = {v["g6"]: Fraction(v["value"]) for v in p.get("values", [])
-              if v["g6"] in failures}
+    values = {_item_id(v): Fraction(v["value"]) for v in p.get("values", [])
+              if _item_id(v) in failures}
     if not values:
         return failures[0]
     pick = (min if obj_sense == "min" else max)(values, key=values.get)
@@ -797,6 +870,13 @@ def build_parser():
                     help="add products and squares of the hypotheses first "
                          "(this is exactly what nlinarith does)")
     sp.set_defaults(func=cmd_farkas)
+
+    sp = add("doctor", "what this install can and cannot do, and what each "
+                       "gap costs")
+    sp.add_argument("--register-mcp", action="store_true", dest="register_mcp",
+                    help="add certo to .mcp.json in the current directory, "
+                         "merging with whatever is already registered")
+    sp.set_defaults(func=cmd_doctor)
 
     sp = add("bounds", "settle a numeric inequality with rigorous interval "
                        "arithmetic: e, log, pi and friends, with a certificate")

@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Dieciséis comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Diecisiete comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -89,7 +89,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los dieciséis comandos
+## Los diecisiete comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -106,6 +106,7 @@ esperar.
 | `sweep` | Predicado y/o magnitud sobre una familia o CUALQUIER dominio finito | nauty o Python | familia **+ certificados del predicado** |
 | `shrink` | Minimiza un contraejemplo (grafo o MUS) | CDCL / reducción | testigo de minimalidad |
 | `bisect` | Umbral de una constante | prove o cases | el par que lo encierra |
+| `doctor` | Qué puede hacer esta instalación y qué cuesta cada hueco | — | — |
 | `verify` | Re-verifica un certificado guardado | — | — |
 | `export` | Spec a SMT-LIB2/DIMACS, o un contraejemplo a Lean | — | — |
 | `ledger` | Registro auditable de lo ejecutado | — | — |
@@ -185,6 +186,126 @@ Cada certificado lleva la versión de `certo` que lo emitió y, si vino del CLI,
 la ruta y el `sha256` de la spec. Si el fichero cambia después, `verify` avisa:
 el certificado sigue siendo válido por sí mismo, pero ya no corresponde al
 fichero que hay ahora.
+
+## Simetrías: tres respuestas en vez de mil
+
+Una búsqueda combinatoria produce copias reetiquetadas del mismo objeto a
+cientos. Un barrido que informa de 1.400 contraejemplos donde hay cuatro
+estructurales no te ha dicho cuatro cosas y las ha enterrado — te ha dicho una
+cosa 1.400 veces y te ha dejado a ti la lectura.
+
+Declara cuándo dos elementos son el mismo objeto reetiquetado:
+
+```python
+DomainSpec(
+    items=[(a, b, c) for a in range(1, 5) for b in range(1, 5)
+           for c in range(1, 5)],
+    predicate=lambda t: sum(t) != 6,
+    key=lambda t: "({},{},{})".format(*t),
+    canonicalize=lambda t: tuple(sorted(t)),      # la simetría
+)
+```
+
+```
+$ certo sweep examples/sweep_orbits.py
+REFUTED  [sat]
+  REFUTED: 10 counterexamples out of 64 examined -- 10 labelled, 3 up to symmetry
+  10 contraejemplos, 3 salvo simetría
+  órbitas (de los contraejemplos):
+    (1,2,3)   x6   (1,2,3), (1,3,2), (2,1,3)
+    (1,1,4)   x3   (1,1,4), (1,4,1), (4,1,1)
+    (2,2,2)   x1   (2,2,2)
+```
+
+Nada aquí sabe cuál es el grupo, y no le hace falta: le hace falta saber
+cuándo dos elementos son iguales. El representante es el de id más pequeño;
+regla arbitraria, pero **determinista**, así que dos ejecuciones nunca
+producen certificados que parezcan contradictorios diciendo lo mismo.
+
+Solo se descomponen los **contraejemplos**. La estructura de órbitas de todo
+lo que pasó rara vez es la pregunta, y calcularla sobre un dominio grande no
+es gratis.
+
+### Dónde está la línea de honestidad
+
+Que dos elementos con la misma forma canónica estén de verdad en la misma
+órbita es una **afirmación de la spec**. `canonicalize` es Python arbitrario y
+nada aquí lo puede comprobar. Lo que `verify` sí comprueba es que la
+descomposición se sostenga:
+
+```
+  [ok] the orbits partition the domain  (3 orbits covering 10 of 10 items)
+  [ok] each orbit has its own representative  (0 representatives appear twice)
+  [ok] each representative belongs to its orbit
+```
+
+Una descomposición cuyas partes no cuadran está mal fuera cual fuera el grupo.
+
+## Reductores estándar
+
+`shrink` tiene que saber qué significa «un paso más pequeño», y antes exigía
+un `reduce` escrito a mano. Honesto, y también fricción. Las formas que se
+repiten ya tienen nombre:
+
+| `reduce=` | Hace |
+|---|---|
+| `"auto"` | elige según el tipo del elemento, o **se niega** |
+| `"sets"` | quita un elemento |
+| `"sequences"` | quita un elemento de una lista o tupla |
+| `"decrement"` | baja en uno una coordenada entera |
+| `"graphs"` | borra un vértice |
+| `"masks"` | apaga un bit |
+| un callable | lo que escribiste — intacto |
+
+`auto` trata una tupla de enteros como un **punto de parámetros**, no como una
+colección: `(3, 1)` se reduce a `(2, 1)` y `(3, 0)`, no a `(1,)` y `(3,)`.
+Quitarle una coordenada a un punto de parámetros le cambia la aridad, que rara
+vez es la reducción que alguien quería.
+
+Y `auto` se niega ante un tipo que no reconoce en vez de inventarse algo. Un
+testigo minimal para la relación equivocada se ve exactamente igual que uno
+minimal para la correcta, y nada aguas abajo se daría cuenta.
+
+## `certo doctor`
+
+Instalar todos los extras arrastra una cadena de dependencias considerable, y
+la mayoría de la gente no necesita ninguno. Así que la respuesta a «¿qué tengo
+realmente?» no debería leerse de un error de importación a mitad de una
+ejecución.
+
+```
+$ certo doctor
+  capability   present   what for
+  python       [ok]      the interpreter (3.11 or newer)
+  z3           [ok]      prove, check, core, synth, compose
+  pulp         [ok]      opt, farkas (the exact LP behind both)
+  flint        [ok]      bounds, with special functions
+  nauty        [--]      fast graph enumeration for enum and sweep
+  cadical      [--]      cases on large CNFs
+
+  optional pieces missing, each with a fallback:
+    nauty        the built-in Python engine, comfortable to n=8
+    cadical      the built-in CDCL: correct, and slow
+
+  MCP server
+    workspace: /ruta/al/proyecto
+    the server module imports and starts
+
+  everything required is present
+```
+
+Cada fila dice tres cosas, y la tercera es la que importa: **qué pasa sin
+ella**. Que falte una herramienta opcional casi nunca es fatal aquí, y una
+lista de cruces rojas que no lo diga se lee como una instalación rota.
+
+```bash
+certo doctor --register-mcp
+```
+
+Añade `certo` al `.mcp.json` del directorio actual, **fusionando** con lo que
+ya hubiera registrado en vez de reemplazarlo, y se niega a tocar un fichero que
+no sea JSON válido. Además comprueba que el servidor arranca de verdad, que es
+otra pregunta distinta de si está registrado — y la que la gente quiere decir.
 
 ## Qué establece de verdad un barrido
 
@@ -1019,7 +1140,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-131, y sin necesidad de ningún framework de tests.
+149, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

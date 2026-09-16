@@ -105,7 +105,8 @@ def graphs_from_certificate(data: dict) -> list:
     if kind == "shrink_graph":
         return [Graph.from_graph6(p["minimal"])]
     if kind == "sweep":
-        return [Graph.from_graph6(e["g6"]) for e in p.get("entries", [])]
+        return [Graph.from_graph6(e.get("id") or e["g6"])
+                for e in p.get("entries", [])]
     if kind == "graph_set":
         return [Graph.from_graph6(s) for s in p.get("graph6", [])]
     raise ValueError(

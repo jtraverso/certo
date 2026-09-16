@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Sixteen commands to discover objects, destroy false formulations, calibrate
+Seventeen commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -90,7 +90,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The sixteen commands
+## The seventeen commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -107,6 +107,7 @@ and what to expect.
 | `sweep` | Predicate and/or value over a family or ANY finite domain | nauty or Python | family **+ predicate certificates** |
 | `shrink` | Minimise a counterexample (graph or MUS) | CDCL / reduction | minimality witness |
 | `bisect` | A constant's threshold | prove or cases | the pair that brackets it |
+| `doctor` | What this install can do, and what each gap costs | — | — |
 | `verify` | Re-verify a stored certificate | — | — |
 | `export` | Spec to SMT-LIB2/DIMACS, or a counterexample to Lean | — | — |
 | `ledger` | Audit log of what was run | — | — |
@@ -187,6 +188,124 @@ Every certificate carries the `certo` version that issued it and, when it came
 from the CLI, the path and `sha256` of the spec. If the file changes later,
 `verify` warns: the certificate is still valid on its own, but it no longer
 corresponds to the file that is there now.
+
+## Symmetries: three answers instead of a thousand
+
+A combinatorial search produces relabelled copies of the same object by the
+hundred. A sweep reporting 1,400 counterexamples where there are four
+structural ones has not told you four things and buried them — it has told you
+one thing 1,400 times and left the reading to you.
+
+Declare when two items are the same object relabelled:
+
+```python
+DomainSpec(
+    items=[(a, b, c) for a in range(1, 5) for b in range(1, 5)
+           for c in range(1, 5)],
+    predicate=lambda t: sum(t) != 6,
+    key=lambda t: "({},{},{})".format(*t),
+    canonicalize=lambda t: tuple(sorted(t)),      # the symmetry
+)
+```
+
+```
+$ certo sweep examples/sweep_orbits.py
+REFUTED  [sat]
+  REFUTED: 10 counterexamples out of 64 examined -- 10 labelled, 3 up to symmetry
+  10 counterexamples, 3 up to symmetry
+  orbits (of the counterexamples):
+    (1,2,3)   x6   (1,2,3), (1,3,2), (2,1,3)
+    (1,1,4)   x3   (1,1,4), (1,4,1), (4,1,1)
+    (2,2,2)   x1   (2,2,2)
+```
+
+Nothing here knows what the group is, and it does not need to — it needs to
+know when two items are equal. The representative is the one with the smallest
+id: an arbitrary rule, but a **deterministic** one, so two runs never produce
+certificates that look contradictory while saying the same thing.
+
+Only the **counterexamples** are decomposed. The orbit structure of everything
+that passed is rarely the question, and computing it on a large domain is not
+free.
+
+### Where the honesty line is
+
+That two items sharing a canonical form really are in the same orbit is the
+**spec's claim**. `canonicalize` is arbitrary Python and nothing here can
+check it. What `verify` does check is that the decomposition holds together:
+
+```
+  [ok] the orbits partition the domain  (3 orbits covering 10 of 10 items)
+  [ok] each orbit has its own representative  (0 representatives appear twice)
+  [ok] each representative belongs to its orbit
+```
+
+A decomposition whose parts do not add up is wrong whatever the group was.
+
+## Standard reducers
+
+`shrink` has to know what "one step smaller" means, and it used to demand a
+hand-written `reduce`. Honest, and also friction. The shapes that keep coming
+back now have names:
+
+| `reduce=` | Does |
+|---|---|
+| `"auto"` | picks from the item's type, or **refuses** |
+| `"sets"` | drop one element |
+| `"sequences"` | drop one element of a list or tuple |
+| `"decrement"` | lower one integer coordinate by one |
+| `"graphs"` | delete one vertex |
+| `"masks"` | clear one set bit |
+| a callable | whatever you wrote — untouched |
+
+`auto` treats a tuple of integers as a **parameter point**, not a collection:
+`(3, 1)` reduces to `(2, 1)` and `(3, 0)`, not to `(1,)` and `(3,)`. Dropping a
+coordinate from a parameter point changes its arity, which is rarely the
+reduction anyone meant.
+
+And `auto` refuses on a type it does not recognise rather than inventing
+something. A witness that is minimal for the wrong relation looks exactly like
+one that is minimal for the right one, and nothing downstream would notice.
+
+## `certo doctor`
+
+Installing every extra pulls in a fair chain of dependencies, and most people
+need none of it. So the answer to "what do I actually have?" should not be
+read off an import error in the middle of a run.
+
+```
+$ certo doctor
+  capability   present   what for
+  python       [ok]      the interpreter (3.11 or newer)
+  z3           [ok]      prove, check, core, synth, compose
+  pulp         [ok]      opt, farkas (the exact LP behind both)
+  flint        [ok]      bounds, with special functions
+  nauty        [--]      fast graph enumeration for enum and sweep
+  cadical      [--]      cases on large CNFs
+
+  optional pieces missing, each with a fallback:
+    nauty        the built-in Python engine, comfortable to n=8
+    cadical      the built-in CDCL: correct, and slow
+
+  MCP server
+    workspace: /path/to/project
+    the server module imports and starts
+
+  everything required is present
+```
+
+Every row says three things, and the third is the one that matters: **what
+happens without it**. A missing optional tool is almost never fatal here, and a
+checklist of red crosses that does not say so reads as a broken install.
+
+```bash
+certo doctor --register-mcp
+```
+
+Adds `certo` to `.mcp.json` in the current directory, **merging** with whatever
+is already registered rather than replacing it, and refuses to touch a file
+that is not valid JSON. It also checks the server actually starts, which is a
+different question from whether it is registered — and the one people mean.
 
 ## What a sweep actually establishes
 
@@ -1037,7 +1156,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-131 of them, no test framework required.
+149 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

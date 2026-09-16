@@ -15,6 +15,7 @@ from __future__ import annotations
 from .certificate import Certificate, VerifyReport, verify
 from .cnf import CNF, CNFSpec
 from .graphs import Graph
+from . import doctor, reducers
 from .packing import PackingSpec, loads_from_dual
 from .i18n import set_lang, t
 from .limits import Limits
@@ -31,6 +32,6 @@ __all__ = [
     "Outcome", "load_spec",
     "Limits", "Status", "Verdict", "Result",
     "Certificate", "VerifyReport", "verify",
-    "Graph", "PackingSpec", "loads_from_dual", "set_lang", "t",
+    "Graph", "PackingSpec", "loads_from_dual", "doctor", "reducers", "set_lang", "t",
     "__version__",
 ]

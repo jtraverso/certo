@@ -345,21 +345,37 @@ class DomainSpec:
     certificate, so it has to identify the item unambiguously.
 
     `reduce` is what `shrink` needs: given an item, the items one step
-    "smaller". It is domain-specific and there is no sensible default, so
-    without it `shrink` says what to add rather than guessing:
+    "smaller". Pass a callable, or the name of a standard reducer:
 
+        reduce="auto"          pick from the item's type, or refuse
+        reduce="sets"          drop one element
+        reduce="sequences"     drop one element of a list or tuple
+        reduce="decrement"     lower one integer coordinate by one
+        reduce="graphs"        delete one vertex
+        reduce="masks"         clear one set bit
         reduce=lambda p: [(p[0] - 1, p[1]), (p[0], p[1] - 1)]
+
+    `auto` refuses on a type it does not recognise instead of inventing a
+    reduction: a witness that is minimal for the wrong relation looks exactly
+    like one that is minimal for the right one.
 
     The reduced items do not have to be inside `items`: the sweep domain is
     often a window, and the interesting reduction may leave it.
     """
 
+    # `canonicalize(item) -> hashable`, equal exactly for items in the same
+    # orbit of whatever symmetry the domain has. Nothing needs to know the
+    # group; it needs to know when two items are the same object relabelled.
+    # With it, a sweep reports labelled count, orbit count and a
+    # representative per orbit -- and `--by-orbit` will evaluate one item per
+    # orbit instead of all of them.
     items: object                        # iterable, or callable() -> iterable
     predicate: object = None             # callable(item) -> bool | Outcome
     collect: object = None               # callable(item) -> number
     key: object = None                   # callable(item) -> str (default: str)
     describe: object = None              # callable(item) -> str, optional
-    reduce: object = None                # callable(item) -> iterable of items
+    reduce: object = None                # callable(item) -> iterable, or a name
+    canonicalize: object = None          # callable(item) -> hashable orbit key
     worst: str = "min"
     title: str = ""
 
@@ -369,6 +385,12 @@ class DomainSpec:
 
     def id_of(self, item) -> str:
         return str(self.key(item)) if self.key else str(item)
+
+    def reducer(self):
+        """The reduce function, resolving a catalogue name if that is what it is."""
+        from .reducers import resolve
+
+        return None if self.reduce is None else resolve(self.reduce)
 
 
 # ---------------------------------------------------------------------------

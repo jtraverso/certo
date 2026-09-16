@@ -317,7 +317,9 @@ def synth_proved_certificate(candidate, synth_cert, universal_cert) -> Certifica
 
 
 def domain_sweep_certificate(ids, entries, mode, counts, values=None,
-                             stats=None, title="", outcomes="") -> Certificate:
+                             stats=None, title="", outcomes="",
+                             orbits=None, labelled=0,
+                             by_orbit=False, spot_checks=None) -> Certificate:
     """Same contract as `sweep`, for a domain the spec defines itself.
 
     Including the same three levels: the domain and its hash, the verdict
@@ -335,7 +337,9 @@ def domain_sweep_certificate(ids, entries, mode, counts, values=None,
                  "counts": counts, "values": values or [], "stats": stats,
                  "evaluations": evaluations, "certified": certified,
                  "outcomes": outcomes,
-                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else ""},
+                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else "",
+                 "orbits": orbits, "labelled": labelled,
+                 "by_orbit": by_orbit, "spot_checks": spot_checks},
         note_key="cert.note.domain_sweep",
     )
 
@@ -1029,10 +1033,11 @@ def _verify_shrink_graph(cert, limits) -> VerifyReport:
     p = cert.payload
     checks = []
 
-    src = Path(p["spec_path"])
-    if not src.exists():
+    src = Path(p["spec_path"] or "")
+    if not p["spec_path"] or not src.is_file():
         return VerifyReport(False, "shrink_graph", True,
-                            detail=t("verify.shrink.spec_missing", path=src))
+                            detail=t("verify.shrink.spec_missing",
+                                     path=p["spec_path"] or "-"))
     got = hashlib.sha256(src.read_bytes()).hexdigest()
     checks.append((t("verify.shrink.spec_same"), got == p["spec_sha256"], got[:16]))
 
@@ -1245,15 +1250,25 @@ def _verify_shrink_domain(cert, limits) -> VerifyReport:
     p = cert.payload
     checks = []
 
-    src = Path(p["spec_path"])
-    if not src.exists():
+    # `Path("")` is `.`, which exists and is a directory: without the first
+    # test this reads a folder and dies with a permission error instead of
+    # saying the certificate never recorded where its spec was.
+    src = Path(p["spec_path"] or "")
+    if not p["spec_path"] or not src.is_file():
         return VerifyReport(False, "shrink_domain", True,
-                            detail=t("verify.shrink.spec_missing", path=src))
+                            detail=t("verify.shrink.spec_missing",
+                                     path=p["spec_path"] or "-"))
     got = hashlib.sha256(src.read_bytes()).hexdigest()
     checks.append((t("verify.shrink.spec_same"), got == p["spec_sha256"],
                    got[:16]))
 
     spec = load_spec(src)
+    # Resolve a named reducer the same way the engine did, or the replay
+    # would walk a different descent than the one recorded.
+    reduce = spec.reducer()
+    if reduce is None:
+        return VerifyReport(False, "shrink_domain", True, checks=checks,
+                            detail=t("engine.shrink.no_reduce"))
     by_id = {spec.id_of(i): i for i in spec.enumerate()}
     start = by_id.get(p["original"])
     if start is None:
@@ -1264,7 +1279,7 @@ def _verify_shrink_domain(cert, limits) -> VerifyReport:
     # Replay the recorded descent rather than redoing the search.
     item = start
     for step in p["trace"]:
-        options = list(spec.reduce(item))
+        options = list(reduce(item))
         if step["index"] >= len(options):
             item = None
             break
@@ -1288,7 +1303,7 @@ def _verify_shrink_domain(cert, limits) -> VerifyReport:
     if replayed:
         checks.append((t("verify.shrink.still_ce_item"), is_ce(item),
                        p["minimal"]))
-        survivors = [spec.id_of(c) for c in spec.reduce(item) if is_ce(c)]
+        survivors = [spec.id_of(c) for c in reduce(item) if is_ce(c)]
         checks.append((t("verify.shrink.none_survive"), not survivors,
                        t("verify.shrink.survivors", names=survivors[:5])))
 
@@ -1374,6 +1389,10 @@ def _verify_domain_sweep(cert, limits) -> VerifyReport:
               (t("verify.domain.unique"), len(set(ids)) == len(ids),
                t("verify.domain.duplicates", n=len(ids) - len(set(ids))))]
     checks += _verify_entries_and_stats(p, limits)
+    if p.get("orbits"):
+        from . import orbits as orb
+
+        checks += orb.check(p)
 
     pchecks, pwarn, level = _predicate_level(cert, limits, "domain")
     checks += pchecks
@@ -1420,7 +1439,12 @@ def _verify_entries_and_stats(p, limits) -> list:
 
 
 def _entry_id(e) -> str:
-    """`id` is the field; `g6` is what it was called before it held triples."""
+    """The item's id.
+
+    `id` is the field. `g6` is what it used to be called, back when the only
+    domain was graphs -- which is how a DomainSpec ended up labelling triples
+    of sets as "graph6". Certificates issued before the rename are still read.
+    """
     return e.get("id") or e.get("g6") or "?"
 
 

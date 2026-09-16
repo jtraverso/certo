@@ -158,6 +158,7 @@ def shrink_graph(spec, start: Graph, limits: Limits | None = None,
     blocked = []
     for op, cand in _reductions(current):
         _, reason = is_counterexample(cand)
+        # Always a graph here, so `g6` is the accurate name.
         blocked.append({"op": op, "g6": cand.to_graph6(), "reason": reason})
 
     cert = shrink_graph_certificate(
@@ -262,7 +263,8 @@ def shrink_domain(spec, start, limits: Limits | None = None,
     exactly instead of re-running the search.
     """
     t0 = time.perf_counter()
-    if spec.reduce is None:
+    reduce = spec.reducer()
+    if reduce is None:
         raise ValueError(t("engine.shrink.no_reduce"))
 
     def is_counterexample(item):
@@ -295,7 +297,7 @@ def shrink_domain(spec, start, limits: Limits | None = None,
     while changed:
         changed = False
         cands = []
-        for i, cand in enumerate(spec.reduce(current)):
+        for i, cand in enumerate(reduce(current)):
             good, _ = is_counterexample(cand)
             if good:
                 cands.append((i, cand, score(cand)))
@@ -320,7 +322,7 @@ def shrink_domain(spec, start, limits: Limits | None = None,
         current, steps, changed = cand, steps + 1, True
 
     blocked = []
-    for i, cand in enumerate(spec.reduce(current)):
+    for i, cand in enumerate(reduce(current)):
         _, reason = is_counterexample(cand)
         blocked.append({"index": i, "id": spec.id_of(cand), "reason": reason})
 

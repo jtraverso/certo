@@ -129,9 +129,9 @@ def test_worst_counterexample_is_picked_from_a_certificate():
         f = Path(d) / "c.json"
         f.write_text(json.dumps(r.certificate.to_dict()), encoding="utf-8")
         pick = _worst_from_cert(f, "min")
-    values = {v["g6"]: Fraction(v["value"])
+    values = {v["id"]: Fraction(v["value"])
               for v in r.certificate.payload["values"]}
-    failures = {e["g6"] for e in r.certificate.payload["entries"]}
+    failures = {e["id"] for e in r.certificate.payload["entries"]}
     assert pick in failures
     assert values[pick] == min(values[g] for g in failures)
 
@@ -1117,6 +1117,223 @@ def test_a_disagreeing_replay_does_not_also_claim_only_the_domain_was_checked():
     assert not rep.ok
     assert not any("could not be replayed" in w for w in rep.warnings)
 
+
+def test_certificates_issued_before_the_rename_still_read():
+    """`g6` was the field name when the only domain was graphs."""
+    from certo.certificate import _entry_id
+
+    assert _entry_id({"id": "a=1"}) == "a=1"
+    assert _entry_id({"g6": "E??w"}) == "E??w"      # pre-rename certificate
+    assert _entry_id({}) == "?"
+
+
+def test_a_domain_sweep_no_longer_calls_its_items_graph6():
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_bool_domain(lambda i: i < 8), LIM)
+    p = r.certificate.payload
+    assert p["entries"] and all("id" in e and "g6" not in e for e in p["entries"])
+
+# --- P1: standard reducers -------------------------------------------------
+
+
+def test_the_catalogue_reducers_are_deterministic_and_shrinking():
+    from certo import reducers
+
+    assert reducers.sets({3, 1, 2}) == [{2, 3}, {1, 3}, {1, 2}]
+    assert reducers.sequences((1, 2, 3)) == [(2, 3), (1, 3), (1, 2)]
+    assert reducers.decrement((4, 2)) == [(3, 2), (4, 1)]
+    assert reducers.masks(0b1011) == [0b1010, 0b1001, 0b0011]
+    assert reducers.decrement((0, 0)) == []          # already at the floor
+
+
+def test_auto_treats_a_tuple_of_ints_as_a_point_not_a_collection():
+    """Dropping a coordinate from a parameter point changes its arity."""
+    from certo import reducers
+
+    assert reducers.auto((3, 1)) == [(2, 1), (3, 0)]
+    assert reducers.auto(("a", "b")) == [("b",), ("a",)]
+
+
+def test_auto_refuses_rather_than_inventing_a_reduction():
+    from certo import reducers
+
+    try:
+        reducers.auto(3.5)
+    except TypeError as e:
+        assert "float" in str(e)
+    else:
+        raise AssertionError("it made up a reduction for a float")
+
+
+def test_a_named_reducer_replays_exactly_like_a_hand_written_one():
+    from certo import load_spec
+    from certo.engines import shrink
+
+    src = _spec_file("certo_reducer_", 0)            # reduce="auto" inside
+    src.write_text(
+        SPEC_TEMPLATE.replace("predicate=lambda i: i >= {t},",
+                              "predicate=lambda i: i < 4,")
+        .replace("key=", "reduce='auto', key=").format(t=0),
+        encoding="utf-8")
+    spec = load_spec(src)
+    r = shrink.shrink_domain(spec, 11, LIM, spec_path=src)
+    assert r.verdict is Verdict.REFUTED
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_an_unknown_reducer_name_lists_the_known_ones():
+    from certo import DomainSpec
+
+    try:
+        DomainSpec(items=[], reduce="nope").reducer()
+    except ValueError as e:
+        assert "auto" in str(e) and "graphs" in str(e)
+    else:
+        raise AssertionError("it accepted a name that does not exist")
+
+
+def test_a_shrink_certificate_with_no_spec_path_says_so_instead_of_crashing():
+    """Path("") is ".", which exists and is a directory."""
+    from certo.certificate import shrink_domain_certificate
+
+    rep = verify(shrink_domain_certificate("", "", "x", "x", [], [], 0), LIM)
+    assert not rep.ok
+    assert "spec" in rep.detail
+
+
+# --- P1: orbits ------------------------------------------------------------
+
+
+def _mirror_spec(n=7):
+    from certo import DomainSpec
+
+    return DomainSpec(
+        items=[(a, b) for a in range(1, n) for b in range(1, n)],
+        predicate=lambda p: p[0] + p[1] != n,
+        key=lambda p: "({},{})".format(*p),
+        canonicalize=lambda p: tuple(sorted(p)),
+    )
+
+
+def test_orbits_collapse_relabelled_counterexamples():
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_mirror_spec(), LIM)
+    assert r.verdict is Verdict.REFUTED
+    assert r.meta["labelled"] == 6 and r.meta["orbit_count"] == 3
+    reps = [row["representative"] for row in r.meta["orbits"]]
+    assert reps == ["(1,6)", "(2,5)", "(3,4)"]       # smallest id, deterministic
+    assert all(row["size"] == 2 for row in r.meta["orbits"])
+
+
+def test_the_orbit_decomposition_is_checked_for_consistency():
+    from certo.engines import domain
+
+    cert = _roundtrip(domain.sweep_domain(_mirror_spec(), LIM).certificate)
+    rep = verify(cert, LIM)
+    assert rep.ok
+    assert sum(1 for c, _, _ in rep.checks if "orbit" in c) == 3
+
+
+def test_a_decomposition_that_does_not_add_up_is_caught():
+    from certo.engines import domain
+
+    cert = _roundtrip(domain.sweep_domain(_mirror_spec(), LIM).certificate)
+    cert.payload["orbits"][0]["size"] = 99          # more members than items
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("partition" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_two_orbits_may_not_share_a_representative():
+    from certo.engines import domain
+
+    cert = _roundtrip(domain.sweep_domain(_mirror_spec(), LIM).certificate)
+    cert.payload["orbits"][1]["representative"] = \
+        cert.payload["orbits"][0]["representative"]
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("representative" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_only_the_counterexamples_are_decomposed():
+    """The orbit structure of everything that passed is rarely the question."""
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_mirror_spec(), LIM)
+    assert r.meta["domain_orbits"] == 21            # the whole 6x6 domain
+    assert r.meta["orbit_count"] == 3               # only the failures
+
+
+def test_a_sweep_with_no_symmetry_declared_reports_no_orbits():
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_bool_domain(lambda i: i < 5), LIM)
+    assert "orbits" not in r.meta and "domain_orbits" not in r.meta
+    assert r.certificate.payload["orbits"] is None
+
+
+def test_canonicalize_must_return_something_hashable():
+    from certo import DomainSpec
+    from certo.engines import domain
+
+    spec = DomainSpec(items=[(1, 2)], predicate=lambda p: False,
+                      key=str, canonicalize=lambda p: list(p))
+    try:
+        domain.sweep_domain(spec, LIM)
+    except TypeError as e:
+        assert "hashable" in str(e)
+    else:
+        raise AssertionError("an unhashable canonical form was accepted")
+
+
+# --- P1: doctor ------------------------------------------------------------
+
+
+def test_doctor_reports_every_capability_with_its_fallback():
+    from certo import doctor
+
+    rep = doctor.report()
+    assert rep["ok"]                                 # z3 and pulp are required
+    keys = {r["key"] for r in rep["rows"]}
+    assert {"python", "z3", "pulp", "flint", "nauty", "lean"} <= keys
+    for r in rep["rows"]:
+        assert r["what"] and not r["what"].startswith("doctor.")
+        if not r["ok"]:
+            assert r["without"], r["key"] + " has no stated fallback"
+
+
+def test_registering_mcp_merges_instead_of_replacing():
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from certo import doctor
+
+    p = Path(tempfile.mkdtemp(prefix="certo_mcpreg_")) / ".mcp.json"
+    p.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}),
+                 encoding="utf-8")
+
+    out = doctor.register_mcp(p)
+    assert out["written"] and out["servers"] == ["certo", "other"]
+    assert json.loads(p.read_text(encoding="utf-8"))["mcpServers"]["other"]
+
+    again = doctor.register_mcp(p)
+    assert again["already"]                          # idempotent
+
+
+def test_a_broken_mcp_config_is_not_overwritten():
+    import tempfile
+    from pathlib import Path
+
+    from certo import doctor
+
+    p = Path(tempfile.mkdtemp(prefix="certo_mcpbad_")) / ".mcp.json"
+    p.write_text("not json at all", encoding="utf-8")
+    out = doctor.register_mcp(p)
+    assert not out["written"]
+    assert p.read_text(encoding="utf-8") == "not json at all"
 
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

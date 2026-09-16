@@ -82,22 +82,22 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
         g6 = g.to_graph6()
         codes.append(outcome_code(out))
         if out.value is not None:
-            values.append({"g6": g6, "value": exact.serialize(out.value)})
+            values.append({"id": g6, "value": exact.serialize(out.value)})
         if out.errored:
-            errors.append({"g6": g6, "detail": out.detail})
+            errors.append({"id": g6, "detail": out.detail})
             continue
         if out.ok is None:
-            unknowns.append({"g6": g6, "detail": out.detail})
+            unknowns.append({"id": g6, "detail": out.detail})
             continue
         if not out.ok:
             failures.append(g)
             if cert_mode in ("failures", "all") and out.cert is not None:
-                certs.append({"g6": g6, "cert": out.cert.to_dict(),
+                certs.append({"id": g6, "cert": out.cert.to_dict(),
                               "detail": out.detail})
             elif cert_mode in ("failures", "all"):
-                certs.append({"g6": g6, "cert": None, "detail": out.detail})
+                certs.append({"id": g6, "cert": None, "detail": out.detail})
         elif cert_mode == "all" and out.cert is not None:
-            certs.append({"g6": g6, "cert": out.cert.to_dict(),
+            certs.append({"id": g6, "cert": out.cert.to_dict(),
                           "detail": out.detail})
 
     ms = (time.perf_counter() - t0) * 1000
@@ -190,14 +190,14 @@ def _calibration(values, worst="min"):
         "min": exact.fmt(st["min"]), "max": exact.fmt(st["max"]),
         "mean": exact.fmt(st["mean"]),
         "worst_sense": worst,
-        "worst": [{"g6": v["g6"], "value": exact.fmt(v["value"])}
+        "worst": [{"id": v["id"], "value": exact.fmt(v["value"])}
                   for v in ordered[:5]],
-        "argworst": arg_worst["g6"], "argbest": arg_best["g6"],
+        "argworst": arg_worst["id"], "argbest": arg_best["id"],
         "summary": t("engine.sweep.summary",
                      min=exact.fmt(st["min"]),
-                     argmin=arg_worst["g6"] if worst == "min" else arg_best["g6"],
+                     argmin=arg_worst["id"] if worst == "min" else arg_best["id"],
                      max=exact.fmt(st["max"]),
-                     argmax=arg_worst["g6"] if worst == "max" else arg_best["g6"],
+                     argmax=arg_worst["id"] if worst == "max" else arg_best["id"],
                      mean=exact.fmt(st["mean"])),
         "stats": {k: exact.serialize(v) for k, v in st.items() if k != "count"},
     }
