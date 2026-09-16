@@ -985,6 +985,139 @@ def test_compose_reports_bridges_that_contradict_each_other():
 
 
 
+# --- P0: what a sweep establishes about the predicate ----------------------
+
+
+def _bool_domain(pred, n=12):
+    from certo import DomainSpec
+
+    return DomainSpec(items=list(range(n)), predicate=pred,
+                      key=lambda i: "i={}".format(i))
+
+
+def _spec_file(dirname, threshold):
+    """A DomainSpec on disk whose predicate depends on `threshold`."""
+    import tempfile
+    from pathlib import Path
+
+    d = Path(tempfile.mkdtemp(prefix=dirname))
+    src = d / "s.py"
+    src.write_text(SPEC_TEMPLATE.format(t=threshold), encoding="utf-8")
+    return src
+
+
+SPEC_TEMPLATE = """
+from certo import DomainSpec
+
+def spec():
+    return DomainSpec(items=list(range(12)),
+                      predicate=lambda i: i >= {t},
+                      key=lambda i: "i=" + str(i))
+"""
+
+
+def _pretend_unchanged(cert, src):
+    """Make the provenance hash match the EDITED spec.
+
+    Without this the provenance warning would fire and the replay would be
+    skipped; the point of the test is that the replay is what catches an edit
+    nothing else can see.
+    """
+    import hashlib
+
+    cert.provenance["spec_sha256"] = hashlib.sha256(src.read_bytes()).hexdigest()
+    return cert
+
+
+def test_replay_catches_a_predicate_that_changed_under_a_stable_name():
+    """The only check that can catch this. The domain hash cannot -- the
+    domain did not move. The stored certificates cannot -- there are none."""
+    from certo import load_spec
+    from certo.engines import domain
+
+    src = _spec_file("certo_replay_", 0)
+    cert = _roundtrip(domain.sweep_domain(load_spec(src), LIM)
+                      .certificate.stamp(src))
+    assert verify(cert, LIM).ok
+
+    src.write_text(SPEC_TEMPLATE.format(t=3), encoding="utf-8")   # three flip
+    rep = verify(_pretend_unchanged(cert, src), LIM)
+    assert not rep.ok
+    failed = [(c, d) for c, ok, d in rep.checks if not ok]
+    assert failed and "re-running" in failed[0][0]
+    assert "i=0" in failed[0][1]
+
+
+def test_a_sweep_with_no_spec_path_drops_to_recorded():
+    from certo.engines import domain
+
+    cert = _roundtrip(domain.sweep_domain(_bool_domain(lambda i: True),
+                                          LIM).certificate)
+    rep = verify(cert, LIM)                     # never stamped: nothing to replay
+    assert rep.ok
+    assert "recorded only" in rep.detail
+    assert any("NOT re-run" in w for w in rep.warnings)
+    assert any("could not be replayed" in w for w in rep.warnings)
+
+
+def test_the_verdict_vector_is_what_makes_replay_possible():
+    from certo.certificate import outcomes_digest
+    from certo.engines import domain
+
+    r = domain.sweep_domain(_bool_domain(lambda i: i % 2 == 0), LIM)
+    p = r.certificate.payload
+    assert p["outcomes"] == "TFTFTFTFTFTF"
+    assert p["outcomes_sha256"] == outcomes_digest(p["outcomes"])
+    assert p["evaluations"] == 12 and p["certified"] == 0
+
+
+def test_an_inconclusive_evaluation_is_its_own_code():
+    from certo import Outcome
+    from certo.engines import domain
+
+    def pred(i):
+        if i == 5:
+            return Outcome(ok=None, detail="gave up")
+        if i == 7:
+            raise RuntimeError("boom")
+        return True
+
+    p = domain.sweep_domain(_bool_domain(pred), LIM).certificate.payload
+    assert p["outcomes"] == "TTTTT?TETTTT"
+
+
+def test_calibration_has_no_predicate_to_certify_and_says_nothing_about_one():
+    from fractions import Fraction
+
+    from certo import DomainSpec
+    from certo.engines import domain
+
+    spec = DomainSpec(items=list(range(6)), collect=lambda i: Fraction(i, 7),
+                      key=lambda i: "i={}".format(i))
+    r = domain.sweep_domain(spec, LIM)
+    assert "level" not in r.meta                # there is no predicate to rate
+    assert "banner_key" not in r.meta           # the banner stays CALIBRATION
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert "no predicate" in rep.detail
+    assert not any("carry no certificate" in w for w in rep.warnings)
+
+
+def test_a_disagreeing_replay_does_not_also_claim_only_the_domain_was_checked():
+    """Two messages for one problem make readers skim both."""
+    from certo import load_spec
+    from certo.engines import domain
+
+    src = _spec_file("certo_one_msg_", 0)
+    cert = _roundtrip(domain.sweep_domain(load_spec(src), LIM)
+                      .certificate.stamp(src))
+    src.write_text(SPEC_TEMPLATE.format(t=2), encoding="utf-8")
+
+    rep = verify(_pretend_unchanged(cert, src), LIM)
+    assert not rep.ok
+    assert not any("could not be replayed" in w for w in rep.warnings)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

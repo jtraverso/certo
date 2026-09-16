@@ -186,6 +186,86 @@ la ruta y el `sha256` de la spec. Si el fichero cambia después, `verify` avisa:
 el certificado sigue siendo válido por sí mismo, pero ya no corresponde al
 fichero que hay ahora.
 
+## Qué establece de verdad un barrido
+
+Un barrido que pasa y un barrido que pasa *con certificados* no son el mismo
+resultado, y la distancia es grande. Así que el banner dice cuál te tocó:
+
+| Nivel | Qué se sostiene | Cuándo |
+|---|---|---|
+| **certified** | cada evaluación lleva su certificado; no se confía en el predicado en absoluto | el predicado devuelve `Outcome(ok, cert=...)` **y** `--cert-all` los guarda |
+| **reproducible** | el dominio, su hash y un vector de veredictos: reejecutar el predicado da las mismas respuestas | predicado `bool` pelado — el caso habitual |
+| **recorded** | solo el dominio y su hash | la spec no está, se movió, o nunca se selló |
+
+```
+$ certo sweep spec.py
+FINITE SWEEP REPRODUCIBLE -- the predicate is NOT certified  [unsat]
+  the predicate holds on all 3481 items (FINITE DOMAIN, not the theorem)
+  predicate_certified: 0
+  predicate_uncertified: 3481
+  !! 3481 de 3481 evaluaciones no llevan certificado. El barrido es
+  REPRODUCIBLE --reejecutar el predicado da las mismas respuestas-- pero nada
+  de esto establece que esas respuestas sean correctas.
+```
+
+Fíjate en las dos salvedades independientes. «No es el teorema» va de
+**generalidad**: se comprobó un dominio finito, no todo `n`. «No certificado»
+va de **confianza**: nada aquí dice que el predicado respondiera bien. Un
+barrido que pasaba solo enunciaba la primera, y un banner verde sobre once mil
+booleanos sin comprobar es donde eso más daño hace — no hay contraejemplo al
+que ir a mirar.
+
+### El replay: el nivel intermedio, con nombre
+
+El certificado guarda un **vector de veredictos** —un carácter por elemento,
+en orden de dominio— y su digest. `verify` reejecuta el predicado y compara:
+
+```
+$ certo verify out/sweep.json
+VALID  domain_sweep certificate (reejecutando la spec, no confiando en sus respuestas)
+  [ok] the family hash matches
+  [ok] the item ids are unique
+  [ok] re-running the predicate gives the same verdicts  (3481 evaluations, all identical)
+  WARNING: 3481 de 3481 evaluaciones no llevan certificado. Reejecutarlas
+  coincide, lo que hace el barrido reproducible; eso NO hace que las
+  respuestas del predicado estén verificadas.
+```
+
+Es la única comprobación que pilla un predicado editado bajo un nombre
+estable: el hash del dominio no puede —el dominio no se movió— y los
+certificados guardados tampoco, porque no hay ninguno. Cuando discrepa, nombra
+el elemento:
+
+```
+  [XX] re-running the predicate gives the same verdicts
+       (item a=1,b=1 (index 0) now answers differently)
+```
+
+Dos consecuencias que conviene decir. Verificar cuesta ahora una reejecución
+completa del predicado, que es el precio honesto de la afirmación. Y la
+cabecera dice **«reejecutando la spec»** en vez de «sin solver»: el replay
+ejecuta el Python de la spec, que bien puede llamar a un solver, así que la
+redacción antigua era el mismo exceso un nivel más abajo.
+
+### Cómo llegar a `certified`
+
+Devuelve un `Outcome` con el certificado, y guárdalos todos:
+
+```python
+def predicate(item):
+    res = lp.opt(build(item))
+    return Outcome(ok=res.verdict is Verdict.PROVED, cert=res.certificate)
+```
+
+```bash
+certo sweep spec.py --cert-all
+```
+
+Hacen falta las dos mitades. Un predicado que certifica cada respuesta pero
+corre con `--cert-all` apagado solo conserva los certificados de los
+contraejemplos, así que el certificado lleva uno de veintiuno — y lo dice.
+**Un certificado solo puede atestiguar lo que de verdad contiene.**
+
 ## Las demostraciones vacuas se detectan, no se celebran
 
 `prove` tiene éxito cuando `hipótesis ∧ ¬objetivo` es insatisfacible. Si las
@@ -939,11 +1019,13 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-123, y sin necesidad de ningún framework de tests.
+131, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done
 ```
+
+En [BACKLOG.md](BACKLOG.md) está lo que viene y lo que deliberadamente no.
 
 ## Licencia
 

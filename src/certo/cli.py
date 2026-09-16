@@ -33,6 +33,11 @@ SCOPE_NOTE = {("synth", Verdict.PROVED), ("sweep", Verdict.PROVED)}
 
 
 def banner(res: Result) -> str:
+    # A sweep's banner depends on what it established about the PREDICATE, not
+    # only on its verdict, so the engine picks the key.
+    key = res.meta.get("banner_key")
+    if key and (res.command, res.verdict) in SCOPED:
+        return t(key)
     if (res.command, res.verdict) in SCOPED:
         return t("scope.{}.{}".format(res.command, res.verdict.value))
     return t("verdict." + res.verdict.value)
@@ -53,7 +58,8 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "errors_detail", "inconclusive_detail", "implementation",
                 "domain", "evaluations", "calibration", "table", "multipliers",
                 "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
-                "width", "ladder", "lo_float", "hi_float", "vacuous")
+                "width", "ladder", "lo_float", "hi_float", "vacuous",
+                "banner_key", "level")
 
 
 def print_calibration(cal, worst_k=3):
@@ -95,6 +101,11 @@ def emit(res: Result, args) -> int:
             if k in _HIDDEN_META:
                 continue
             print("  {}: {}".format(k, v))
+
+        if res.meta.get("level") and res.meta["level"] != "certified":
+            print("  !! " + t("cli.sweep.level." + res.meta["level"],
+                              n=res.meta.get("predicate_uncertified", 0),
+                              total=res.meta.get("evaluations", 0)))
 
         if res.meta.get("vacuous"):
             print("  !! " + t("cli.vacuous"))
@@ -656,8 +667,9 @@ def cmd_verify(args):
         print(t("cli.verify.header",
                 state=t("cli.verify.valid" if rep.ok else "cli.verify.invalid"),
                 kind=rep.kind,
-                how=t("cli.verify.solver_free" if rep.solver_free
-                      else "cli.verify.with_solver")))
+                how=t(rep.method_key or ("cli.verify.solver_free"
+                                         if rep.solver_free
+                                         else "cli.verify.with_solver"))))
         for name, ok, detail in rep.checks:
             print("  [{}] {}{}".format("ok" if ok else "XX", name,
                                        "  ({})".format(detail) if detail else ""))

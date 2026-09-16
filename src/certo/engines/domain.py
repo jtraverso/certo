@@ -14,7 +14,8 @@ from __future__ import annotations
 import time
 
 from .. import exact
-from ..certificate import domain_sweep_certificate
+from ..certificate import (domain_sweep_certificate, outcome_code,
+                           sweep_strength)
 from ..i18n import t
 from ..limits import Limits
 from ..spec import Outcome
@@ -47,9 +48,11 @@ def sweep_domain(spec, limits: Limits | None = None,
     items = spec.enumerate()
 
     failures, errors, unknowns, certs, values = [], [], [], [], []
+    codes = []
     for item in items:
         out = _evaluate(spec, item)
         key = spec.id_of(item)
+        codes.append(outcome_code(out))
         if out.value is not None:
             values.append({"g6": key, "value": exact.serialize(out.value)})
         if out.errored:
@@ -75,13 +78,16 @@ def sweep_domain(spec, limits: Limits | None = None,
         "inconclusive": len(unknowns),
     }
     calib = _calibration(values, spec.worst)
-    uncertified = sum(1 for c in certs if c["cert"] is None)
 
     cert = domain_sweep_certificate(
         ids=[spec.id_of(i) for i in items], entries=certs, mode=cert_mode,
         counts=counts, values=values,
         stats=calib["stats"] if calib else None, title=spec.title,
+        outcomes="" if spec.predicate is None else "".join(codes),
     )
+    if spec.predicate is None:
+        cert.payload["no_predicate"] = True
+    level = sweep_strength(cert.payload, True)
 
     described = []
     if spec.describe:
@@ -92,10 +98,16 @@ def sweep_domain(spec, limits: Limits | None = None,
                 except Exception as e:  # noqa: BLE001
                     described.append("describe failed: {}".format(e))
 
+    evaluations = cert.payload["evaluations"]
+    certified = cert.payload["certified"]
     base = {**counts, "counterexamples": failures[:50], "describe": described,
             "errors_detail": errors[:5], "inconclusive_detail": unknowns[:5],
-            "predicate_certificates": len(certs) - uncertified,
-            "predicate_uncertified": uncertified}
+            "evaluations": evaluations,
+            "predicate_certified": certified,
+            "predicate_uncertified": evaluations - certified}
+    if spec.predicate is not None:
+        base["level"] = level
+        base["banner_key"] = "scope.sweep." + level
     if calib:
         base["calibration"] = calib
 

@@ -6,7 +6,9 @@ than SMT-LIB, and validation sits on top.
 """
 from __future__ import annotations
 
-import importlib.util
+import hashlib
+import sys
+import types
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -274,13 +276,42 @@ class BisectSpec:
 
 
 def load_spec(path, expected=None):
-    """Import a .py file and return whatever its spec() function returns."""
+    """Import a .py file and return whatever its `spec()` function returns.
+
+    Two things this does NOT do the usual way, both of them on purpose.
+
+    It compiles the source it just read instead of going through the import
+    machinery, because that machinery caches bytecode keyed on mtime and size:
+    a spec edited within the same second to the same length comes back as the
+    OLD code. For a tool whose certificates carry a hash of the spec, running
+    something other than the bytes that were hashed is not a performance
+    detail -- it is the certificate describing a different program. Verifying
+    a sweep by replaying its predicate is exactly where that would bite.
+
+    And it puts the spec's own directory on `sys.path`, the way Python does
+    for a script it runs, so a spec can import a helper sitting next to it.
+    Without that, splitting a growing spec across two files fails in a way
+    that looks like a bug in `certo`.
+    """
     p = Path(path).resolve()
     if not p.exists():
         raise FileNotFoundError(t("spec.not_found", path=p))
-    mod_spec = importlib.util.spec_from_file_location("certo_userspec", p)
-    mod = importlib.util.module_from_spec(mod_spec)
-    mod_spec.loader.exec_module(mod)
+
+    here = str(p.parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+
+    source = p.read_bytes()
+    name = "certo_spec_" + hashlib.sha256(str(p).encode()).hexdigest()[:12]
+    mod = types.ModuleType(name)
+    mod.__file__ = str(p)
+    mod.__dict__["__builtins__"] = __builtins__
+    sys.modules[name] = mod            # so dataclasses and typing resolve
+    try:
+        exec(compile(source, str(p), "exec"), mod.__dict__)
+    finally:
+        sys.modules.pop(name, None)
+
     if not hasattr(mod, "spec"):
         raise AttributeError(t("spec.no_function", name=p.name))
     obj = mod.spec()

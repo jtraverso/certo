@@ -181,6 +181,11 @@ of these objects. You can pass the file (`spec_path`) or the code itself
     def spec():
         return SweepSpec(n=6, filters=["connected"], predicate=is_chordal)
 
+    # A BARE BOOL predicate makes the sweep REPRODUCIBLE, not certified: the
+    # certificate records the verdict vector so `verify` can re-run the
+    # predicate and confirm it answers the same, which is NOT the same as
+    # establishing those answers are right. `predicate_level` in the response
+    # says which of the three you got: certified / reproducible / recorded.
     # The predicate may return an Outcome instead of a bool:
     #   Outcome(ok=False, cert=<Certificate>, detail="...", value=Fraction(25,27))
     #   ok=None  -> inconclusive (counted apart, does not sink the sweep)
@@ -297,7 +302,16 @@ def _trim(meta: dict) -> dict:
     return out
 
 
-def _emit(res, save_cert: bool = True) -> dict:
+def _emit(res, save_cert: bool = True, spec_file=None) -> dict:
+    """Render a Result for the model, stamping provenance on the way out.
+
+    Stamping here rather than in each tool: without it a certificate produced
+    over MCP carries no spec path, so `ledger verify` cannot find what made it
+    and a sweep cannot be replayed -- it silently drops from `reproducible` to
+    `recorded` between the run and its own verification.
+    """
+    if spec_file is not None and res.certificate is not None:
+        res.certificate.stamp(spec_file)
     out: dict[str, Any] = {
         "command": res.command,
         "verdict": res.verdict.value,
@@ -312,6 +326,10 @@ def _emit(res, save_cert: bool = True) -> dict:
     # not get to hide inside `meta`.
     if res.meta.get("vacuous"):
         out["vacuous"] = True
+    # Same reason: a sweep that establishes nothing about its predicate must
+    # not summarise as a plain PROVED.
+    if res.meta.get("level"):
+        out["predicate_level"] = res.meta["level"]
     if res.certificate is None:
         out["certificate"] = None
         out["certificate_note"] = "no certificate: nothing to audit here"
@@ -350,6 +368,11 @@ _HINTS = (
     ("universal obligation",
      "add universal= or universal_behavior= to the SynthSpec; see dsl_guide"),
 )
+
+
+def _emit_f(f, res):
+    """`_emit` with the spec file, for the tools that return in one line."""
+    return _emit(res, spec_file=f)
 
 
 def _hint(e: Exception) -> str:
@@ -412,7 +435,7 @@ def _spec_tool(engine_call, expected=None):
         obj = await _off(load_spec, f, expected)
         lim = _limits(timeout_ms, rlimit, kw.pop("conflict_budget", 1_000_000),
                       kw.pop("max_iterations", 10_000))
-        return _emit(await _off(engine_call, obj, lim, **kw))
+        return _emit_f(f, await _off(engine_call, obj, lim, **kw))
 
     return run
 
@@ -461,14 +484,14 @@ async def core(spec_path: str | None = None, spec_source: str | None = None,
 
     if isinstance(sp, MultiSpec):
         res = await _off(smt.core_matrix, sp, lim)
-        out = _emit(res)
+        out = _emit(res, spec_file=f)
         out["table"] = res.meta.get("table")
         out["never_used"] = res.meta.get("never_used")
         return out
     if not isinstance(sp, Spec):
         raise TypeError("core needs a Spec or a MultiSpec; spec() returned "
                         + type(sp).__name__)
-    return _emit(await _off(smt.core, sp, lim))
+    return _emit_f(f, await _off(smt.core, sp, lim))
 
 
 @mcp.tool(description=(
@@ -498,7 +521,7 @@ async def bounds(spec_path: str | None = None, spec_source: str | None = None,
     if max_prec:
         sp.max_prec = max_prec
     res = await _off(bd.bounds, sp, _limits(timeout_ms), str(f))
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     for k in ("lo", "hi", "width", "prec", "backend"):
         out[k] = res.meta.get(k)
     return out
@@ -524,7 +547,7 @@ async def compose(spec_path: str | None = None, spec_source: str | None = None,
     f = _spec_file(spec_path, spec_source)
     sp = await _off(load_spec, f, ProofSpec)
     res = await _off(cp.compose, sp, _limits(timeout_ms), str(f), _workspace())
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     for k in ("lemmas", "used", "unused", "bridges"):
         out[k] = res.meta.get(k)
     return out
@@ -549,7 +572,7 @@ async def farkas(spec_path: str | None = None, spec_source: str | None = None,
     f = _spec_file(spec_path, spec_source)
     sp = await _off(load_spec, f, Spec)
     res = await _off(fk.farkas, sp, _limits(timeout_ms), nonlinear, str(f))
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     out["multipliers"] = res.meta.get("multipliers")
     out["lean"] = res.meta.get("hint")
     return out
@@ -577,7 +600,7 @@ async def synth(spec_path: str | None = None, spec_source: str | None = None,
     res = await _off(cegis.synth, sp, lim)
 
     if not prove_candidate or res.verdict is not Verdict.PROVED:
-        out = _emit(res)
+        out = _emit(res, spec_file=f)
         out["scope"] = ("BOUNDED synthesis: the object holds in the spec's "
                         "domain; this is not a theorem")
         return out
@@ -590,7 +613,7 @@ async def synth(spec_path: str | None = None, spec_source: str | None = None,
         universal_cert=uni.certificate.to_dict() if uni.certificate else None,
     ).stamp(f)
     res.certificate = combo
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     out["candidate"] = res.meta.get("implementation")
     out["universal_proof"] = {"verdict": uni.verdict.value,
                               "status": uni.status.value, "detail": uni.detail}
@@ -621,7 +644,7 @@ async def opt(spec_path: str | None = None, spec_source: str | None = None,
                         + type(sp).__name__)
 
     res = await _off(lp.opt, sp, _limits(timeout_ms))
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     if packing is not None:
         from .packing import loads_from_dual
 
@@ -654,7 +677,7 @@ async def cases(spec_path: str | None = None, spec_source: str | None = None,
                         + type(obj).__name__)
     s = obj if isinstance(obj, CNFSpec) else CNFSpec(cnf=obj, title=obj.title)
     lim = _limits(timeout_ms, conflict_budget=conflict_budget)
-    return _emit(await _off(sat.cases, s, lim, solver))
+    return _emit_f(f, await _off(sat.cases, s, lim, solver))
 
 
 @mcp.tool(description=(
@@ -666,6 +689,8 @@ async def enum(n: int, filters: list[str] | None = None,
                timeout_ms: int = 60_000) -> dict:
     from .engines import graphsearch
 
+    # No spec here: enum takes n and filters directly, so there is no file
+    # to stamp against.
     res = await _off(graphsearch.enum, n, filters or [], _limits(timeout_ms))
     out = _emit(res)
     g6 = res.certificate.payload["graph6"] if res.certificate else []
@@ -710,7 +735,7 @@ async def sweep(spec_path: str | None = None, spec_source: str | None = None,
         raise TypeError("sweep needs a SweepSpec (graphs) or a DomainSpec "
                         "(any finite domain); spec() returned "
                         + type(sp).__name__)
-    out = _emit(res)
+    out = _emit(res, spec_file=f)
     if res.meta.get("calibration"):
         out["calibration"] = res.meta["calibration"]
     return out
@@ -735,7 +760,7 @@ async def shrink(spec_path: str | None = None, spec_source: str | None = None,
 
     if isinstance(obj, (CNF, CNFSpec)):
         s = obj if isinstance(obj, CNFSpec) else CNFSpec(cnf=obj, title=obj.title)
-        return _emit(await _off(shr.shrink_cnf, s, lim))
+        return _emit_f(f, await _off(shr.shrink_cnf, s, lim))
 
     if not isinstance(obj, SweepSpec):
         raise TypeError("shrink needs a SweepSpec or CNFSpec; spec() returned "
@@ -752,7 +777,7 @@ async def shrink(spec_path: str | None = None, spec_source: str | None = None,
                     "meta": _trim(sw.meta), "certificate": None}
         start = Graph.from_graph6(ces[0])
 
-    return _emit(await _off(shr.shrink_graph, obj, start, lim,
+    return _emit_f(f, await _off(shr.shrink_graph, obj, start, lim,
                             str(f), keep_filters))
 
 
@@ -804,9 +829,12 @@ async def verify(certificate_path: str, timeout_ms: int = 60_000) -> dict:
     p = _resolve(certificate_path)
     cert = Certificate.from_dict(json.loads(p.read_text(encoding="utf-8")))
     rep = await _off(vc, cert, _limits(timeout_ms))
-    return {"ok": rep.ok, "kind": rep.kind, "solver_free": rep.solver_free,
-            "checks": [{"check": c, "ok": o, "detail": d} for c, o, d in rep.checks],
-            "detail": rep.detail}
+    # rep.to_dict() and not a hand-built subset: this used to drop `warnings`,
+    # which is where every "this says less than it looks like" lives -- a
+    # bridge that is asserted rather than derived, a vacuous proof, a sweep
+    # whose predicate nothing certified. An ok=True with those removed is the
+    # overclaim this tool exists to prevent.
+    return rep.to_dict()
 
 
 @mcp.tool(description=(

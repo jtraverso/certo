@@ -184,7 +184,13 @@ def _conn5(pred):
     return SweepSpec(n=5, filters=["connected"], predicate=pred)
 
 
-def test_sweep_aggregates_and_verifies_predicate_certificates():
+def test_storing_every_certificate_is_what_reaches_the_certified_level():
+    """The predicate certifying each answer is not enough on its own.
+
+    With cert_mode="failures" only the counterexample's certificate is kept,
+    so the certificate carries one out of twenty-one -- and it says so. A
+    certificate can only attest what it actually contains.
+    """
     from certo import Outcome
 
     lps = LPSpec(sense="max")
@@ -196,22 +202,36 @@ def test_sweep_aggregates_and_verifies_predicate_certificates():
     def pred(g):
         return Outcome(ok=g.m < 10, cert=sub, detail="m={}".format(g.m))
 
-    r = graphsearch.sweep(_conn5(pred), LIM, use_geng=False)
-    assert r.verdict is Verdict.REFUTED           # K5 has 10 edges
-    assert r.meta["predicate_certificates"] >= 1
-    assert r.meta["predicate_uncertified"] == 0
+    kept = graphsearch.sweep(_conn5(pred), LIM, use_geng=False)
+    assert kept.verdict is Verdict.REFUTED           # K5 has 10 edges
+    assert kept.meta["predicate_certified"] == 1
+    assert kept.meta["predicate_uncertified"] == kept.meta["evaluations"] - 1
+    assert kept.meta["level"] == "reproducible"
 
-    rep = verify(_roundtrip(r.certificate), LIM)
+    everything = graphsearch.sweep(_conn5(pred), LIM, use_geng=False,
+                                   cert_mode="all")
+    assert everything.meta["level"] == "certified"
+    assert everything.meta["predicate_uncertified"] == 0
+
+    rep = verify(_roundtrip(everything.certificate), LIM)
     assert rep.ok and rep.solver_free
-    assert not any("NO certificate" in w for w in rep.warnings)
+    assert not any("carry no certificate" in w for w in rep.warnings)
 
 
-def test_sweep_warns_when_the_predicate_certifies_nothing():
-    r = graphsearch.sweep(_conn5(lambda g: g.m < 10), LIM, use_geng=False)
-    assert r.verdict is Verdict.REFUTED
-    assert r.meta["predicate_uncertified"] >= 1
-    assert any("NO certificate" in w
-               for w in verify(_roundtrip(r.certificate), LIM).warnings)
+def test_a_bare_bool_predicate_never_reads_as_certified():
+    """The P0 case: a PASSING sweep must warn exactly like a refuted one."""
+    passing = graphsearch.sweep(_conn5(lambda g: g.m >= 4), LIM, use_geng=False)
+    refuted = graphsearch.sweep(_conn5(lambda g: g.m < 10), LIM, use_geng=False)
+    assert passing.verdict is Verdict.PROVED
+    assert refuted.verdict is Verdict.REFUTED
+
+    for r in (passing, refuted):
+        assert r.meta["level"] == "reproducible"
+        assert r.meta["predicate_uncertified"] == r.meta["evaluations"] > 0
+        assert r.meta["banner_key"] == "scope.sweep.reproducible"
+        rep = verify(_roundtrip(r.certificate), LIM)
+        assert any("carry no certificate" in w for w in rep.warnings)
+        assert "NOT certified" in rep.detail
 
 
 def test_a_broken_predicate_no_longer_kills_the_whole_sweep():

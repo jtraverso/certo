@@ -188,6 +188,87 @@ from the CLI, the path and `sha256` of the spec. If the file changes later,
 `verify` warns: the certificate is still valid on its own, but it no longer
 corresponds to the file that is there now.
 
+## What a sweep actually establishes
+
+A sweep that passes and a sweep that passes *with certificates* are not the
+same result, and the gap is wide. So the banner names which one you got:
+
+| Level | What holds | When |
+|---|---|---|
+| **certified** | every evaluation carries its own certificate; the predicate is not trusted at all | the predicate returns `Outcome(ok, cert=...)` **and** `--cert-all` stores them |
+| **reproducible** | the domain, its hash, and a verdict vector: re-running the predicate gives the same answers | a bare `bool` predicate — the common case |
+| **recorded** | only the domain and its hash | the spec is gone, moved, or was never stamped |
+
+```
+$ certo sweep spec.py
+FINITE SWEEP REPRODUCIBLE -- the predicate is NOT certified  [unsat]
+  the predicate holds on all 3481 items (FINITE DOMAIN, not the theorem)
+  predicate_certified: 0
+  predicate_uncertified: 3481
+  !! 3481 of 3481 evaluations carry no certificate. The sweep is REPRODUCIBLE
+  -- re-running the predicate gives the same answers -- but nothing here
+  establishes that those answers are right.
+```
+
+Note the two independent caveats. "Not the theorem" is about **generality**:
+a finite domain was checked, not every `n`. "Not certified" is about
+**trust**: nothing here says the predicate answered correctly. A passing sweep
+used to state only the first, and a green banner over eleven thousand
+unchecked booleans is where that does the most damage — there is no
+counterexample to go and look at.
+
+### Replay: the middle level, named
+
+The certificate stores a **verdict vector** — one character per item, in
+domain order — and its digest. `verify` re-runs the predicate and compares:
+
+```
+$ certo verify out/sweep.json
+VALID  domain_sweep certificate (by re-running the spec, not by trusting its answers)
+  [ok] the family hash matches
+  [ok] the item ids are unique
+  [ok] re-running the predicate gives the same verdicts  (3481 evaluations, all identical)
+  WARNING: 3481 of 3481 evaluations carry no certificate. Replaying them
+  agrees, which makes the sweep reproducible; it does NOT make the
+  predicate's answers verified.
+  reproducible, predicate NOT certified -- domain of 3481 items
+```
+
+This is the only check that catches a predicate edited under a stable name:
+the domain hash cannot — the domain did not move — and the stored
+certificates cannot, because there are none. When it disagrees it names the
+item:
+
+```
+  [XX] re-running the predicate gives the same verdicts
+       (item a=1,b=1 (index 0) now answers differently)
+```
+
+Two consequences worth stating. Verification now costs a full re-run of the
+predicate, which is the honest price of the claim. And the header says **"by
+re-running the spec"** rather than "without a solver": replaying runs the
+spec's own Python, which may well call a solver, so the old phrasing was the
+same overclaim one level down.
+
+### Getting to `certified`
+
+Return an `Outcome` carrying the certificate, and store them all:
+
+```python
+def predicate(item):
+    res = lp.opt(build(item))
+    return Outcome(ok=res.verdict is Verdict.PROVED, cert=res.certificate)
+```
+
+```bash
+certo sweep spec.py --cert-all
+```
+
+Both halves are needed. A predicate that certifies every answer but runs with
+the default `--cert-all` off keeps only the counterexamples' certificates, so
+the certificate carries one out of twenty-one — and says so. **A certificate
+can only attest what it actually contains.**
+
 ## Vacuous proofs are caught, not celebrated
 
 `prove` succeeds when `hypotheses ∧ ¬goal` is unsatisfiable. If the hypotheses
@@ -956,11 +1037,13 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-123 of them, no test framework required.
+131 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done
 ```
+
+See [BACKLOG.md](BACKLOG.md) for what is planned and what is deliberately not.
 
 ## Licence
 

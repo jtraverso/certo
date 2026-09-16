@@ -106,12 +106,17 @@ class VerifyReport:
     checks: list = field(default_factory=list)  # [(name, ok, detail)]
     detail: str = ""
     warnings: list = field(default_factory=list)
+    # How the checking was done. `solver_free` says a solver was not needed,
+    # which is not the same as saying nothing was run: replaying a sweep runs
+    # the user's own predicate. Naming the method keeps the header honest.
+    method_key: str = ""
 
     def to_dict(self) -> dict:
         return {
             "ok": self.ok,
             "kind": self.kind,
             "solver_free": self.solver_free,
+            "method": self.method_key,
             "checks": [{"check": c, "ok": o, "detail": d} for c, o, d in self.checks],
             "warnings": self.warnings,
             "detail": self.detail,
@@ -258,24 +263,38 @@ def bisect_certificate(direction, integer, tol, good_t, bad_t,
 
 
 def sweep_certificate(n, filters, family_g6, entries, mode, counts,
-                      values=None, stats=None) -> Certificate:
-    """The examined family PLUS whatever certificates the predicate supplied.
+                      values=None, stats=None, outcomes="") -> Certificate:
+    """The examined family, the VERDICT VECTOR, and whatever certificates the
+    predicate supplied.
 
-    Without the second part, a sweep whose predicate solves an LP in floating
-    point is not citable however impeccable the first part is.
+    Three things, and they establish three different amounts. The family and
+    its hash say which objects were looked at. The verdict vector says what
+    the predicate answered for each, and lets a later run confirm it answers
+    the same -- reproducible, not certified. Only the third part, a
+    certificate per evaluation, establishes the answers themselves without
+    trusting the predicate.
+
+    `evaluations` and `certified` are counted over the WHOLE sweep, not over
+    the stored entries. A passing sweep stores no entries, and reporting
+    "0 of 0 certified" for eleven thousand unchecked evaluations is how a
+    certificate ends up claiming more than it holds.
     """
     h = hashlib.sha256("\n".join(sorted(family_g6)).encode()).hexdigest()
     certified = sum(1 for e in entries if e.get("cert"))
     free = all(e["cert"].get("solver_free") for e in entries if e.get("cert"))
+    evaluations = counts.get("examined", len(family_g6))
     return Certificate(
         kind="sweep",
         solver_free=bool(free),
         payload={"n": n, "filters": filters, "family_sha256": h,
                  "family_count": len(family_g6), "family_graph6": family_g6,
                  "entries": entries, "mode": mode, "counts": counts,
-                 "values": values or [], "stats": stats},
+                 "values": values or [], "stats": stats,
+                 "evaluations": evaluations, "certified": certified,
+                 "outcomes": outcomes,
+                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else ""},
         note_key="cert.note.sweep",
-        note_args={"certified": certified, "total": len(entries)},
+        note_args={"certified": certified, "total": evaluations},
     )
 
 
@@ -298,15 +317,25 @@ def synth_proved_certificate(candidate, synth_cert, universal_cert) -> Certifica
 
 
 def domain_sweep_certificate(ids, entries, mode, counts, values=None,
-                             stats=None, title="") -> Certificate:
-    """Same contract as `sweep`, for a domain the spec defines itself."""
+                             stats=None, title="", outcomes="") -> Certificate:
+    """Same contract as `sweep`, for a domain the spec defines itself.
+
+    Including the same three levels: the domain and its hash, the verdict
+    vector that makes the run replayable, and the per-evaluation certificates
+    that would make it certified.
+    """
     h = hashlib.sha256(chr(10).join(sorted(ids)).encode()).hexdigest()
     free = all(e["cert"].get("solver_free") for e in entries if e.get("cert"))
+    certified = sum(1 for e in entries if e.get("cert"))
+    evaluations = counts.get("examined", len(ids))
     return Certificate(
         kind="domain_sweep", solver_free=bool(free),
         payload={"title": title, "ids": ids, "ids_sha256": h,
                  "count": len(ids), "entries": entries, "mode": mode,
-                 "counts": counts, "values": values or [], "stats": stats},
+                 "counts": counts, "values": values or [], "stats": stats,
+                 "evaluations": evaluations, "certified": certified,
+                 "outcomes": outcomes,
+                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else ""},
         note_key="cert.note.domain_sweep",
     )
 
@@ -437,9 +466,137 @@ def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     )
 
 
+
+# ---------------------------------------------------------------------------
+# how much a sweep actually establishes
+# ---------------------------------------------------------------------------
+#
+# Three levels, and the distance between them is the whole point. A sweep
+# whose predicate returns a bare `bool` establishes far less than one whose
+# predicate returns certificates, and the difference used to be invisible:
+# both printed "FINITE CASE VERIFIED". These names exist so it cannot be.
+
+CERTIFIED = "certified"        # every evaluation carries its own certificate
+REPRODUCIBLE = "reproducible"  # no certificates, but the run can be replayed
+RECORDED = "recorded"          # neither: only the domain and its hash
+NO_PREDICATE = "no_predicate"  # a calibration run: nothing to certify
+
+
+def outcome_code(out) -> str:
+    """One character per evaluation. T true, F false, ? inconclusive, E error."""
+    if getattr(out, "errored", False):
+        return "E"
+    if out.ok is None:
+        return "?"
+    return "T" if out.ok else "F"
+
+
+def outcomes_digest(codes: str) -> str:
+    """The whole verdict vector in 64 hex characters.
+
+    Storing the vector itself would be megabytes on a large sweep and would
+    add nothing: on a mismatch the verifier holds both vectors anyway and can
+    name the first item that disagrees.
+    """
+    return hashlib.sha256(codes.encode()).hexdigest()
+
+
+def sweep_strength(payload: dict, spec_replayable: bool) -> str:
+    """What this certificate establishes about the PREDICATE, right now.
+
+    Deliberately computed rather than stored: `reproducible` depends on the
+    spec still being there, which is true at issue time and may not be true at
+    verification time. A stored label would quietly become a lie.
+    """
+    ev = payload.get("evaluations", 0)
+    if ev and payload.get("certified", 0) >= ev:
+        return CERTIFIED
+    if payload.get("outcomes_sha256") and spec_replayable:
+        return REPRODUCIBLE
+    return RECORDED
+
+
+def _spec_from(cert):
+    """The spec that produced a certificate, if it is still the same file."""
+    prov = cert.provenance or {}
+    sp, want = prov.get("spec_path"), prov.get("spec_sha256")
+    if not sp:
+        return None, "no_path"
+    p = Path(sp)
+    if not p.exists():
+        return None, "gone"
+    if want and hashlib.sha256(p.read_bytes()).hexdigest() != want:
+        return None, "changed"
+    return p, ""
+
+
 # ---------------------------------------------------------------------------
 # verificacion
 # ---------------------------------------------------------------------------
+
+def _replay(cert, limits, kind):
+    """Re-run the predicate and compare the verdict vector.
+
+    This is the honest middle ground between "we checked every evaluation" and
+    "we checked nothing about the predicate". It does NOT verify the predicate
+    -- it verifies that running it again gives the same answers, which makes
+    the sweep reproducible rather than merely recorded. The difference is
+    named everywhere it is reported.
+
+    Returns (ok, detail) with ok=None when the replay could not be done at
+    all, so that "not checked" never renders as "checked and fine".
+    """
+    import time
+
+    from .limits import Limits
+
+    p = cert.payload
+    want = p.get("outcomes_sha256")
+    if not want:
+        return None, t("verify.sweep.replay.no_vector")
+
+    path, why = _spec_from(cert)
+    if path is None:
+        return None, t("verify.sweep.replay." + (why if why else "no_path"))
+
+    lim = limits or Limits()
+    t0 = time.perf_counter()
+    from .spec import load_spec
+
+    spec = load_spec(path)
+
+    if kind == "sweep":
+        from .engines.graphsearch import _evaluate
+        from .graphs import Graph
+
+        items = [Graph.from_graph6(s) for s in p.get("family_graph6", [])]
+        ids = list(p.get("family_graph6", []))
+    else:
+        from .engines.domain import _evaluate
+
+        items = spec.enumerate()
+        ids = [spec.id_of(i) for i in items]
+        if ids != list(p.get("ids", [])):
+            return False, t("verify.sweep.replay.domain_moved")
+
+    codes = []
+    for item in items:
+        codes.append(outcome_code(_evaluate(spec, item)))
+        if (time.perf_counter() - t0) * 1000 > lim.timeout_ms:
+            return None, t("verify.sweep.replay.timeout", done=len(codes),
+                           total=len(items))
+
+    got = "".join(codes)
+    if outcomes_digest(got) == want:
+        return True, t("verify.sweep.replay.agrees", n=len(got))
+
+    # Both vectors are in hand, so say WHICH item moved rather than "differs".
+    old = p.get("outcomes", "")
+    where = next((i for i, c in enumerate(got) if i < len(old) and c != old[i]),
+                 min(len(got), len(old)))
+    name = ids[where] if where < len(ids) else "?"
+    return False, t("verify.sweep.replay.differs", item=name, index=where)
+
 
 
 def verify(cert: Certificate, limits=None) -> VerifyReport:
@@ -1217,26 +1374,39 @@ def _verify_domain_sweep(cert, limits) -> VerifyReport:
               (t("verify.domain.unique"), len(set(ids)) == len(ids),
                t("verify.domain.duplicates", n=len(ids) - len(set(ids))))]
     checks += _verify_entries_and_stats(p, limits)
+
+    pchecks, pwarn, level = _predicate_level(cert, limits, "domain")
+    checks += pchecks
+    free = cert.solver_free and level is not REPRODUCIBLE
+
     return VerifyReport(
-        all(c[1] for c in checks), "domain_sweep", cert.solver_free,
-        checks=checks, warnings=_sweep_warnings(p),
-        detail=t("verify.domain.detail", n=p["count"]),
+        all(c[1] for c in checks), "domain_sweep", free, checks=checks,
+        method_key=_method(level), warnings=_sweep_warnings(p) + pwarn,
+        detail=t("verify.sweep.level." + level) + " -- "
+        + t("verify.domain.detail", n=p["count"]),
     )
 
 
 def _verify_entries_and_stats(p, limits) -> list:
-    """Predicate certificates and calibration: shared by both sweep kinds."""
+    """The stored certificates and the calibration. Shared by both sweep kinds.
+
+    Note what is NOT here: any claim about evaluations that stored no
+    certificate. That belongs to `_predicate_level`, because it is a warning
+    and not a check -- there is nothing to tick.
+    """
     checks = []
     entries = p.get("entries", [])
     with_cert = [e for e in entries if e.get("cert")]
-    bad = [e["g6"] for e in with_cert
-           if not verify(Certificate.from_dict(e["cert"]), limits).ok]
-    checks.append(
-        (t("verify.sweep.predicate"), not bad,
-         t("verify.sweep.entries", certified=len(with_cert), total=len(entries),
-           failing="" if not bad else t("verify.sweep.failing",
-                                        names=", ".join(bad[:3]))))
-    )
+    if with_cert:
+        bad = [_entry_id(e) for e in with_cert
+               if not verify(Certificate.from_dict(e["cert"]), limits).ok]
+        checks.append(
+            (t("verify.sweep.predicate"), not bad,
+             t("verify.sweep.entries", certified=len(with_cert),
+               total=p.get("evaluations", len(entries)),
+               failing="" if not bad else t("verify.sweep.failing",
+                                            names=", ".join(bad[:3]))))
+        )
     vals = p.get("values") or []
     if vals and p.get("stats"):
         from . import exact
@@ -1249,12 +1419,59 @@ def _verify_entries_and_stats(p, limits) -> list:
     return checks
 
 
+def _entry_id(e) -> str:
+    """`id` is the field; `g6` is what it was called before it held triples."""
+    return e.get("id") or e.get("g6") or "?"
+
+
+def _predicate_level(cert, limits, kind):
+    """What this sweep establishes about the predicate, said out loud.
+
+    Returns (checks, warnings, level). The warning fires on a PASSING sweep
+    exactly as it does on a refuted one -- that symmetry is the point. A pass
+    over eleven thousand uncertified booleans is the case where a green banner
+    does the most damage, because there is no counterexample to go and look at.
+    """
+    p = cert.payload
+    checks, warnings = [], []
+
+    if p.get("no_predicate"):
+        # A calibration run measures; it refutes nothing, so there is no
+        # predicate to certify and saying "fully certified" would be as wrong
+        # as saying "uncertified". The stats are checked exactly, elsewhere.
+        return checks, warnings, NO_PREDICATE
+
+    ok, detail = _replay(cert, limits, kind)
+    if ok is None:
+        warnings.append(t("verify.sweep.replay.skipped", reason=detail))
+    else:
+        checks.append((t("verify.sweep.replay"), ok, detail))
+
+    level = sweep_strength(p, ok is True)
+    evaluations = p.get("evaluations", 0)
+    uncertified = max(0, evaluations - p.get("certified", 0))
+    # When the replay DISAGREED, the failed check is the headline. Adding
+    # "only the domain was checked" underneath would read as a lesser problem
+    # than "this certificate no longer describes what the spec does".
+    if uncertified and ok is not False:
+        warnings.append(t("verify.sweep.uncertified." + level,
+                          n=uncertified, total=evaluations))
+    return checks, warnings, level
+
+
+def _method(level) -> str:
+    return "cli.verify.by_replay" if level == REPRODUCIBLE else ""
+
+
 def _sweep_warnings(p) -> list:
+    """Only what `_predicate_level` does not already say, and better.
+
+    The old "N of M stored entries lack a certificate" warning is gone: it
+    counted the stored counterexamples, so it was silent on a passing sweep
+    and, on a refuted one, it said less than the level warning that replaced
+    it. Two warnings about the same gap make readers skim both.
+    """
     out = []
-    entries = p.get("entries", [])
-    missing = len(entries) - sum(1 for e in entries if e.get("cert"))
-    if missing:
-        out.append(t("verify.sweep.missing", missing=missing, total=len(entries)))
     c = p.get("counts", {})
     if c.get("errors") or c.get("inconclusive"):
         out.append(t("verify.sweep.unevaluated",
@@ -1266,45 +1483,21 @@ def _verify_sweep(cert, limits) -> VerifyReport:
     p = cert.payload
     checks = _verify_family(p["family_graph6"], p["n"], p["filters"],
                             p["family_sha256"])
+    checks += _verify_entries_and_stats(p, limits)
 
-    entries = p.get("entries", [])
-    with_cert = [e for e in entries if e.get("cert")]
-    bad = []
-    for e in with_cert:
-        rep = verify(Certificate.from_dict(e["cert"]), limits)
-        if not rep.ok:
-            bad.append(e["g6"])
-    checks.append(
-        (t("verify.sweep.predicate"), not bad,
-         t("verify.sweep.entries", certified=len(with_cert), total=len(entries),
-           failing="" if not bad else t("verify.sweep.failing",
-                                        names=", ".join(bad[:3]))))
-    )
+    pchecks, pwarn, level = _predicate_level(cert, limits, "sweep")
+    checks += pchecks
 
-    vals = p.get("values") or []
-    if vals and p.get("stats"):
-        from . import exact
-
-        recomputed = exact.stats([v["value"] for v in vals])
-        declared = {k: exact.to_fraction(v) for k, v in p["stats"].items()}
-        agree = all(recomputed[k] == declared[k] for k in declared)
-        checks.append((t("verify.sweep.stats"), agree,
-                       t("verify.sweep.values", n=len(vals))))
-
-    warnings = []
-    missing = len(entries) - len(with_cert)
-    if missing:
-        warnings.append(t("verify.sweep.missing", missing=missing,
-                          total=len(entries)))
-    c = p.get("counts", {})
-    if c.get("errors") or c.get("inconclusive"):
-        warnings.append(t("verify.sweep.unevaluated",
-                          n=c.get("errors", 0) + c.get("inconclusive", 0)))
+    # Replaying means running the spec's predicate, which is arbitrary Python
+    # and may well call a solver. Claiming "verified without a solver" after
+    # that would be the same overclaim in a different place.
+    free = cert.solver_free and level is not REPRODUCIBLE
 
     return VerifyReport(
-        all(k[1] for k in checks), "sweep", cert.solver_free, checks=checks,
-        warnings=warnings,
-        detail=t("verify.sweep.detail", n=p["family_count"]),
+        all(k[1] for k in checks), "sweep", free, checks=checks,
+        method_key=_method(level), warnings=_sweep_warnings(p) + pwarn,
+        detail=t("verify.sweep.level." + level) + " -- "
+        + t("verify.sweep.detail", n=p["family_count"]),
     )
 
 

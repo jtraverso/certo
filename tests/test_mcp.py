@@ -257,6 +257,38 @@ def spec():
     assert out["status"] == "resource_exhausted"
     assert out["certificate"] is None
 
+def test_a_bare_bool_sweep_never_summarises_as_plain_proved_over_mcp():
+    """The model reads the summary, so the summary carries the level."""
+    src = """
+from certo import DomainSpec
+def spec():
+    return DomainSpec(items=list(range(20)), predicate=lambda i: i >= 0,
+                      key=lambda i: "i=" + str(i))
+"""
+    out = run(call("sweep", {"spec_source": src}))
+    assert out["verdict"] == "proved"
+    assert out["predicate_level"] == "reproducible"
+    assert out["meta"]["predicate_uncertified"] == 20
+
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"]
+    # The warnings are the honesty layer; dropping them from the response is
+    # the same overclaim in a different place.
+    assert any("carry no certificate" in w for w in rep["warnings"])
+    assert rep["method"] == "cli.verify.by_replay"
+
+
+def test_mcp_certificates_carry_provenance_so_they_can_be_replayed():
+    src = """
+from certo import DomainSpec
+def spec():
+    return DomainSpec(items=list(range(8)), predicate=lambda i: True,
+                      key=lambda i: "i=" + str(i))
+"""
+    out = run(call("sweep", {"spec_source": src}))
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert any("re-running" in c["check"] and c["ok"] for c in rep["checks"])
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

@@ -19,7 +19,8 @@ from __future__ import annotations
 import time
 
 from .. import exact
-from ..certificate import graph_set_certificate, sweep_certificate
+from ..certificate import (graph_set_certificate, outcome_code,
+                           sweep_certificate, sweep_strength)
 from ..i18n import t
 from ..graphs import enumerate_graphs, filter_name
 from ..limits import Limits
@@ -75,9 +76,11 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
     graphs, engine, total = enumerate_graphs(spec.n, spec.filters, use_geng=use_geng)
 
     failures, errors, unknowns, certs, values = [], [], [], [], []
+    codes = []
     for g in graphs:
         out = _evaluate(spec, g)
         g6 = g.to_graph6()
+        codes.append(outcome_code(out))
         if out.value is not None:
             values.append({"g6": g6, "value": exact.serialize(out.value)})
         if out.errored:
@@ -115,13 +118,26 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
         family_g6=family_g6,
         entries=certs, mode=cert_mode, counts=counts,
         values=values, stats=calib["stats"] if calib else None,
+        outcomes="" if spec.predicate is None else "".join(codes),
     )
+    if spec.predicate is None:
+        cert.payload["no_predicate"] = True
+    level = sweep_strength(cert.payload, True)
 
+    # The counters name what they count. `predicate_uncertified` used to mean
+    # "counterexamples we stored without a certificate", which is 0 on every
+    # passing sweep however many evaluations went unchecked.
+    evaluations = cert.payload["evaluations"]
+    certified = cert.payload["certified"]
     base = {**counts, "counterexamples": [g.to_graph6() for g in failures],
             "describe": _describe(spec, failures[:5]),
             "errors_detail": errors[:5], "inconclusive_detail": unknowns[:5],
-            "predicate_certificates": len(certs) - uncertified,
-            "predicate_uncertified": uncertified}
+            "evaluations": evaluations,
+            "predicate_certified": certified,
+            "predicate_uncertified": evaluations - certified}
+    if spec.predicate is not None:
+        base["level"] = level
+        base["banner_key"] = "scope.sweep." + level
     if calib:
         base["calibration"] = calib
 
