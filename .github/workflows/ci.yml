@@ -58,6 +58,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[numerics]"
+      # `lean-action` refuses to run without a `lake-manifest.json`, which is
+      # why this job had never once passed. The manifest is committed rather
+      # than generated here: it pins Mathlib AND its transitive dependencies
+      # to exact revisions, so "compiles against Mathlib v4.28.0" means the
+      # same thing in six months as it does today. `lakefile.toml` pins only
+      # the one `rev`; the manifest pins the graph under it.
       - uses: leanprover/lean-action@v1
         with:
           lake-package-directory: .github/lean

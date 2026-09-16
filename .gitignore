@@ -21,3 +21,8 @@ ledger.jsonl
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Lake's resolved packages: Mathlib alone is hundreds of megabytes, and it is
+# reproducible from lake-manifest.json, which IS committed -- the manifest is
+# the pin, the checkout is the cache.
+.lake/
