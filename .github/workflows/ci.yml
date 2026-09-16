@@ -1,0 +1,76 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Everything has only ever been run on one Windows machine, and the three most
+# useful bugs of the last round were all specific to it: a truncated Mathlib
+# artefact, subprocess output decoded with the Windows codepage, and an import
+# that did not bring the instances it needed. A Linux runner finds a different
+# family.
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[mcp,numerics]"
+      - name: capabilities
+        run: certo doctor
+      - name: tests
+        shell: bash
+        run: for t in smoke mcp i18n extras; do python tests/test_$t.py; done
+
+  # The examples are the documentation, and documentation that no longer runs
+  # is worse than none. Each one is executed exactly as the README shows it.
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[mcp,numerics]"
+      - name: run every example and verify its certificate
+        shell: bash
+        run: python tests/run_examples.py
+
+  # `certo export --lean` claims its output compiles. That claim is the one
+  # most likely to be wrong -- it took three rounds against a real compiler to
+  # get right -- and it is the one nobody should take on trust from a text
+  # generator.
+  lean:
+    runs-on: ubuntu-latest
+    continue-on-error: true      # Mathlib's cache is not ours to depend on
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[numerics]"
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: .github/lean
+          build: false
+      - name: emit and compile
+        shell: bash
+        run: |
+          set -e
+          mkdir -p out
+          certo farkas examples/farkas_linear.py --cert out/fk.json
+          certo farkas examples/farkas_nonlinear.py --nonlinear --cert out/fk2.json
+          for c in out/fk.json out/fk2.json; do
+            certo export "$c" --lean \
+              --out .github/lean/CertoEmitted.lean \
+              --lean-project .github/lean --check
+          done

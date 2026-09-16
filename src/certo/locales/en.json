@@ -490,5 +490,14 @@
   "engine.number.bad_question": "question must be 'prime' or 'factor', not {got}",
   "cli.ideal.cofactors": "cofactors:",
   "cli.sos.squares": "squares:",
-  "cli.number.tree": "Pratt tree: {n} nodes, depth {depth}"
+  "cli.number.tree": "Pratt tree: {n} nodes, depth {depth}",
+  "engine.opt.ilp_tight": "integer optimum {value}, CERTIFIED: a feasible integral point achieves it and the exact dual bounds it there",
+  "engine.opt.ilp_gap": "best integral point found: {value}. The exact dual bounds the optimum by {bound}, so the true optimum lies between them -- CBC's answer is not certified to be optimal",
+  "engine.opt.ilp_bound_only": "no feasible integral point survived the exact check; all that is certified is the relaxation bound {bound}",
+  "verify.lp.declared": "declared {value}",
+  "verify.lp.integral_feasible": "the integral point is feasible",
+  "verify.lp.integral_declared": "and achieves the declared value",
+  "verify.lp.ilp_bound": "This is an ILP and no integral point travelled with it, so what is certified is the RELAXATION bound, not the integer optimum.",
+  "verify.lp.ilp_gap": "The integral point achieves {value} and the dual bounds the optimum by {bound}. They differ, so the integer optimum is somewhere between and is NOT certified by this.",
+  "verify.lp.ilp.detail": "integral point {value}, relaxation bound {bound}"
 }

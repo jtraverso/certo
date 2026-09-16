@@ -4,6 +4,43 @@ Notable changes per release. Dates are ISO. This project uses semantic
 versioning; while the major is 0, a minor bump may change a certificate
 payload — each such change says so and what still reads the old shape.
 
+## [Unreleased]
+
+### Fixed
+
+- **`opt` on an ILP reported the relaxation as the objective.** `meta["objective"]`
+  carried the LP relaxation's value, so an integer optimum of 7 came back as
+  `15/2`. The detail text was half-honest about it; every programmatic reader —
+  `--json`, the CLI display, the MCP response — was not. Found by rebuilding a
+  real research instance as a `PackingSpec`.
+
+  The fix goes further than the original intent: an ILP now certifies **both
+  sides**. CBC's integer answer is rounded and **checked exactly** against the
+  constraints, giving a feasible integral point as the achievable value, while
+  the exact dual bounds the optimum. When they coincide the integer optimum is
+  certified exactly; when they do not, the gap is reported rather than hidden,
+  and `verify` warns that the number is a bound.
+
+### Added
+
+- **CI.** Tests on Linux and Windows across Python 3.11 and 3.12; every
+  example run and its certificate verified; and the Lean exports compiled
+  against Mathlib. Everything had only ever run on one Windows machine, and
+  the three most useful bugs of the previous round were all specific to it.
+- `tests/run_examples.py` — runs each example as the README shows it and
+  verifies what comes out, including the two certificates `compose_proof.py`
+  needs as input. An example listed nowhere is reported rather than silently
+  skipped.
+
+### Decided
+
+- **PyPI:** not yet; revisit at a stable version.
+- **Certificate schema:** frozen from 0.4, once that version closes.
+- **Lean:** deeper Lean export is not the focus. certo establishes the
+  mathematics; generating and compiling Lean is another tool's job.
+- **`cadical`/`kissat`:** closed rather than blocked — no administrator rights
+  on the target machine, and the built-in CDCL is the answer.
+
 ## [0.3.0] — 2026-09-16
 
 The release where certo stopped being Z3 with a nicer interface.

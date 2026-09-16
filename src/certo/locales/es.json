@@ -490,5 +490,14 @@
   "engine.number.bad_question": "question tiene que ser 'prime' o 'factor', no {got}",
   "cli.ideal.cofactors": "cofactores:",
   "cli.sos.squares": "cuadrados:",
-  "cli.number.tree": "árbol de Pratt: {n} nodos, profundidad {depth}"
+  "cli.number.tree": "árbol de Pratt: {n} nodos, profundidad {depth}",
+  "engine.opt.ilp_tight": "óptimo entero {value}, CERTIFICADO: un punto entero factible lo alcanza y el dual exacto lo acota ahí",
+  "engine.opt.ilp_gap": "mejor punto entero encontrado: {value}. El dual exacto acota el óptimo por {bound}, así que el óptimo verdadero está entre ambos -- la respuesta de CBC no está certificada como óptima",
+  "engine.opt.ilp_bound_only": "ningún punto entero factible superó la comprobación exacta; lo único certificado es la cota de relajación {bound}",
+  "verify.lp.declared": "declarado {value}",
+  "verify.lp.integral_feasible": "el punto entero es factible",
+  "verify.lp.integral_declared": "y alcanza el valor declarado",
+  "verify.lp.ilp_bound": "Esto es un ILP y no viajó ningún punto entero con él, así que lo certificado es la cota de RELAJACIÓN, no el óptimo entero.",
+  "verify.lp.ilp_gap": "El punto entero alcanza {value} y el dual acota el óptimo por {bound}. Difieren, así que el óptimo entero está en medio y NO queda certificado por esto.",
+  "verify.lp.ilp.detail": "punto entero {value}, cota de relajación {bound}"
 }

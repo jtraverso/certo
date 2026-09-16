@@ -2094,6 +2094,103 @@ def test_a_factorisation_that_does_not_multiply_back_is_caught():
     assert not rep.ok
     assert any("multiply back" in c and not ok for c, ok, _ in rep.checks)
 
+# --- an ILP has two numbers, and they are not the same number --------------
+
+
+def _knapsack(cap, integer):
+    from fractions import Fraction
+
+    from certo import LPSpec
+
+    s = LPSpec(sense="max", integer=integer)
+    s.variable("x")
+    s.variable("y")
+    s.objective({"x": 1, "y": 1})
+    s.constraint({"x": 1, "y": 1}, "<=", Fraction(cap), name="cap")
+    return s
+
+
+def test_an_ilp_reports_the_integer_optimum_not_its_relaxation():
+    """It reported the relaxation as `objective`, which is an overclaim."""
+    from fractions import Fraction
+
+    from certo.engines import lp
+
+    r = lp.opt(_knapsack(Fraction(3, 2), True), LIM)
+    assert r.meta["objective"] == "1"          # achievable
+    assert r.meta["bound"] == "3/2"            # certified by the dual
+    assert r.meta["objective"] != r.meta["bound"]
+
+
+def test_an_lp_is_untouched_by_that():
+    from fractions import Fraction
+
+    from certo.engines import lp
+
+    r = lp.opt(_knapsack(Fraction(3, 2), False), LIM)
+    assert r.meta["objective"] == "3/2"
+    assert r.meta["bound"] is None
+
+
+def test_both_sides_of_an_ilp_are_certified():
+    from fractions import Fraction
+
+    from certo.engines import lp
+
+    cert = _roundtrip(lp.opt(_knapsack(Fraction(3, 2), True), LIM).certificate)
+    rep = verify(cert, LIM)
+    assert rep.ok and rep.solver_free
+    assert any("integral point is feasible" in c and ok
+               for c, ok, _ in rep.checks)
+    assert any("differ" in w for w in rep.warnings)
+
+
+def test_a_tight_ilp_says_the_optimum_is_certified():
+    """When the integral point meets the bound, nu is pinned exactly."""
+    from certo.engines import lp
+
+    r = lp.opt(_knapsack(2, True), LIM)
+    assert r.meta["objective"] == "2" == r.meta["bound"]
+    assert "CERTIFIED" in r.detail or "CERTIFICADO" in r.detail
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert not any("differ" in w for w in rep.warnings)
+
+
+def test_a_forged_integral_point_is_caught():
+    from fractions import Fraction
+
+    from certo.engines import lp
+
+    cert = _roundtrip(lp.opt(_knapsack(Fraction(3, 2), True), LIM).certificate)
+    cert.payload["integral_point"] = ["5", "5"]        # violates the capacity
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("feasible" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_the_real_packing_that_found_this():
+    """Their canonical core: nu = 7, mu* = 15/2, and the gap is the point."""
+    from itertools import combinations
+
+    from certo import PackingSpec
+    from certo.engines import lp
+
+    lists = [(0, 1), (0, 1, 2), (0, 1, 2, 3), (0, 1, 3), (0, 2, 3, 4), (0, 4)]
+    items = []
+    for j, block in enumerate(lists):
+        for a, b in combinations(block, 2):
+            items.append(("t{}_{}_{}".format(j, a, b),
+                          ["e{}_{}".format(a, b), "d{}_{}".format(j, a),
+                           "d{}_{}".format(j, b)], 1))
+
+    frac = lp.opt(PackingSpec(items=items, capacities=1).to_lp(), LIM)
+    integral = lp.opt(PackingSpec(items=items, capacities=1,
+                                  integer=True).to_lp(), LIM)
+    assert frac.meta["objective"] == "15/2" and frac.meta["exact"]
+    assert integral.meta["objective"] == "7"
+    assert verify(_roundtrip(frac.certificate), LIM).ok
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

@@ -177,7 +177,9 @@ def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
 
 
 def lp_dual_certificate(sense, objective, dual, A, b, c, names,
-                        primal=None, var_names=None, is_exact=False) -> Certificate:
+                        primal=None, var_names=None, is_exact=False,
+                        integer=False, integral_point=None,
+                        integral_objective=None) -> Certificate:
     return Certificate(
         kind="lp_dual",
         solver_free=True,
@@ -185,6 +187,10 @@ def lp_dual_certificate(sense, objective, dual, A, b, c, names,
             "sense": sense, "objective": objective, "dual": dual,
             "primal": primal, "A": A, "b": b, "c": c,
             "names": names, "var_names": var_names, "exact": is_exact,
+            # For an ILP the dual certifies the RELAXATION, which is a bound.
+            # The integral point is the other side of it.
+            "integer": bool(integer), "integral_point": integral_point,
+            "integral_objective": integral_objective,
         },
         note_key="cert.note.lp_dual.exact" if is_exact else "cert.note.lp_dual.float",
     )
@@ -1180,11 +1186,41 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                                   exact.serialize(rep["dual_bound"]))),
         (t("verify.lp.objective"),
          exact.to_fraction(p["objective"]) == rep["objective"],
-         "declarado {}".format(p["objective"])),
+         t("verify.lp.declared", value=p["objective"])),
     ]
+
+    warnings = []
+    if p.get("integer"):
+        # The dual is a bound on the integer optimum, never the optimum
+        # itself. Whether the two coincide is a separate, checkable fact.
+        pt = p.get("integral_point")
+        if pt is None:
+            warnings.append(t("verify.lp.ilp_bound"))
+        else:
+            xi = exact.parse_all(pt)
+            feasible = all(v >= 0 for v in xi) and all(
+                sum(a * v for a, v in zip(row, xi)) <= rhs
+                for row, rhs in zip(A, b))
+            value = sum(ci * v for ci, v in zip(c, xi))
+            checks.append((t("verify.lp.integral_feasible"), feasible,
+                           t("verify.lp.declared",
+                             value=exact.serialize(value))))
+            checks.append((t("verify.lp.integral_declared"),
+                           exact.to_fraction(p["integral_objective"]) == value,
+                           p["integral_objective"]))
+            if value != rep["objective"]:
+                warnings.append(t("verify.lp.ilp_gap",
+                                  value=exact.serialize(value),
+                                  bound=exact.serialize(rep["objective"])))
+
+    detail = (t("verify.lp.exact.detail", value=exact.serialize(rep["objective"]))
+              if not p.get("integer")
+              else t("verify.lp.ilp.detail",
+                     value=p.get("integral_objective") or "-",
+                     bound=exact.serialize(rep["objective"])))
     return VerifyReport(
         all(k[1] for k in checks), "lp_dual", True, checks=checks,
-        detail=t("verify.lp.exact.detail", value=exact.serialize(rep["objective"])),
+        warnings=warnings, detail=detail,
     )
 
 

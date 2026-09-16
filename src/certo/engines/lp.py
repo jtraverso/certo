@@ -34,6 +34,27 @@ from ..status import Result, Status, Verdict
 ENGINE = "pulp/CBC"
 
 
+def _integral_point(spec, A, b, c, sol_float):
+    """CBC's integer answer, rounded and CHECKED, with its exact objective.
+
+    Rounding a float solution is a guess; checking it against the constraints
+    in exact arithmetic is not. A feasible integral point is a genuine bound
+    from the other side, so an ILP ends up with both: this as the achievable
+    value, the dual as the limit. When they coincide the integer optimum is
+    certified exactly, and when they do not the gap is reported rather than
+    hidden.
+    """
+    from fractions import Fraction
+
+    x = [Fraction(round(v)) for v in sol_float]
+    if any(v < 0 for v in x):
+        return None
+    for row, rhs in zip(A, b):
+        if sum(a * xi for a, xi in zip(row, x)) > rhs:
+            return None
+    return x, sum(ci * xi for ci, xi in zip(c, x))
+
+
 def _build(spec, A, b, c, cons_names, integer):
     cat = pulp.LpInteger if integer else pulp.LpContinuous
     name = "".join(ch if ch.isalnum() or ch in "._-" else "_"
@@ -84,6 +105,15 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
 
     sol_float = [float(xvars[v].value() or 0.0) for v in spec.var_names]
 
+    # An ILP has two numbers and they are not the same number. CBC's integer
+    # answer is one; the relaxation the dual certifies is another, and it is
+    # only a BOUND on the first. Reporting the bound as "the objective" is
+    # exactly the kind of overclaim this tool exists to prevent -- and it did
+    # it, until a real instance where nu = 7 was reported as 15/2.
+    integral = None
+    if spec.integer:
+        integral = _integral_point(spec, A, b, c, sol_float)
+
     # El dual siempre sale de la relajacion continua: en ILP no hay dual.
     if spec.integer:
         rprob, rx = _build(spec, A, b, c, cons_names, False)
@@ -114,16 +144,34 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
             A=[exact.serialize_all(r) for r in A], b=exact.serialize_all(b),
             c=exact.serialize_all(c), names=cons_names,
             var_names=list(spec.var_names), is_exact=True,
+            integer=spec.integer,
+            integral_point=None if integral is None
+            else exact.serialize_all(integral[0]),
+            integral_objective=None if integral is None
+            else exact.serialize(integral[1]),
         )
         detail = t("engine.opt.exact", value=exact.serialize(objective_ex),
                    denom=denom)
-        if spec.integer:
-            detail = t("engine.opt.exact_ilp",
-                       value=exact.serialize(rep["objective"]))
         meta_obj = exact.serialize(objective_ex)
         meta_sol = {v: exact.serialize(x_ex[j])
                     for j, v in enumerate(spec.var_names)} if not spec.integer else {
             v: repr(sol_float[j]) for j, v in enumerate(spec.var_names)}
+
+        if spec.integer:
+            bound = exact.serialize(rep["objective"])
+            if integral is None:
+                # No feasible integral point survived the check, so there is
+                # nothing to report but the bound -- and it is named a bound.
+                detail = t("engine.opt.ilp_bound_only", bound=bound)
+                meta_obj = None
+            else:
+                meta_obj = exact.serialize(integral[1])
+                tight = integral[1] == rep["objective"]
+                detail = t("engine.opt.ilp_tight" if tight
+                           else "engine.opt.ilp_gap",
+                           value=meta_obj, bound=bound)
+                meta_sol = {v: exact.serialize(integral[0][j])
+                            for j, v in enumerate(spec.var_names)}
     else:
         obj_max = float(pulp.value(prob.objective))
         objective = obj_max if spec.sense == "max" else -obj_max
@@ -141,7 +189,10 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True) -> Result:
     return Result(
         "opt", Status.SAT, Verdict.SATISFIABLE, ENGINE, ms(), cert, detail,
         meta={"objective": meta_obj,
-              "objective_float": float(exact.to_fraction(meta_obj)),
+              "objective_float": (None if meta_obj is None
+                                  else float(exact.to_fraction(meta_obj))),
+              "bound": (exact.serialize(rep["objective"])
+                        if exact_ok and spec.integer else None),
               "exact": exact_ok, "solution": meta_sol,
               "integer": spec.integer, "denominator": denom,
               "min_dual": exact.serialize(min(y_ex)) if exact_ok

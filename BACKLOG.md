@@ -43,6 +43,47 @@ Last updated: 2026-09-16 (after 0.3.0).
 
 ---
 
+## Decisions taken
+
+Recorded so they do not get re-litigated, and so the priorities below can be
+read as following from something.
+
+| | Decision | Consequence |
+|---|---|---|
+| **PyPI** | Not yet. Revisit at a stable version. | Installation stays `git clone` + `pip install -e`. No release workflow to maintain, and payload changes stay cheap until then. |
+| **Certificate schema** | **Frozen from 0.4**, once that version closes. | Until 0.4 ships, payload fields may still move (readers keep accepting the old shapes). From 0.4 a payload change needs a schema bump and a migration note. Anything produced for a paper before then should be re-run after 0.4. |
+| **Lean** | Deeper Lean is **not the focus**. certo helps establish the mathematics; a separate tool generates and compiles the Lean. | P1 "Lean statements, not only structure" drops to P3. What stays is the export as it is -- data, `linarith` examples with their hints, and the theorem/bridge boundary -- because those are the *mathematical* content, not a formalisation. Revisit if the handoff turns out to lose something. |
+| **Admin rights** | Not available on this machine, and not coming. | `cadical` / `kissat` moves from Blocked to Closed. The built-in CDCL is the answer: correct, and slow. `certo doctor` says so in one line. |
+| **Real instances** | Supplied: the Erdős 81 working corpus. | See below -- one instance has already been used, and it found a bug. |
+
+---
+
+## What the first real instance found
+
+The research corpus is dominated by one computational shape: **51 of 131
+scripts build an LP or ILP over a family of lists with exact rationals.** A
+"list" is a set of colours; the packing puts a pair `{a,b}` from list `j` into
+a solution, each pair usable once globally and each `(list, colour)` once. That
+is a `PackingSpec` exactly, and the quantities computed are the integral
+optimum `ν` and the fractional `μ*` -- the integrality gap.
+
+Rebuilt as a certo packing, the canonical core instance reproduces their
+numbers: `ν = 7`, `μ* = 15/2`. Two differences worth having: `μ*` comes out as
+an **exact rational** rather than the float `7.5`, and the dual verifies
+without a solver, reading as a load per resource.
+
+**And it found a bug.** `opt` on an ILP reported the relaxation's value as
+`meta["objective"]` -- so `ν = 7` came back as `15/2`. The detail text was
+half-honest about it; every programmatic reader was not. Fixed in a way that
+is better than the original intent: an ILP now certifies **both sides** -- a
+feasible integral point, rounded and checked exactly, as the achievable value,
+and the exact dual as the bound. When they coincide the integer optimum is
+certified exactly; when they do not, the gap is reported rather than hidden.
+
+That is the argument for real instances in one paragraph, and it is why the
+items below still say "build against a real problem".
+
+
 ## P1 — next
 
 ### 1. `--by-orbit` for graph sweeps
@@ -50,19 +91,21 @@ Last updated: 2026-09-16 (after 0.3.0).
 It is on `DomainSpec` only. Graph sweeps take `canonicalize` but still
 evaluate every graph; the same spot-checked inference applies.
 
-### 2. Lean statements, not only structure
+### 2. Packings, from the shape the corpus actually uses
 
-`proof_to_lean` emits `theorem name : True` with the SMT-LIB2 statement in a
-comment, because certo does not know the Mathlib encoding of the user's
-objects. Translating linear-arithmetic statements is mechanical and would
-remove most of the retyping; anything involving a graph or a set family is
-not, and should stay a comment rather than be guessed at.
+The `(list, pair)` packing above is not one instance, it is the shape 51
+scripts share. A `PackingSpec.lists(L)` constructor, the integrality gap
+`μ* − ν` reported as one number with both sides certified, and the family
+carried as a `SetFamily` so `canonicalize="auto"` gives the orbits -- that
+turns a recurring fifteen-line rebuild into three lines, on the problem the
+tool is actually being used for.
 
-### 3. `--check` in CI
+### 3. Close the loop on `opt --by-type` for gaps
 
-`--check` compiles locally when a toolchain is there. A GitHub Action that
-runs the examples' exports against Mathlib would catch the next
-`Mathlib.Tactic.Linarith` does not bring the `ℝ` instances before a user does.
+`--by-type` answers "does mixing buy anything". The corpus asks a neighbouring
+question constantly: "how far is `ν` from `μ*`, and which resources are tight
+in the dual". The dual is already exact; what is missing is reporting it as a
+gap rather than as two runs someone has to subtract.
 
 ---
 
@@ -104,6 +147,7 @@ instance that hits the cap.
 
 | | What | Why it is down here |
 |---|---|---|
+| | Lean statements, not only structure | `proof_to_lean` emits `theorem name : True` with the statement in a comment. Translating linear-arithmetic statements is mechanical; graphs and set families are not. **Deliberately parked**: Lean generation is another tool's job. |
 | | `certo qe` | Quantifier elimination to **derive** the optimal constant instead of bracketing it with `bisect`. Genuinely distinctive; no demand yet. |
 | | Cutting-plane certificates | Gomory–Chvátal for **integer** infeasibility, not just the LP relaxation. Relevant to packing bounds. |
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
@@ -113,13 +157,14 @@ instance that hits the cap.
 
 ---
 
-## Blocked
+## Closed
 
-**`cadical` / `kissat`.** No Windows wheel; cadical's releases ship no
-binaries; kissat publishes macOS and Linux only; there is no C++ compiler on
-the machine; and WSL needs administrator rights the user does not have. The
-built-in CDCL covers the gap — correct, and slow. `certo doctor` now says this
-in one line instead of leaving it to be discovered.
+**`cadical` / `kissat`.** No Windows wheel, no binaries in cadical's releases,
+kissat on macOS and Linux only, no C++ compiler, and WSL needs administrator
+rights that are not available on this machine and are not coming. Decided
+rather than blocked: the built-in CDCL is the answer. It is correct and it is
+slow, `certo doctor` says so in one line, and CI now runs the suite on Linux
+where an external solver could be installed if anyone ever needs one.
 
 ---
 
@@ -142,4 +187,4 @@ local commits; **pushing to the public repository is not automatic** and is
 asked for each time. Each release bumps the version, writes its section of
 [CHANGELOG.md](CHANGELOG.md), and is tagged.
 
-Current: **0.3.0**.
+Current: **0.3.0**. Next: **0.4**, which also freezes the certificate schema.
