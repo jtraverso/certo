@@ -95,11 +95,33 @@ def test_certificates_go_to_disk_not_into_the_response():
 
 
 def test_refusal_outside_the_workspace():
-    for bad in ("../../etc/passwd", "..\\..\\secret.json"):
+    """Every path the running platform can use to leave the workspace.
+
+    A backslash escapes a directory on Windows and is a legal character in a
+    POSIX filename, so `..\\..\\secret.json` names a file INSIDE the
+    workspace there and correctly draws no refusal. Asserting otherwise tested
+    Windows semantics on a Linux runner, which is the failure that found this.
+    """
+    escapes = ["../../etc/passwd", "../" * 6 + "secret.json",
+               str(Path(tempfile.gettempdir()).resolve() / "outside.json")]
+    if os.name == "nt":
+        escapes.append("..\\..\\secret.json")
+
+    for bad in escapes:
         out = run(call("verify", {"certificate_path": bad}))
         assert out.get("ok") is False, bad
-        assert "workspace" in out["error"].lower()
+        assert "workspace" in out["error"].lower(), (bad, out)
         assert out["hint"]
+
+
+def test_a_backslash_name_stays_inside_the_workspace_on_posix():
+    """Not a refusal, and not a hole: it is a filename, and it is confined."""
+    from certo.mcp_server import _resolve, _workspace
+
+    if os.name == "nt":
+        return                      # there it is a traversal, tested above
+    inside = _resolve("..\\..\\secret.json")
+    assert _workspace() in inside.parents
 
 
 def test_wrong_spec_type_is_rejected_with_an_actionable_message():
