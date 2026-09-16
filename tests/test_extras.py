@@ -3207,6 +3207,61 @@ def test_status_inherits_bridges_upward_but_not_unclaimed_optimality():
         == ["not_claimed"]
 
 
+
+def test_a_fractional_integral_point_does_not_verify():
+    """Found by a user reading output, not code.
+
+    `_verify_lp_dual` checked the declared integral point for non-negativity,
+    for `Ax <= b`, and for matching its declared objective -- and never that
+    the values were integers. `x = 3/2` satisfies `x + y <= 3` and hits the
+    declared value of 3 perfectly well, and used to pass every check.
+    """
+    from certo.engines import lp
+    from certo.spec import LPSpec
+
+    s = LPSpec(sense="max", integer=True, title="maximise x + y, x + y <= 3")
+    s.variable("x")
+    s.variable("y")
+    s.objective({"x": 1, "y": 1})
+    s.constraint({"x": 1, "y": 1}, "<=", 3, name="cap")
+
+    cert = lp.opt(s, LIM).certificate
+    assert verify(_roundtrip(cert), LIM).ok
+
+    forged = json.loads(json.dumps(cert.to_dict()))
+    forged["payload"]["integral_point"] = ["3/2", "3/2"]
+    rep = verify(Certificate.from_dict(forged), LIM)
+    assert not rep.ok
+    failed = [name for name, ok, _ in rep.checks if not ok]
+    assert len(failed) == 1, rep.checks
+    named = [d for name, ok, d in rep.checks if not ok][0]
+    assert "x" in named and "y" in named
+
+
+def test_a_mixed_problems_continuous_weights_may_be_fractional():
+    """The integrality check is per DECLARED KIND, not blanket.
+
+    A mixed design whose continuous weights are 1/6 is not an offender; the
+    first version of this check would have called every one of them one.
+    """
+    from certo.engines import mixed
+    from certo.spec import LPSpec
+
+    s = LPSpec(sense="max", title="one switch, one continuous weight")
+    s.variable("pick", 0, 1, kind="binary")
+    s.variable("w", 0, None)
+    s.objective({"pick": 1, "w": 1})
+    s.constraint({"w": 6}, "<=", 1, name="cap")
+    s.constraint({"pick": 1}, "<=", 1, name="one")
+
+    r = mixed.mixed(s, LIM)
+    assert r.certificate is not None
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok, [c for c in rep.checks if not c[1]]
+    # The continuous weight really is fractional, which is the point.
+    assert r.certificate.payload["continuous"]["w"] == "1/6"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

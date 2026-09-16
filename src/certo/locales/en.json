@@ -701,5 +701,7 @@
   "lint.packing.size": "{items} items over {resources} resources",
   "lint.packing.kinds": "item kinds: {names} -- `opt --by-type` splits the optimum by these",
   "lint.packing.fractional": "`integer=False`: `opt` solves the RELAXATION, so the answer is mu*, not the packing number",
-  "lint.packing.integer_kinds": "whole in {names}, fractional elsewhere"
+  "lint.packing.integer_kinds": "whole in {names}, fractional elsewhere",
+  "verify.lp.integral_integral": "every variable declared integer holds one",
+  "verify.lp.offenders": "not integral: {names}"
 }

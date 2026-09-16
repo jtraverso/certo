@@ -701,5 +701,7 @@
   "lint.packing.size": "{items} elementos sobre {resources} recursos",
   "lint.packing.kinds": "tipos de elemento: {names} -- `opt --by-type` separa el óptimo por estos",
   "lint.packing.fractional": "`integer=False`: `opt` resuelve la RELAJACIÓN, así que la respuesta es mu*, no el número de empaquetamiento",
-  "lint.packing.integer_kinds": "entero en {names}, fraccionario en el resto"
+  "lint.packing.integer_kinds": "entero en {names}, fraccionario en el resto",
+  "verify.lp.integral_integral": "cada variable declarada entera tiene un entero",
+  "verify.lp.offenders": "no son enteras: {names}"
 }

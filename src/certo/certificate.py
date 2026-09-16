@@ -1716,6 +1716,29 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                 sum(a * v for a, v in zip(row, xi)) <= rhs
                 for row, rhs in zip(A, b))
             value = sum(ci * v for ci, v in zip(c, xi))
+
+            # The point is called integral, so check that it IS. Feasibility
+            # and the objective say nothing about it: `x = 3/2` satisfies
+            # `x <= 3` and hits its declared value perfectly well, and used to
+            # pass. Per-variable, against the DECLARED kind, because a mixed
+            # problem's continuous weights are fractional on purpose.
+            kinds = p.get("kinds") or {}
+            names = p.get("var_names") or []
+            off, binary_off = [], []
+            for j, v in enumerate(xi):
+                name = names[j] if j < len(names) else str(j)
+                kind = kinds.get(name, "integer" if p.get("integer")
+                                 else "continuous")
+                if kind == "continuous":
+                    continue
+                if v.denominator != 1:
+                    off.append(name)
+                elif kind == "binary" and v not in (0, 1):
+                    binary_off.append(name)
+            checks.append((t("verify.lp.integral_integral"),
+                           not off and not binary_off,
+                           t("verify.lp.offenders",
+                             names=", ".join((off + binary_off)[:3]) or "-")))
             checks.append((t("verify.lp.integral_feasible"), feasible,
                            t("verify.lp.declared",
                              value=exact.serialize(value))))
