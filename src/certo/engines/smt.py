@@ -9,7 +9,7 @@ import time
 
 import z3
 
-from .. import z3util
+from .. import linarith, z3util
 from ..certificate import (core_matrix_certificate, model_certificate,
                            unsat_core_certificate)
 from ..limits import Limits
@@ -86,6 +86,71 @@ def _vacuous(s, ind, names, limits):
 # ---------------------------------------------------------------------------
 
 
+def _farkas_for(formulas, names, limits):
+    """Multipliers that close this core by arithmetic alone, if it is linear.
+
+    Returns (rows, multipliers, sorts) or None. Never raises: a core that
+    cannot be turned into rows is the ordinary case, not a failure, and a
+    missing LP backend must not cost anyone a proof they already had.
+    """
+    from .. import z3util
+    from ..engines import farkas as fk
+
+    rows = []
+    try:
+        for n in names:
+            poly, rel = linarith.as_row(formulas[n])
+            if rel == "=":
+                # An equality's multiplier is free in sign and the LP wants it
+                # non-negative, so it goes in as two inequalities -- the same
+                # split `rows_of` makes.
+                rows.append((n, poly, "<="))
+                rows.append((n + "_rev", {m: -c for m, c in poly.items()},
+                             "<="))
+            else:
+                rows.append((n, poly, rel))
+    except (linarith.NotPolynomial, KeyError, AttributeError):
+        return None
+    if not rows:
+        return None
+
+    try:
+        lams, _const, _strict, _exact = fk._search(rows, limits)
+    except Exception:
+        # No LP backend, or the search blew up. The core is still a core.
+        return None
+    if lams is None:
+        return None
+
+    sorts = {}
+    for c in z3util.free_consts(*[formulas[n] for n in names]):
+        try:
+            sorts[str(c)] = z3util.sort_name(c)
+        except ValueError:
+            pass
+    return rows, lams, sorts
+
+
+def _with_farkas(cert, formulas, names, limits):
+    """Attach the multipliers to a core certificate, if they can be found.
+
+    Optional payload fields and a flip of `solver_free`: both are additive,
+    which is what the frozen schema permits. A reader that does not know about
+    them verifies the core exactly as before.
+    """
+    from .. import exact
+
+    found = _farkas_for(formulas, names, limits)
+    if found is None:
+        return cert
+    rows, lams, sorts = found
+    cert.payload["rows"] = linarith.serialize_rows(rows)
+    cert.payload["multipliers"] = exact.serialize_all(lams)
+    cert.payload["sorts"] = sorts
+    cert.solver_free = True
+    return cert
+
+
 def prove(spec, limits: Limits | None = None) -> Result:
     """Negate the claim and look for unsat. unsat => proved."""
     lim = limits or Limits()
@@ -103,10 +168,11 @@ def prove(spec, limits: Limits | None = None) -> Result:
         dropped = [n for n in all_names if n not in core]
         clash = _vacuous(s, ind, all_names, lim)
         vacuous = clash is not None
-        cert = unsat_core_certificate(
-            z3util.smt2(*[formulas[n] for n in core]), core, dropped,
-            vacuous=vacuous, clash=clash,
-        )
+        cert = _with_farkas(
+            unsat_core_certificate(
+                z3util.smt2(*[formulas[n] for n in core]), core, dropped,
+                vacuous=vacuous, clash=clash,
+            ), formulas, core, lim)
         used = [n for n in core if n != "__goal__"]
         # When the proof is vacuous that IS the headline; "proved using 2 of
         # 2 hypotheses" underneath it would read as reassurance.
@@ -178,10 +244,11 @@ def check(spec, limits: Limits | None = None,
     if st is Status.UNSAT:
         raw = {str(p)[4:] for p in s.unsat_core()}
         core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
-        cert = unsat_core_certificate(
-            z3util.smt2(*[formulas[n] for n in core]), core,
-            [n for n in all_names if n not in core],
-        )
+        cert = _with_farkas(
+            unsat_core_certificate(
+                z3util.smt2(*[formulas[n] for n in core]), core,
+                [n for n in all_names if n not in core],
+            ), formulas, core, lim)
         return Result("check", st, Verdict.UNSATISFIABLE, ENGINE, ms, cert,
                       detail=t("engine.check.unsat_constant")
                       if constant == "false" else t("engine.check.unsat"),
@@ -228,11 +295,12 @@ def _hypotheses_only(spec, lim, t0) -> Result:
     if st is Status.UNSAT:
         raw = {str(pp)[4:] for pp in s.unsat_core()}
         clash = _mus(s, ind, [n for n in names if n in raw] or names, lim)
-        cert = unsat_core_certificate(
-            z3util.smt2(*[formulas[n] for n in clash]), clash,
-            [n for n in names if n not in clash],
-            vacuous=True, clash=clash,
-        )
+        cert = _with_farkas(
+            unsat_core_certificate(
+                z3util.smt2(*[formulas[n] for n in clash]), clash,
+                [n for n in names if n not in clash],
+                vacuous=True, clash=clash,
+            ), formulas, clash, lim)
         return Result("check", st, Verdict.UNSATISFIABLE, ENGINE, ms, cert,
                       detail=t("engine.check.regime_empty",
                                names=", ".join(clash)),

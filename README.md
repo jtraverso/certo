@@ -1456,6 +1456,65 @@ certo opt examples/packing_mixed.py --by-type
 Whether mixing buys anything is the gap between the mixed optimum and the best
 single kind. Here, on K6, it buys nothing over pure K4.
 
+## The most-used command stops needing a solver
+
+An `unsat_core` said "z3 agreed with me", and `verify` re-ran z3 to check.
+A user put the objection precisely: *useful, but not solver-free like a
+rational Farkas certificate.*
+
+It is now solver-free whenever the core is linear arithmetic. After the core
+is found, the Farkas search runs on exactly those rows, and the multipliers
+travel in the payload:
+
+```
+$ certo prove examples/farkas_linear.py --cert core.json
+  certificate: unsat_core (no solver needed)
+
+$ certo verify core.json
+VALID  unsat_core certificate (checked by arithmetic, no solver: Farkas multipliers)
+  [ok] every multiplier is non-negative
+  [ok] the combination closes: sum of lambda_i * row_i is a contradiction
+       (constant 0, and < 0 is false)
+  3 rows carry a non-zero multiplier: x_ge_1, y_ge_1
+```
+
+Floating point in the search does not compromise that. The LP is a way of
+**finding** the multipliers; `is_contradiction` accepts or rejects them in
+exact `Fraction` arithmetic, independently, so a bad guess is rejected rather
+than believed. Same discipline as `opt` and `sos`.
+
+The core stays in the payload either way — `compose` reads it for the
+entailment check — and the multipliers are optional fields, which the frozen
+schema allows. A 0.5 reader verifies the certificate exactly as before.
+
+### And the Lean export stops saying `sorry`
+
+These were reported as two separate gaps. They have one fix. A core used to
+export with `sorry` precisely because it says *which* hypotheses suffice and
+not *why*; with the multipliers it knows why:
+
+```lean
+theorem from_core (x y : ℝ)
+    (x_ge_1 : 1 - x ≤ 0)
+    (y_ge_1 : 1 - y ≤ 0)
+    : -2 + x + y ≥ 0 := by
+  linarith [x_ge_1, y_ge_1]
+```
+
+A vacuous regime becomes a compiling proof that it is empty:
+
+```lean
+theorem regime_empty (dens : ℝ)
+    (dens_floor : (3/4 : ℚ) - dens ≤ 0)
+    (sparse : (-1/2 : ℚ) + dens ≤ 0)
+    : False := by
+  linarith [dens_floor, sparse]
+```
+
+CI compiles both against Mathlib v4.28.0 on every push. Outside linear
+arithmetic nothing changes: no multipliers, `sorry`, and the file says why.
+
+
 ## Is my regime non-empty? Ask it directly
 
 The natural way to ask is `s.claim(z3.BoolVal(False))` — and it is the one

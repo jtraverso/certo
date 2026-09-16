@@ -6,6 +6,35 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### An unsat core over linear arithmetic no longer needs a solver
+
+A user's objection, quoted exactly: *`unsat_core` certificates depend on
+trusting Z3 again; useful, but not solver-free like a rational Farkas
+certificate.* Correct, and the machinery was already here.
+
+After a core is found — in `prove`, in `check`, and in
+`check --hypotheses-only` — the Farkas search runs on exactly those rows. When
+it finds multipliers they travel in the payload as **optional fields**, which
+the frozen schema allows, and `solver_free` becomes true: verification expands
+`Σ λᵢ · rowᵢ` and reads off the contradiction in `Fraction`, with nothing to
+trust.
+
+Floating point in the search does not compromise that. The LP **finds** the
+multipliers; `is_contradiction` accepts or rejects them in exact arithmetic,
+independently. A bad guess is rejected rather than believed — the same
+round-and-verify-exactly discipline as `opt` and `sos`. The core stays in the
+payload, because `compose` reads it for the entailment check.
+
+**And the Lean export stops saying `sorry`.** These were reported as two
+separate gaps and they have one fix: a core exported with `sorry` precisely
+because it says which hypotheses suffice and not why, and with the multipliers
+it knows why. A vacuous regime now becomes a compiling Lean proof that it is
+empty. CI compiles both paths against Mathlib v4.28.0 on every push.
+
+Outside linear arithmetic nothing changes: no multipliers, `sorry`, and the
+file says why.
+
+
 ## [0.5.1] — 2026-09-16
 
 **Schema unchanged: `SCHEMA_VERSION` stays 4.** A new flag, a new Lean

@@ -711,5 +711,9 @@
   "lint.spec.claim_false": "the claim is the literal False: `prove` and `check` will both report unsat whatever the hypotheses are. To ask whether the regime is non-empty, use `certo check --hypotheses-only`.",
   "lint.spec.claim_true": "the claim is the literal True, so there is nothing to prove; `certo check --hypotheses-only` asks about the hypotheses and says so in the verdict",
   "cli.check.constant.false": "the claim is the literal False: `check` decided `hypotheses AND False`, which is unsatisfiable whatever the hypotheses are. To ask whether the regime is non-empty, use `--hypotheses-only`.",
-  "cli.check.constant.true": "the claim is the literal True, so this checked the hypotheses alone. `--hypotheses-only` says so in the verdict, and names the clash when there is one."
+  "cli.check.constant.true": "the claim is the literal True, so this checked the hypotheses alone. `--hypotheses-only` says so in the verdict, and names the clash when there is one.",
+  "verify.core.combination": "the combination closes: sum of lambda_i * row_i is a contradiction",
+  "verify.core.closes": "constant {const}, and {rel} 0 is false",
+  "verify.core.by_farkas": "checked by arithmetic, no solver: Farkas multipliers",
+  "verify.core.detail_farkas": "{n} rows carry a non-zero multiplier: {names}"
 }

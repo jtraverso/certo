@@ -195,6 +195,8 @@ def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
     """
     return Certificate(
         kind="unsat_core",
+        # Flipped to True by `_with_farkas` when multipliers are found: a core
+        # with them is checkable by arithmetic, and one without is not.
         solver_free=False,
         payload={"core_smt2": core_smt2, "names": names, "dropped": dropped,
                  # `clash` is optional, which the frozen schema allows: a
@@ -1649,6 +1651,52 @@ def _verify_model(cert, limits) -> VerifyReport:
 
 
 def _verify_unsat_core(cert, limits) -> VerifyReport:
+    # With Farkas multipliers attached the core needs no solver at all: expand
+    # the combination and read off the contradiction. That is the difference
+    # between "z3 says so again" and "here is the arithmetic".
+    if cert.payload.get("multipliers"):
+        return _verify_core_by_farkas(cert)
+    return _verify_core_by_solver(cert, limits)
+
+
+def _verify_core_by_farkas(cert) -> VerifyReport:
+    """`sum lambda_i * row_i` is a contradiction, in exact rationals."""
+    from fractions import Fraction
+
+    from . import linarith
+
+    p = cert.payload
+    rows = linarith.parse_rows(p["rows"])
+    lams = [Fraction(x) for x in p["multipliers"]]
+    nonneg = all(l >= 0 for l in lams)
+    ok, const, strict = linarith.is_contradiction(rows, lams)
+
+    used = [n for (n, _, _), l in zip(rows, lams) if l]
+    checks = [
+        (t("verify.farkas.nonneg"), nonneg, ""),
+        (t("verify.core.combination"), ok,
+         t("verify.core.closes", const=str(const),
+           rel="<" if strict else "<=")),
+    ]
+    good = nonneg and ok
+    return VerifyReport(
+        good, "unsat_core", True,
+        checks=checks,
+        warnings=_core_warnings(cert),
+        method_key="verify.core.by_farkas",
+        detail=t("verify.core.detail_farkas", n=len(used),
+                 names=", ".join(n for n in used if n != "__goal__")),
+    )
+
+
+def _core_warnings(cert) -> list:
+    if cert.payload.get("clash"):
+        return [t("verify.core.vacuous_named",
+                  names=", ".join(cert.payload["clash"]))]
+    return [t("verify.core.vacuous")] if cert.payload.get("vacuous") else []
+
+
+def _verify_core_by_solver(cert, limits) -> VerifyReport:
     import z3
 
     from .limits import Limits
@@ -1664,11 +1712,7 @@ def _verify_unsat_core(cert, limits) -> VerifyReport:
     return VerifyReport(
         ok, "unsat_core", False,
         checks=[(t("verify.core.unsat"), ok, str(r))],
-        warnings=([t("verify.core.vacuous_named",
-                     names=", ".join(cert.payload.get("clash") or []))]
-                  if cert.payload.get("clash")
-                  else [t("verify.core.vacuous")]
-                  if cert.payload.get("vacuous") else []),
+        warnings=_core_warnings(cert),
         detail=t("verify.core.detail", n=n),
     )
 

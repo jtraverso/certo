@@ -1500,6 +1500,64 @@ certificados**, guarda su ruta y su digest. `ledger verify` los relee y los
 re-verifica, así que un certificado manipulado o ausente sale como fallo en
 vez de quedar duplicado en el log.
 
+## El comando más usado deja de necesitar solver
+
+Un `unsat_core` decía «z3 estuvo de acuerdo conmigo», y `verify` volvía a
+correr z3 para comprobarlo. Un usuario puso la objeción con precisión: *útiles,
+pero no sin-solver como un certificado Farkas racional.*
+
+Ahora es sin-solver siempre que el core sea aritmética lineal. Tras encontrar
+el core, la búsqueda de Farkas corre sobre esas filas exactas, y los
+multiplicadores viajan en el payload:
+
+```
+$ certo prove examples/farkas_linear.py --cert core.json
+  certificado: unsat_core (no necesita solver)
+
+$ certo verify core.json
+VÁLIDO  certificado unsat_core (comprobado por aritmética, sin solver:
+                                multiplicadores de Farkas)
+  [ok] todos los multiplicadores son no negativos
+  [ok] la combinación cierra: la suma de lambda_i * fila_i es una contradicción
+```
+
+Que la búsqueda use punto flotante no lo compromete. El LP es una forma de
+**encontrar** los multiplicadores; `is_contradiction` los acepta o los rechaza
+en aritmética exacta con `Fraction`, de forma independiente, así que una mala
+conjetura se rechaza en vez de creerse. La misma disciplina de `opt` y `sos`.
+
+El core sigue en el payload —`compose` lo lee para el chequeo de entailment— y
+los multiplicadores son campos opcionales, que el esquema congelado permite.
+Un lector de 0.5 verifica el certificado igual que antes.
+
+### Y el export a Lean deja de decir `sorry`
+
+Se reportaron como dos huecos distintos. Tienen un solo arreglo. Un core se
+exportaba con `sorry` precisamente porque dice *qué* hipótesis bastan y no *por
+qué*; con los multiplicadores sabe por qué:
+
+```lean
+theorem from_core (x y : ℝ)
+    (x_ge_1 : 1 - x ≤ 0)
+    (y_ge_1 : 1 - y ≤ 0)
+    : -2 + x + y ≥ 0 := by
+  linarith [x_ge_1, y_ge_1]
+```
+
+Un régimen vacuo se vuelve una demostración que compila de que está vacío:
+
+```lean
+theorem regime_empty (dens : ℝ)
+    (dens_floor : (3/4 : ℚ) - dens ≤ 0)
+    (sparse : (-1/2 : ℚ) + dens ≤ 0)
+    : False := by
+  linarith [dens_floor, sparse]
+```
+
+CI compila las dos contra Mathlib v4.28.0 en cada push. Fuera de la aritmética
+lineal no cambia nada: sin multiplicadores, `sorry`, y el archivo dice por qué.
+
+
 ## ¿Mi régimen no es vacío? Pregúntalo directo
 
 La forma natural de preguntarlo es `s.claim(z3.BoolVal(False))` —y es la única

@@ -48,6 +48,7 @@ Last updated: 2026-09-16 (after the second user report: the integral-point hole 
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
 | ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
 | ✅ | **`export --lean` for `unsat_core`** *(user feedback)* | The kind the most-used command produces used to be refused. Linear arithmetic gets real binders, hypotheses and a positively stated goal with `sorry`; a vacuous core becomes `h₁ → … → False`, the emptiness of the regime stated in Lean. The sort is read off the formulas. Everything else carries the SMT-LIB2 and says so. |
 | ✅ | **`--check` had never compiled anything** | A relative path against a cwd inside the Lean project; lake reported "no such file or directory" and it surfaced as a compile failure. Found because the lean CI job, fixed in the same round, finally got far enough to run it. |
@@ -124,23 +125,7 @@ fragile part, since on a symmetric optimum CBC's choice among the optimal
 duals is arbitrary. Decoupling the two ladders is worth doing on its own and
 is three lines.
 
-### 2. A solver-free certificate for linear-arithmetic proofs *(user feedback)*
-
-"`unsat_core` certificates depend on trusting Z3 again; useful, but not
-solver-free like a rational Farkas certificate." Correct, and the machinery to
-fix it is already here: `farkas` takes the same `Spec`, `linarith.rows_of`
-already converts one, and the search is a small LP.
-
-So: after `prove` succeeds, if the core is over linear arithmetic, run the
-Farkas search and attach the multipliers as an OPTIONAL payload field — which
-the frozen schema allows. Verification then expands the combination and finds
-the contradiction by arithmetic, and the certificate's `solver_free` becomes
-true. The core stays, because `compose` needs it for the entailment check.
-
-The result is that the most-used command in the tool stops producing the
-least-checkable certificate.
-
-### 3. Local loads as part of a packing certificate *(user feedback)*
+### 2. Local loads as part of a packing certificate *(user feedback)*
 
 The user is building a resource-packing / hypergraph-matching layer AROUND
 certo: generate the physical rows automatically, and ask for "preserve these
@@ -152,7 +137,7 @@ record that the solution holds them.
 and whether they are equalities or bounds, is a property of the problem; the
 same argument as P2 #7, and guessing produced a bad check once already.
 
-### 4. Parametric certificates — the jump from finite case to theorem
+### 3. Parametric certificates — the jump from finite case to theorem
 
 `order` is the first step of this and it shipped. The rest: an LP dual given
 as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial

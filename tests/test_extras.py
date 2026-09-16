@@ -3374,8 +3374,12 @@ def test_a_linear_core_exports_real_lean_hypotheses():
     assert "(a b : \u2124)" in text
     assert "a_big" in text and "b_small" in text
     assert "unused" not in text.split("## What this file does")[0]
-    assert "sorry" in text          # a core says WHICH, never why
-    assert "certo farkas" in text   # and where to get the proof
+    # It used to be `sorry` here: a core said WHICH hypotheses suffice and
+    # never why. With the Farkas multipliers in the certificate it says why,
+    # so the file carries a real tactic and no `sorry` at all.
+    body = text.split(":= by")[1].split("/-!")[0]
+    assert "sorry" not in body
+    assert "linarith [a_big, b_small]" in body
 
 
 def test_a_vacuous_core_states_the_regime_is_empty():
@@ -3424,6 +3428,88 @@ def test_export_lean_now_accepts_an_unsat_core():
     from certo.leanexport import EXPORTERS
 
     assert "unsat_core" in EXPORTERS
+
+
+
+def test_a_core_without_multipliers_still_says_sorry_and_why():
+    """Nonlinear arithmetic has no Farkas certificate to attach."""
+    import z3
+
+    from certo import Spec, leanexport
+    from certo.engines import smt
+
+    x, y = z3.Reals("x y")
+    s = Spec(title="nonlinear")
+    s.assume("x_pos", x > 0)
+    s.assume("y_pos", y > 0)
+    s.claim(x * y + 1 > 0)
+
+    cert = smt.prove(s, LIM).certificate
+    assert "multipliers" not in cert.payload
+    assert cert.solver_free is False
+
+    text = leanexport.core_to_lean(cert.to_dict())
+    body = text.split(":= by")[1].split("/-!")[0]
+    assert "sorry" in body
+    assert not body.strip().startswith("linarith")
+
+
+def test_a_linear_core_is_solver_free_and_verifies_by_arithmetic():
+    """The most-used command stops producing the least-checkable certificate."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    x, y = z3.Reals("x y")
+    s = Spec(title="linear")
+    s.assume("x_ge_1", x >= 1)
+    s.assume("y_ge_1", y >= 1)
+    s.assume("noise", x + y <= 10 ** 6)
+    s.claim(x + y >= 2)
+
+    r = smt.prove(s, LIM)
+    cert = r.certificate
+    assert cert.solver_free is True
+    assert cert.payload["multipliers"]
+    # The core is still there: `compose` reads it for the entailment check.
+    assert cert.payload["core_smt2"]
+
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok and rep.solver_free
+    assert rep.method_key == "verify.core.by_farkas"
+
+
+def test_forged_multipliers_are_rejected_by_the_arithmetic():
+    """The check does not trust the search that produced them."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    x, y = z3.Reals("x y")
+    s = Spec()
+    s.assume("x_ge_1", x >= 1)
+    s.assume("y_ge_1", y >= 1)
+    s.claim(x + y >= 2)
+
+    d = json.loads(json.dumps(smt.prove(s, LIM).certificate.to_dict()))
+    lams = d["payload"]["multipliers"]
+
+    # Scaling every multiplier is NOT a forgery: the system is scale-free and
+    # the halved vector closes just as well. Worth pinning, because a check
+    # that rejected it would be wrong.
+    d["payload"]["multipliers"] = [str(Fraction(x) / 2) for x in lams]
+    assert verify(Certificate.from_dict(d), LIM).ok
+
+    # Changing ONE of them is: the monomials stop cancelling.
+    d["payload"]["multipliers"] = [str(Fraction(lams[0]) + 1)] + lams[1:]
+    assert not verify(Certificate.from_dict(d), LIM).ok
+
+    d["payload"]["multipliers"] = ["-1"] + lams[1:]
+    rep = verify(Certificate.from_dict(d), LIM)
+    assert not rep.ok
+    assert any(not ok for name, ok, _ in rep.checks)
 
 
 if __name__ == "__main__":

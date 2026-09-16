@@ -711,5 +711,9 @@
   "lint.spec.claim_false": "la afirmación es el literal False: `prove` y `check` van a reportar unsat sean cuales sean las hipótesis. Para preguntar si el régimen no es vacío, usa `certo check --hypotheses-only`.",
   "lint.spec.claim_true": "la afirmación es el literal True, así que no hay nada que demostrar; `certo check --hypotheses-only` pregunta por las hipótesis y lo dice en el veredicto",
   "cli.check.constant.false": "la afirmación es el literal False: `check` decidió `hipótesis AND False`, que es insatisfacible sean cuales sean las hipótesis. Para preguntar si el régimen no es vacío, usa `--hypotheses-only`.",
-  "cli.check.constant.true": "la afirmación es el literal True, así que esto comprobó solo las hipótesis. `--hypotheses-only` lo dice en el veredicto, y nombra el choque cuando lo hay."
+  "cli.check.constant.true": "la afirmación es el literal True, así que esto comprobó solo las hipótesis. `--hypotheses-only` lo dice en el veredicto, y nombra el choque cuando lo hay.",
+  "verify.core.combination": "la combinación cierra: la suma de lambda_i * fila_i es una contradicción",
+  "verify.core.closes": "constante {const}, y {rel} 0 es falso",
+  "verify.core.by_farkas": "comprobado por aritmética, sin solver: multiplicadores de Farkas",
+  "verify.core.detail_farkas": "{n} filas llevan multiplicador no nulo: {names}"
 }

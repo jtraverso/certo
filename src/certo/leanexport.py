@@ -399,20 +399,12 @@ def core_to_lean(data: dict, source="") -> str:
         # No goal in the core means the hypotheses alone are unsatisfiable,
         # so what they entail is False -- and that IS the statement.
         lines.append("    : False := by")
-        lines.append("  sorry    -- certo: `linarith` closes this when the "
-                     "clash is linear;")
-        lines.append("           -- `certo farkas` gives the exact "
-                     "multipliers.")
+        lines.extend(_core_tactic(p, hyps))
     else:
         poly, rel = goal
         lines.append("    : {} {} 0 := by".format(
             _poly_to_lean(poly), _positive(rel)))
-        lines.append("  sorry    -- certo: a core says WHICH hypotheses "
-                     "suffice, not why.")
-        lines.append("           -- `certo farkas` on the same spec produces "
-                     "the")
-        lines.append("           -- multipliers, and exports a file that "
-                     "compiles.")
+        lines.extend(_core_tactic(p, hyps))
 
     lines.append("")
     lines.append("/-!")
@@ -441,6 +433,30 @@ def core_to_lean(data: dict, source="") -> str:
     lines.append("-/")
     lines.append(FOOTER)
     return "\n".join(lines)
+
+
+def _core_tactic(payload, hyps) -> list:
+    """`linarith` when the certificate knows why, `sorry` when it does not.
+
+    A bare core says WHICH hypotheses suffice and nothing licenses a tactic
+    call. With Farkas multipliers attached it says why, and `linarith`
+    rediscovers them in milliseconds once handed the right hypotheses --
+    which is precisely what the core found out.
+    """
+    if not payload.get("multipliers"):
+        return ["  sorry    -- certo: a core says WHICH hypotheses suffice, "
+                "not why.",
+                "           -- Run `certo prove` with an LP backend installed "
+                "and the",
+                "           -- Farkas multipliers travel in the certificate, "
+                "and this",
+                "           -- becomes a `linarith` call that compiles."]
+    names = [_safe(n) for n, _, _ in hyps]
+    return ["  linarith{}".format(
+        " [{}]".format(", ".join(names)) if names else ""),
+        "  -- certo: the multipliers are in the certificate; linarith",
+        "  -- rediscovers them, and which hypotheses to hand it is",
+        "  -- exactly what the core found out."]
 
 
 def _core_structure_only(data: dict, source="") -> str:
