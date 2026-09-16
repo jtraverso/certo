@@ -1335,6 +1335,231 @@ def test_a_broken_mcp_config_is_not_overwritten():
     assert not out["written"]
     assert p.read_text(encoding="utf-8") == "not json at all"
 
+# --- P2: native combinatorial types ----------------------------------------
+
+
+def _fam(n, blocks):
+    from certo import SetFamily
+
+    return SetFamily(n, blocks)
+
+
+def test_a_family_normalises_so_two_spellings_are_one_object():
+    a = _fam(4, [(1, 0), (2, 1), (2, 1)])
+    b = _fam(4, [(0, 1), (1, 2)])
+    assert a == b and hash(a) == hash(b) and a.key() == b.key()
+
+
+def test_the_key_round_trips():
+    from certo import SetFamily
+
+    f = _fam(5, [(0, 1, 2), (2, 3), (4,)])
+    assert SetFamily.from_key(f.key()) == f
+
+
+def test_the_canonical_form_is_invariant_under_relabelling():
+    """Two paths on four points are the same object written differently."""
+    path = _fam(4, [(0, 1), (1, 2), (2, 3)])
+    same = _fam(4, [(1, 2), (2, 3), (3, 0)])
+    star = _fam(4, [(0, 1), (0, 2), (0, 3)])
+    assert path.canonical() == same.canonical()
+    assert path.canonical() != star.canonical()
+
+
+def test_the_canonical_form_survives_every_relabelling():
+    from itertools import permutations
+
+    f = _fam(5, [(0, 1), (1, 2), (2, 3), (3, 4)])
+    forms = {f.relabelled({i: p[i] for i in range(5)}).canonical()
+             for p in permutations(range(5))}
+    assert len(forms) == 1
+
+
+def test_a_family_too_symmetric_to_canonicalise_refuses():
+    """A cheaper invariant could merge two orbits and nobody would notice."""
+    from certo import SetFamily
+    from certo import structures
+
+    big = SetFamily.complete(14, 1)          # 14! candidate relabellings
+    try:
+        big.canonical()
+    except ValueError as e:
+        assert str(structures.PERM_CAP) in str(e) or "symmetric" in str(e)
+    else:
+        raise AssertionError("it canonicalised something it cannot")
+
+
+def test_design_and_regularity_predicates():
+    fano = _fam(7, [(0, 1, 2), (0, 3, 4), (0, 5, 6),
+                    (1, 3, 5), (1, 4, 6), (2, 3, 6), (2, 4, 5)])
+    assert fano.is_design(2, 1) and fano.is_regular(3) and fano.is_uniform(3)
+    assert not fano.is_design(2, 2)
+
+
+def test_masks_become_a_family_with_an_id():
+    from certo import family_from_masks, mask_to_set, set_to_mask
+
+    assert mask_to_set(0b1011, 4) == (0, 1, 3)
+    assert set_to_mask((0, 1, 3)) == 0b1011
+    assert family_from_masks(4, [0b0011, 0b1100]).key() == "4:01|23"
+
+
+def test_reductions_drop_a_block_before_a_point():
+    f = _fam(4, [(0, 1), (1, 2)])
+    red = f.reductions()
+    assert red[0] == _fam(4, [(1, 2)])        # blocks first
+    assert red[f.size].n == 3                 # then points, ground set shrinks
+
+
+def test_a_native_type_supplies_key_canonicalize_and_reduce_itself():
+    from certo import DomainSpec, SetFamily
+    from certo.engines import domain
+
+    spec = DomainSpec(
+        items=lambda: list(SetFamily.all_families(5, 2, 3)),
+        predicate=lambda f: f.intersecting(),
+        canonicalize="auto", reduce="auto",   # and no key= at all
+    )
+    r = domain.sweep_domain(spec, LIM)
+    assert r.verdict is Verdict.REFUTED
+    assert r.meta["labelled"] == 90 and r.meta["orbit_count"] == 2
+    assert r.meta["counterexamples"][0].startswith("5:")   # the family's own id
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_auto_reduce_asks_the_item_before_guessing_from_its_type():
+    from certo import reducers
+
+    f = _fam(4, [(0, 1), (1, 2)])
+    assert reducers.auto(f) == f.reductions()
+
+
+# --- P2: symmetries on graph sweeps ----------------------------------------
+
+
+def test_a_graph_sweep_can_declare_a_finer_symmetry_than_isomorphism():
+    """The enumerator already quotients by isomorphism; this is finer."""
+    r = graphsearch.sweep(
+        SweepSpec(n=6, filters=["connected"], predicate=is_chordal,
+                  canonicalize=lambda g: tuple(sorted(g.degree(v)
+                                                      for v in range(g.n)))),
+        LIM, use_geng=False)
+    assert r.verdict is Verdict.REFUTED
+    assert r.meta["orbit_count"] < r.meta["labelled"]
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_auto_on_a_graph_sweep_means_isomorphism():
+    r = graphsearch.sweep(
+        SweepSpec(n=5, filters=["connected"], predicate=is_chordal,
+                  canonicalize="auto"),
+        LIM, use_geng=False)
+    # The family is already one graph per isomorphism class, so every orbit
+    # is a singleton -- which is the right answer, and worth being able to see.
+    assert all(row["size"] == 1 for row in r.meta["orbits"])
+
+
+def test_a_graph_sweep_without_a_symmetry_reports_none():
+    r = graphsearch.sweep(SweepSpec(n=5, filters=["connected"],
+                                    predicate=is_chordal),
+                          LIM, use_geng=False)
+    assert "orbits" not in r.meta
+    assert r.certificate.payload["orbits"] is None
+
+
+# --- P2: induct ------------------------------------------------------------
+
+
+def _induct_spec(step_from=3, base_upto=8):
+    import z3
+
+    from certo import InductSpec, Spec
+
+    k = z3.Int("k")
+
+    def edges(n):
+        return n * (n - 1) / 2
+
+    def base(j):
+        s = Spec()
+        s.claim(edges(z3.IntVal(j)) >= 3 * j - 6)
+        return s
+
+    step = Spec()
+    step.assume("k_ge_3", k >= 3)
+    step.assume("P_k", edges(k) >= 3 * k - 6)
+    step.claim(edges(k + 1) >= 3 * (k + 1) - 6)
+
+    return InductSpec(k0=3, base_upto=base_upto, base=base, step=step,
+                      step_from=step_from)
+
+
+def test_induct_chains_base_cases_to_a_step():
+    from certo.engines import induct
+
+    r = induct.induct(_induct_spec(), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["base_cases"] == [3, 4, 5, 6, 7, 8]
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_step_that_starts_after_the_base_ends_is_refused_up_front():
+    """Base 3..8, step from 10: nothing proves n = 9."""
+    from certo.engines import induct
+
+    r = induct.induct(_induct_spec(step_from=10), LIM)
+    assert r.status is Status.OUT_OF_THEORY
+    assert r.certificate is None
+    assert "does not join" in r.detail
+
+
+def test_the_gap_is_caught_again_at_verification():
+    from certo.engines import induct
+
+    cert = _roundtrip(induct.induct(_induct_spec(), LIM).certificate)
+    assert verify(cert, LIM).ok
+    cert.payload["step_from"] = 10
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("no later" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_a_missing_base_case_is_caught():
+    from certo.engines import induct
+
+    cert = _roundtrip(induct.induct(_induct_spec(), LIM).certificate)
+    del cert.payload["base"][3]                   # k=6 quietly removed
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("exactly" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_the_induction_schema_is_declared_every_time():
+    """It is applied here, not verified by a solver, and that is said."""
+    from certo.engines import induct
+
+    rep = verify(_roundtrip(induct.induct(_induct_spec(), LIM).certificate), LIM)
+    assert rep.ok
+    assert any("APPLIED" in w or "APLICA" in w for w in rep.warnings)
+
+
+def test_a_false_step_stops_the_whole_thing():
+    import z3
+
+    from certo import InductSpec, Spec
+    from certo.engines import induct
+
+    k = z3.Int("k")
+    step = Spec()
+    step.assume("k_ge_3", k >= 3)
+    step.claim(k > k + 1)                          # plainly false
+
+    spec = InductSpec(k0=3, base_upto=4, base=lambda j: Spec().claim(z3.BoolVal(True)),
+                      step=step)
+    r = induct.induct(spec, LIM)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

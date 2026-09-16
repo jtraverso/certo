@@ -16,10 +16,12 @@ from .certificate import Certificate, VerifyReport, verify
 from .cnf import CNF, CNFSpec
 from .graphs import Graph
 from . import doctor, reducers
+from .structures import SetFamily, family_from_masks, mask_to_set, set_to_mask
 from .packing import PackingSpec, loads_from_dual
 from .i18n import set_lang, t
 from .limits import Limits
-from .spec import (BisectSpec, BoundSpec, DomainSpec, Lemma, LPSpec,
+from .spec import (BisectSpec, BoundSpec, DomainSpec, InductSpec, Lemma,
+                   LPSpec,
                    MultiSpec, Outcome, ProofSpec, Spec, SweepSpec,
                    SynthSpec, load_spec)
 from .status import Result, Status, Verdict
@@ -28,10 +30,12 @@ __version__ = "0.2.0"
 
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",
-    "BisectSpec", "BoundSpec", "DomainSpec", "MultiSpec", "ProofSpec", "Lemma",
+    "BisectSpec", "BoundSpec", "DomainSpec", "InductSpec", "MultiSpec",
+    "ProofSpec", "Lemma",
     "Outcome", "load_spec",
     "Limits", "Status", "Verdict", "Result",
     "Certificate", "VerifyReport", "verify",
-    "Graph", "PackingSpec", "loads_from_dual", "doctor", "reducers", "set_lang", "t",
+    "Graph", "PackingSpec", "loads_from_dual", "doctor", "reducers", "SetFamily",
+    "family_from_masks", "mask_to_set", "set_to_mask", "set_lang", "t",
     "__version__",
 ]

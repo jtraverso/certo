@@ -19,6 +19,7 @@ from __future__ import annotations
 import time
 
 from .. import exact
+from .. import orbits as orb
 from ..certificate import (graph_set_certificate, outcome_code,
                            sweep_certificate, sweep_strength)
 from ..i18n import t
@@ -75,6 +76,7 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
     t0 = time.perf_counter()
     graphs, engine, total = enumerate_graphs(spec.n, spec.filters, use_geng=use_geng)
 
+    groups = orb.build(spec, graphs, [g.to_graph6() for g in graphs])
     failures, errors, unknowns, certs, values = [], [], [], [], []
     codes = []
     for g in graphs:
@@ -119,6 +121,9 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
         entries=certs, mode=cert_mode, counts=counts,
         values=values, stats=calib["stats"] if calib else None,
         outcomes="" if spec.predicate is None else "".join(codes),
+        orbits=(groups.summary(only={i for i, c in enumerate(codes) if c == "F"})
+                if groups is not None and "F" in codes else None),
+        labelled=sum(1 for c in codes if c == "F"),
     )
     if spec.predicate is None:
         cert.payload["no_predicate"] = True
@@ -138,6 +143,13 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
     if spec.predicate is not None:
         base["level"] = level
         base["banner_key"] = "scope.sweep." + level
+    if groups is not None:
+        base["domain_orbits"] = groups.count
+        base["labelled"] = sum(1 for c in codes if c == "F")
+        rows = cert.payload.get("orbits")
+        if rows:
+            base["orbits"] = rows
+            base["orbit_count"] = len(rows)
     if calib:
         base["calibration"] = calib
 

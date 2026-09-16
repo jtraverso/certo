@@ -4,6 +4,31 @@ Notable changes per release. Dates are ISO. This project uses semantic
 versioning; while the major is 0, a minor bump may change a certificate
 payload — each such change says so and what still reads the old shape.
 
+## [Unreleased]
+
+### Added
+
+- **`certo induct`** — finite base cases plus an inductive step, with the join
+  checked: the base cases are exactly `k0..base_upto` with no gap, and the
+  step starts no later than the base ends. A base covering 3..8 with a step
+  valid only from k ≥ 10 proves nothing about 9 and reads identically in
+  prose. Z3 has no induction schema: the principle is applied by the tool, the
+  certificate's structure is the application, and `verify` says so every time.
+- **Native combinatorial types** (`SetFamily`) — hypergraphs, block designs,
+  codes and mask systems are one shape. The type supplies `key()`,
+  `canonical()` and `reductions()`, so a `DomainSpec` over one can leave
+  `key`, `canonicalize` and `reduce` all at `"auto"`. The canonical form is
+  exact under relabelling the ground set, and **raises** above a cap rather
+  than falling back to a cheaper invariant that could merge two orbits.
+- `SweepSpec(canonicalize=...)` — symmetries on graph sweeps, for a symmetry
+  finer than isomorphism.
+- `canonicalize="auto"` asks the item for its own canonical form, so any class
+  with a `canonical()` method joins.
+
+### Notes
+
+- 168 tests.
+
 ## [0.2.0] — 2026-09-16
 
 The release where a passing sweep stopped looking stronger than it was.

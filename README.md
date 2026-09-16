@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Seventeen commands to discover objects, destroy false formulations, calibrate
+Eighteen commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -90,7 +90,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The seventeen commands
+## The eighteen commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -99,6 +99,7 @@ and what to expect.
 | `core` | MUS: which hypotheses are needed | Z3 | minimal core |
 | `farkas` | `linarith` / `nlinarith`, with the multipliers | exact LP | **Farkas certificate**, solver-free |
 | `compose` | Assemble lemmas into one proof, checking the join | Z3 | **proof**: every lemma, its certificate, and the link |
+| `induct` | Base cases + a step, and the check that the chain joins | Z3 | **induction**: both halves, and the two numbers that matter |
 | `synth` | CEGIS: ∃obj ∀input ∃aux | CEGIS/Z3 | object + the counterexamples that forced it |
 | `opt` | LP/ILP, or a packing | CBC | **dual in exact rationals** = the load certificate |
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
@@ -148,6 +149,7 @@ def spec():
 | `PackingSpec` | `opt` |
 | `MultiSpec` | `core` over several goals |
 | `ProofSpec` | `compose` |
+| `InductSpec` | `induct` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
 
@@ -170,6 +172,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `farkas` | a combination of the hypotheses that closes the system | **yes**, adding fractions |
 | `ball` | a real quantity lies in an interval, and that settles the claim | **yes** for the claim; the interval needs the spec |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |
+| `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
 | `mus` | unsatisfiability **and** minimality | **yes** |
 | `graph_set` | non-isomorphic family passing the filters | **yes** |
 | `sweep` | family + predicate certificates | depends on the predicate |
@@ -188,6 +191,130 @@ Every certificate carries the `certo` version that issued it and, when it came
 from the CLI, the path and `sha256` of the spec. If the file changes later,
 `verify` warns: the certificate is still valid on its own, but it no longer
 corresponds to the file that is there now.
+
+## `induct`: base cases, a step, and the gap between them
+
+"Checked by hand up to n = 8, and from there by induction" is how a large
+fraction of combinatorial arguments end. Both halves already had a command —
+`sweep` or `cases` for the base, `prove` for the step — and the join was left
+to a sentence.
+
+That join is not decoration. A base covering 3..8 with a step valid only from
+k ≥ 10 proves **nothing** about n = 9, and the sentence reads exactly the same
+either way.
+
+```python
+InductSpec(
+    k0=3, base_upto=8,
+    base=lambda j: some_spec_at(j),      # Spec, SweepSpec, DomainSpec, or a cert
+    step=step_spec,                      # assume P(k), k >= 3; claim P(k+1)
+    step_from=3,
+)
+```
+
+```
+$ certo induct examples/induct_sum.py
+PROVED  [unsat]
+  6 base cases k=3..8, step from k=3, chained by induction
+```
+
+### Z3 does not do induction, and this does not pretend it does
+
+There is no induction schema in an SMT solver and there will not be one. The
+principle is applied **here**, and the certificate's structure *is* the
+application. `verify` says so every single time:
+
+> The induction over the naturals is APPLIED here, not verified by a solver.
+> It is one fixed schema, unlike a bridge, but it is still a step no
+> certificate in this file performs.
+
+That is a different kind of step from a `compose` bridge: bridges are claims
+about what a particular computation *means* and vary per problem, while
+induction over the naturals is one fixed, named schema. So it is recorded
+rather than warned about — but it is recorded.
+
+### What is actually checked
+
+```
+$ certo verify out/induct.json
+  [ok] the base cases are exactly k0..base_upto  (k=3..8, 6 cases present)
+  [ok] the step starts no later than the base ends  (step from k=3, base reaches 8)
+  [ok] base case k=3 holds   ... k=4 ... k=5 ... k=6 ... k=7 ... k=8
+  [ok] the inductive step holds
+  [ok] the step certificate entails the step statement
+```
+
+The first two are the ones worth running this for. Set `step_from=10` and it
+refuses at build time — no certificate is written — and if one is forged
+afterwards, verification catches it again:
+
+```
+[XX] the step starts no later than the base ends  (step from k=10, base reaches 8)
+[XX] the base cases are exactly k0..base_upto     (k=3..8, 5 cases present)
+```
+
+The step is proved with the index **free**, which is what makes it universally
+valid: a proof with a free variable is a proof for every value of it, so
+there is no quantifier to hand a solver.
+
+## Native combinatorial types
+
+Set families, hypergraphs, designs and mask systems were being re-encoded by
+hand in every spec: a tuple of frozensets here, bitmasks there, a `key` to
+make an id, a `canonicalize` to quotient, a `reduce` to shrink. Four pieces of
+boilerplate per problem, each a place to get it subtly wrong.
+
+```python
+from certo import DomainSpec, SetFamily
+
+def spec():
+    return DomainSpec(
+        items=lambda: list(SetFamily.all_families(5, 2, 3)),
+        predicate=lambda f: f.intersecting(),
+        canonicalize="auto", reduce="auto",      # and no key= at all
+    )
+```
+
+```
+REFUTED: 90 counterexamples out of 120 examined -- 90 labelled, 2 up to symmetry
+  5:01|02|13  x60
+  5:01|02|34  x30
+```
+
+The point of a native type here is not that it holds data — a tuple does that.
+It is that it supplies the three things the rest of the tool asks for:
+`key()`, `canonical()` and `reductions()`. So `key`, `canonicalize` and
+`reduce` can all be left at `"auto"`, and anyone's own class joins simply by
+having those methods.
+
+| | |
+|---|---|
+| `is_design(t, λ)` | every t-subset in exactly λ blocks |
+| `is_uniform(k)`, `is_regular(r)` | the usual two |
+| `intersecting()` | all pairs of blocks meet — the Erdős–Ko–Rado shape |
+| `covers()` | every point used |
+| `SetFamily.all_families(n, k, size)` | the domain to sweep |
+| `family_from_masks(n, masks)` | a mask system, with an id and a canonical form |
+
+### The canonical form is exact, or it refuses
+
+Two families get the same canonical form **exactly when** a relabelling of the
+ground set carries one to the other. Points are refined into classes no
+relabelling can mix — degree, then the block sizes through each point, then
+the same again on the refined classes — and the form is minimised over the
+permutations respecting that refinement.
+
+On a highly regular family that degenerates towards n!, so there is a cap. And
+hitting it **raises** rather than falling back to a cheaper invariant: an
+invariant that merged two non-isomorphic families would merge two orbits, and
+nothing downstream would notice.
+
+## Symmetries on graph sweeps
+
+`SweepSpec` takes `canonicalize` too. The enumerator already returns one graph
+per isomorphism class, so `"auto"` buys nothing there — it is for a symmetry
+**finer** than isomorphism (coloured, rooted or otherwise decorated graphs),
+and for a family the enumerator did not produce.
 
 ## Symmetries: three answers instead of a thousand
 
@@ -1156,7 +1283,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-149 of them, no test framework required.
+168 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

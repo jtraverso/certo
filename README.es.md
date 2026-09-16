@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Diecisiete comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Dieciocho comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -89,7 +89,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los diecisiete comandos
+## Los dieciocho comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -98,6 +98,7 @@ esperar.
 | `core` | MUS: qué hipótesis hacen falta | Z3 | núcleo minimal |
 | `farkas` | `linarith` / `nlinarith`, con los multiplicadores | LP exacto | **certificado de Farkas**, sin solver |
 | `compose` | Ensambla lemas en una demostración, comprobando el empalme | Z3 | **proof**: cada lema, su certificado y el enlace |
+| `induct` | Casos base + un paso, y la comprobación de que la cadena se junta | Z3 | **induction**: las dos mitades y los dos números que importan |
 | `synth` | CEGIS: ∃obj ∀entrada ∃aux | CEGIS/Z3 | objeto + contraejemplos que lo forzaron |
 | `opt` | LP/ILP, o un packing | CBC | **dual exacto** = el certificado de cargas |
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
@@ -147,6 +148,7 @@ def spec():
 | `PackingSpec` | `opt` |
 | `MultiSpec` | `core` multiobjetivo |
 | `ProofSpec` | `compose` |
+| `InductSpec` | `induct` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
 
@@ -168,6 +170,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `farkas` | una combinación de las hipótesis que cierra el sistema | **sí**, sumando fracciones |
 | `ball` | una cantidad real cae en un intervalo, y eso zanja la afirmación | **sí** para la afirmación; el intervalo necesita la spec |
 | `proof` | los lemas **y** que cada uno se usa como su certificado permite | no, re-resuelve |
+| `induction` | los casos base, el paso **y** que encadenan sin hueco | no, re-resuelve |
 | `mus` | insatisfacibilidad **y** minimalidad | **sí** |
 | `graph_set` | familia no isomorfa que pasa los filtros | **sí** |
 | `sweep` | familia + certificados del predicado | según el predicado |
@@ -186,6 +189,133 @@ Cada certificado lleva la versión de `certo` que lo emitió y, si vino del CLI,
 la ruta y el `sha256` de la spec. Si el fichero cambia después, `verify` avisa:
 el certificado sigue siendo válido por sí mismo, pero ya no corresponde al
 fichero que hay ahora.
+
+## `induct`: casos base, un paso, y el hueco entre ambos
+
+«Comprobado a mano hasta n = 8, y de ahí por inducción» es como acaba una
+buena parte de los argumentos combinatorios. Las dos mitades ya tenían
+comando —`sweep` o `cases` para la base, `prove` para el paso— y el empalme
+quedaba en una frase.
+
+Ese empalme no es decoración. Una base que cubre 3..8 con un paso válido solo
+desde k ≥ 10 no demuestra **nada** sobre n = 9, y la frase se lee idéntica en
+los dos casos.
+
+```python
+InductSpec(
+    k0=3, base_upto=8,
+    base=lambda j: spec_en(j),        # Spec, SweepSpec, DomainSpec o un cert
+    step=step_spec,                   # asume P(k), k >= 3; afirma P(k+1)
+    step_from=3,
+)
+```
+
+```
+$ certo induct examples/induct_sum.py
+PROVED  [unsat]
+  6 base cases k=3..8, step from k=3, chained by induction
+```
+
+### Z3 no hace inducción, y esto no finge lo contrario
+
+Un solver SMT no tiene esquema de inducción y no lo va a tener. El principio
+se aplica **aquí**, y la estructura del certificado *es* esa aplicación.
+`verify` lo dice todas y cada una de las veces:
+
+> La inducción sobre los naturales se APLICA aquí, no la verifica un solver.
+> Es un esquema fijo, a diferencia de un puente, pero sigue siendo un paso que
+> ningún certificado de este fichero realiza.
+
+Es un tipo de paso distinto del puente de `compose`: los puentes son
+afirmaciones sobre lo que *significa* un cómputo concreto y cambian con cada
+problema, mientras que la inducción sobre los naturales es un esquema fijo y
+con nombre. Por eso queda registrado en vez de advertido — pero queda
+registrado.
+
+### Qué se comprueba de verdad
+
+```
+$ certo verify out/induct.json
+  [ok] the base cases are exactly k0..base_upto  (k=3..8, 6 cases present)
+  [ok] the step starts no later than the base ends  (step from k=3, base reaches 8)
+  [ok] base case k=3 holds   ... k=4 ... k=5 ... k=6 ... k=7 ... k=8
+  [ok] the inductive step holds
+  [ok] the step certificate entails the step statement
+```
+
+Las dos primeras son la razón de correr esto. Pon `step_from=10` y se niega en
+tiempo de construcción —no se escribe certificado— y si alguien falsifica uno
+después, la verificación lo vuelve a pillar:
+
+```
+[XX] the step starts no later than the base ends  (step from k=10, base reaches 8)
+[XX] the base cases are exactly k0..base_upto     (k=3..8, 5 cases present)
+```
+
+El paso se demuestra con el índice **libre**, que es lo que lo hace
+universalmente válido: una demostración con una variable libre es una
+demostración para todos sus valores, así que no hay cuantificador que darle a
+un solver.
+
+## Tipos combinatorios nativos
+
+Familias de conjuntos, hipergrafos, diseños y sistemas de máscaras se estaban
+recodificando a mano en cada spec: una tupla de frozensets aquí, máscaras
+allá, un `key` para el id, un `canonicalize` para cocientar, un `reduce` para
+minimizar. Cuatro trozos de andamiaje por problema, y cada uno un sitio donde
+equivocarse sutilmente.
+
+```python
+from certo import DomainSpec, SetFamily
+
+def spec():
+    return DomainSpec(
+        items=lambda: list(SetFamily.all_families(5, 2, 3)),
+        predicate=lambda f: f.intersecting(),
+        canonicalize="auto", reduce="auto",      # y ningún key=
+    )
+```
+
+```
+REFUTED: 90 counterexamples out of 120 examined -- 90 labelled, 2 up to symmetry
+  5:01|02|13  x60
+  5:01|02|34  x30
+```
+
+Lo valioso de un tipo nativo aquí no es que guarde datos —eso lo hace una
+tupla—. Es que aporta las tres cosas que el resto de la herramienta pide:
+`key()`, `canonical()` y `reductions()`. Así `key`, `canonicalize` y `reduce`
+se pueden dejar todos en `"auto"`, y cualquier clase propia se suma sin más
+que tener esos métodos.
+
+| | |
+|---|---|
+| `is_design(t, λ)` | todo t-subconjunto en exactamente λ bloques |
+| `is_uniform(k)`, `is_regular(r)` | los dos de siempre |
+| `intersecting()` | todos los pares de bloques se cortan — la forma de Erdős–Ko–Rado |
+| `covers()` | todo punto usado |
+| `SetFamily.all_families(n, k, size)` | el dominio a barrer |
+| `family_from_masks(n, masks)` | un sistema de máscaras, con id y forma canónica |
+
+### La forma canónica es exacta, o se niega
+
+Dos familias tienen la misma forma canónica **exactamente cuando** un
+reetiquetado del conjunto base lleva una a la otra. Los puntos se refinan en
+clases que ningún reetiquetado puede mezclar —grado, luego los tamaños de los
+bloques que pasan por cada punto, luego lo mismo otra vez sobre las clases
+refinadas— y se minimiza sobre las permutaciones que respetan ese refinamiento.
+
+En una familia muy regular eso degenera hacia n!, así que hay un tope. Y
+alcanzarlo **levanta un error** en vez de caer a un invariante más barato: un
+invariante que fusionara dos familias no isomorfas fusionaría dos órbitas, y
+nada aguas abajo se daría cuenta.
+
+## Simetrías en barridos de grafos
+
+`SweepSpec` también acepta `canonicalize`. El enumerador ya devuelve un grafo
+por clase de isomorfía, así que ahí `"auto"` no aporta nada — es para una
+simetría **más fina** que la isomorfía (grafos coloreados, enraizados o
+decorados de otro modo) y para familias que no produjo el enumerador.
 
 ## Simetrías: tres respuestas en vez de mil
 
@@ -1140,7 +1270,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-149, y sin necesidad de ningún framework de tests.
+168, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

@@ -15,9 +15,12 @@ sharing a canonical form is a CLAIM of the spec, not something checkable
 here -- `canonicalize` is arbitrary Python. What IS checkable, and is checked,
 is that the decomposition is internally consistent: every item lands in
 exactly one orbit, every representative belongs to the orbit it represents,
-and the counts add up. And when the sweep runs on representatives only, the
-predicate's invariance under the symmetry is spot-checked against real
-non-representatives rather than assumed in silence.
+and the counts add up. A decomposition whose parts do not add up is wrong
+whatever the group was.
+
+Every item is still EVALUATED. Quotienting happens on the way out, not on the
+way in: evaluating one representative per orbit would need the predicate to be
+invariant under the symmetry, which nothing here can establish.
 """
 from __future__ import annotations
 
@@ -87,9 +90,28 @@ class Orbits:
         return out
 
 
+def _auto(item):
+    """The canonical form a native type supplies for itself.
+
+    Graphs have one under isomorphism; so do the combinatorial types. Asking
+    the item beats a registry keyed on type, because a user's own class can
+    join simply by having the method.
+    """
+    fn = getattr(item, "canonical", None)
+    if callable(fn):
+        return fn()
+    from .graphs import Graph, canonical_form
+
+    if isinstance(item, Graph):
+        return canonical_form(item)
+    raise TypeError(t("orbits.no_auto", got=type(item).__name__))
+
+
 def build(spec, items, ids) -> Orbits | None:
     """Apply the spec's `canonicalize`, or None if it declares no symmetry."""
     fn = getattr(spec, "canonicalize", None)
+    if fn == "auto":
+        fn = _auto
     if fn is None:
         return None
     canon = []

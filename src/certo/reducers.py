@@ -88,6 +88,12 @@ def auto(item):
     """
     from .graphs import Graph
 
+    # A native type says what one step smaller means for itself. Asked first,
+    # so a SetFamily reduces by dropping a block rather than being treated as
+    # whatever sequence it happens to resemble.
+    own = getattr(item, "reductions", None)
+    if callable(own):
+        return list(own())
     if isinstance(item, Graph):
         return graphs(item)
     if isinstance(item, (set, frozenset)):

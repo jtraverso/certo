@@ -341,6 +341,15 @@ def cmd_doctor(args):
     return 0 if rep["ok"] else 3
 
 
+def cmd_induct(args):
+    from .engines import induct
+    from .spec import InductSpec, load_spec
+
+    spec = load_spec(args.spec, InductSpec)
+    res = induct.induct(spec, limits_from(args), spec_path=args.spec)
+    return emit(res, args)
+
+
 def cmd_synth(args):
     from .engines import cegis
     from .spec import SynthSpec, load_spec
@@ -886,6 +895,11 @@ def build_parser():
     sp.add_argument("--max-prec", type=int, metavar="BITS", dest="max_prec",
                     help="give up above this instead of doubling forever")
     sp.set_defaults(func=cmd_bounds)
+
+    sp = add("induct", "finite base cases plus an inductive step, and the "
+                       "check that the chain actually joins")
+    sp.add_argument("spec", help=".py file returning an InductSpec")
+    sp.set_defaults(func=cmd_induct)
 
     sp = add("compose", "assemble lemmas and their certificates into one "
                         "proof, with the link between them checked")

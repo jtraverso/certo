@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16.
+Last updated: 2026-09-16 (after 0.2.0).
 
 ---
 
@@ -31,6 +31,9 @@ Last updated: 2026-09-16.
 | ✅ | MCP `verify` returns its warnings | It was dropping them entirely — and the warnings are the whole honesty layer. |
 | ✅ | MCP stamps provenance | Certificates produced over MCP carried no spec path, so they could not be replayed or found by `ledger verify`. |
 | ✅ | `Path("")` is `.` | `shrink_graph` and `shrink_domain` verification died with a permission error instead of saying the certificate recorded no spec path. |
+| ✅ | **Native combinatorial types** *(user feedback P2)* | `SetFamily` — hypergraphs, designs, codes, mask systems. Supplies `key()`, `canonical()` and `reductions()` itself, so a `DomainSpec` over one leaves all three at `"auto"`. The canonical form is exact and **raises** rather than falling back to an invariant that could merge two orbits. |
+| ✅ | **`certo induct`** *(P2)* | Base cases + step, with the join checked: no gap in `k0..base_upto`, and the step starting no later than the base ends. Z3 has no induction schema; the principle is applied here and said so on every verification. |
+| ✅ | **Symmetries on graph sweeps** *(P2)* | `SweepSpec(canonicalize=...)`, for a symmetry finer than isomorphism. `"auto"` asks the item for its own canonical form. |
 
 ---
 
@@ -72,23 +75,20 @@ orbit representative and reporting the three minimal witnesses together.
 
 ## P2 — high value, more work
 
-### 4. Native combinatorial types *(user feedback)*
+### 4. Combinatorial types beyond set families
 
-Set families, hypergraphs, designs, mask systems. They recur constantly and
-are re-encoded by hand in every spec. Pairs naturally with the reducers and
-with `canonicalize`, which such types could supply themselves.
+`SetFamily` covers hypergraphs, designs, codes and mask systems, because they
+are all one shape. What it does not cover: ordered structures (sequences,
+words, permutation patterns) and edge-coloured or directed objects. Worth
+adding when a real problem asks, not before — the value of a native type is
+the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
-### 5. `certo induct`
+### 5. A canonical form that scales past the cap
 
-Exhaustive base cases + inductive step, composed into one certificate. Cheap
-now that `compose` exists — essentially a `ProofSpec` factory — but no user is
-waiting for it.
-
-### 6. Symmetries for graph sweeps
-
-`canonicalize` is on `DomainSpec` only. Graph sweeps already enumerate up to
-isomorphism via nauty, so the need is weaker, but a sweep with a *finer*
-symmetry than isomorphism (coloured or rooted graphs) has the same problem.
+`SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
+very regular family on more than ~10 points will hit. The fix is individual-
+isation-refinement, the way nauty does it. Only worth building against a real
+instance that hits the cap.
 
 ---
 

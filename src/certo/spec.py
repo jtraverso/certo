@@ -238,6 +238,12 @@ class SweepSpec:
     describe: object = None              # callable(Graph) -> str, optional
     collect: object = None               # callable(Graph) -> number
     worst: str = "min"                   # which end counts as "worst": min or max
+    # `canonicalize(g) -> hashable`, or "auto" for graph isomorphism. The
+    # enumerator already returns one graph per isomorphism class, so "auto"
+    # buys nothing there -- it is for a FINER symmetry than isomorphism, which
+    # is what a coloured, rooted or otherwise decorated sweep has, and for a
+    # sweep over a family the enumerator did not produce.
+    canonicalize: object = None
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +390,16 @@ class DomainSpec:
         return list(it)
 
     def id_of(self, item) -> str:
-        return str(self.key(item)) if self.key else str(item)
+        """The item's id: the spec's `key`, or the item's own.
+
+        A native type knows how to name itself, so a DomainSpec over one needs
+        no `key` at all -- and asking the item beats a registry keyed on type,
+        because anyone's class can join by having the method.
+        """
+        if self.key is not None:
+            return str(self.key(item))
+        own = getattr(item, "key", None)
+        return str(own()) if callable(own) else str(item)
 
     def reducer(self):
         """The reduce function, resolving a catalogue name if that is what it is."""
@@ -572,3 +587,44 @@ class ProofSpec:
     @property
     def lemma_names(self):
         return [l.name for l in self.lemmas]
+
+
+# ---------------------------------------------------------------------------
+# induct: base cases plus a step, and the join between them
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class InductSpec:
+    """Finite base cases, an inductive step, and the chain they form.
+
+        p = InductSpec(
+            k0=3, base_upto=8,
+            base=lambda k: SweepSpec(n=k, predicate=...),   # or a cert path
+            step=step_spec,          # assume P(k), k >= step_from; claim P(k+1)
+            step_from=3,
+            bridge="the sweep checks every graph on k vertices; reading that "
+                   "as P(k) is what the encoding means",
+        )
+
+    `base` is a callable k -> spec, a dict {k: spec}, or a path to a stored
+    certificate. Anything finite -- a sweep, a DRAT proof, a plain `prove`.
+
+    `step` is an ordinary `Spec` over a FREE k. A proof with a free variable
+    is a proof for every value of it, which is what the schema needs; there is
+    no quantifier to give a solver.
+
+    What this buys over running the two halves separately is the join: that
+    the base cases are exactly k0..base_upto with no gap, and that the step
+    starts no later than the base ends. A base covering 3..8 with a step valid
+    only from k >= 10 proves nothing, and reads identically in prose.
+    """
+
+    k0: int
+    base_upto: int
+    base: object                     # callable(k) -> spec | {k: spec} | path
+    step: object                     # a Spec over a free k
+    step_from: object = None         # defaults to k0
+    bridge: str = ""                 # how a finite check becomes P(k)
+    describe: str = ""               # the conclusion, in words
+    title: str = ""

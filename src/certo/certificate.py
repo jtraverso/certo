@@ -263,7 +263,8 @@ def bisect_certificate(direction, integer, tol, good_t, bad_t,
 
 
 def sweep_certificate(n, filters, family_g6, entries, mode, counts,
-                      values=None, stats=None, outcomes="") -> Certificate:
+                      values=None, stats=None, outcomes="",
+                      orbits=None, labelled=0) -> Certificate:
     """The examined family, the VERDICT VECTOR, and whatever certificates the
     predicate supplied.
 
@@ -292,7 +293,8 @@ def sweep_certificate(n, filters, family_g6, entries, mode, counts,
                  "values": values or [], "stats": stats,
                  "evaluations": evaluations, "certified": certified,
                  "outcomes": outcomes,
-                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else ""},
+                 "outcomes_sha256": outcomes_digest(outcomes) if outcomes else "",
+                 "orbits": orbits, "labelled": labelled},
         note_key="cert.note.sweep",
         note_args={"certified": certified, "total": evaluations},
     )
@@ -451,6 +453,26 @@ def ball_certificate(describe, backend, prec, lo, hi, claim, spec_path="",
                  "spec_path": str(spec_path), "spec_sha256": spec_sha256,
                  "title": title},
         note_key="cert.note.ball",
+    )
+
+
+
+def induction_certificate(k0, base_upto, step_from, base, step, step_smt2,
+                          conclusion, bridge="", title="") -> Certificate:
+    """The induction schema, applied, with both halves attached.
+
+    The schema itself is not a solver result and is not pretending to be one.
+    What travels is: a certificate per base case, a certificate for the step
+    proved with the index FREE, and the two numbers that decide whether the
+    chain actually joins up. Those numbers are the part a write-up gets wrong
+    and a pile of certificates cannot expose.
+    """
+    return Certificate(
+        kind="induction", solver_free=False,
+        payload={"k0": k0, "base_upto": base_upto, "step_from": step_from,
+                 "base": base, "step": step, "step_smt2": step_smt2,
+                 "conclusion": conclusion, "bridge": bridge, "title": title},
+        note_key="cert.note.induction",
     )
 
 
@@ -624,6 +646,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "synth_proved": _verify_synth_proved,
         "proof": _verify_proof,
         "ball": _verify_ball,
+        "induction": _verify_induction,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -820,6 +843,59 @@ def _verify_ball(cert, limits) -> VerifyReport:
         all(c[1] for c in checks), "ball", True, checks=checks,
         warnings=warnings,
         detail=t("verify.ball.detail", prec=p["prec"], backend=p["backend"]))
+
+
+
+def _verify_induction(cert, limits) -> VerifyReport:
+    import z3
+
+    p = cert.payload
+    checks, warnings = [], []
+    k0, upto, step_from = p["k0"], p["base_upto"], p["step_from"]
+
+    # --- the chain joins up ------------------------------------------------
+    ks = [b["k"] for b in p["base"]]
+    want = list(range(k0, upto + 1))
+    checks.append((t("verify.induction.covered"), ks == want,
+                   t("verify.induction.range", k0=k0, upto=upto,
+                     got=len(ks))))
+    checks.append((t("verify.induction.joins"), step_from <= upto,
+                   t("verify.induction.step_from", step=step_from, upto=upto)))
+
+    # --- every base case ---------------------------------------------------
+    for b in p["base"]:
+        sub = b.get("cert")
+        label = t("verify.induction.base", k=b["k"])
+        if sub is None:
+            checks.append((label, False, t("verify.bisect.no_cert")))
+            continue
+        rep = verify(Certificate.from_dict(sub), limits)
+        checks.append((label, rep.ok, "{}: {}".format(sub["kind"], rep.detail)))
+        warnings.extend("k={}: {}".format(b["k"], w) for w in rep.warnings)
+        if not b.get("derived") and p.get("bridge"):
+            warnings.append(t("verify.induction.bridge", k=b["k"],
+                              why=p["bridge"]))
+
+    # --- the step ----------------------------------------------------------
+    step = p.get("step")
+    if step is None:
+        checks.append((t("verify.induction.step"), False,
+                       t("verify.bisect.no_cert")))
+    else:
+        rep = verify(Certificate.from_dict(step), limits)
+        checks.append((t("verify.induction.step"), rep.ok, rep.detail))
+        phi = _parse_one(p["step_smt2"])
+        obl = obligations_of(step)
+        linked = bool(obl) and entails(z3.Not(phi), obl, limits)
+        checks.append((t("verify.induction.step_link"), linked,
+                       t("verify.proof.link_detail", n=len(obl or []))))
+
+    warnings.append(t("verify.induction.schema"))
+    return VerifyReport(
+        all(c[1] for c in checks), "induction", False, checks=checks,
+        warnings=warnings,
+        detail=t("verify.induction.detail", n=len(ks), k0=k0, upto=upto),
+    )
 
 
 def _verify_model(cert, limits) -> VerifyReport:
@@ -1508,6 +1584,10 @@ def _verify_sweep(cert, limits) -> VerifyReport:
     checks = _verify_family(p["family_graph6"], p["n"], p["filters"],
                             p["family_sha256"])
     checks += _verify_entries_and_stats(p, limits)
+    if p.get("orbits"):
+        from . import orbits as orb
+
+        checks += orb.check(p)
 
     pchecks, pwarn, level = _predicate_level(cert, limits, "sweep")
     checks += pchecks

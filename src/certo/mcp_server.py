@@ -153,6 +153,34 @@ of these objects. You can pass the file (`spec_path`) or the code itself
             # or, the simple case:  universal_behavior=<expr replacing behavior>
         )
 
+## InductSpec -> induct (base cases + a step, and the join between them)
+    from certo import InductSpec, Spec
+    k = z3.Int("k")
+    def spec():
+        step = Spec()
+        step.assume("k_ge_3", k >= 3)        # a FREE k: valid for every k
+        step.assume("P_k", <property at k>)
+        step.claim(<property at k+1>)
+        return InductSpec(k0=3, base_upto=8,
+                          base=lambda j: <Spec|SweepSpec|DomainSpec|cert path>,
+                          step=step, step_from=3,
+                          bridge="how a finite check becomes P(k)")
+    # Z3 has NO induction schema. The principle is applied by the tool and
+    # recorded in the certificate; it is not a solver result. What is checked:
+    # the base cases are exactly k0..base_upto with no gap, the step starts no
+    # later than the base ends, and the step certificate really entails the
+    # step statement. The first two are where induction proofs break.
+
+## SetFamily -> the native combinatorial type (structures.py)
+    from certo import SetFamily
+    f = SetFamily(7, [(0,1,2), (0,3,4), ...])     # hypergraph, design, code...
+    f.is_design(2, 1)  f.is_regular(3)  f.is_uniform(3)  f.intersecting()
+    SetFamily.all_families(n, k, size)            # the domain to sweep
+    # It supplies key(), canonical() and reductions() itself, so a DomainSpec
+    # over these can leave key, canonicalize="auto" and reduce="auto".
+    # canonical() is EXACT and RAISES on a family too symmetric to do exactly,
+    # rather than returning a cheaper invariant that could merge two orbits.
+
 ## LPSpec -> opt (the certificate is the DUAL)
     from certo import LPSpec
     def spec():
@@ -207,8 +235,16 @@ of these objects. You can pass the file (`spec_path`) or the code itself
             items=[(s, r) for s in range(2, 8) for r in range(2, 8)],
             predicate=lambda p: holds(*p),
             key=lambda p: "s=%d,r=%d" % p,       # stable id for the certificate
-            reduce=lambda p: [(p[0]-1, p[1]), (p[0], p[1]-1)],   # for shrink
+            reduce="auto",                       # or a callable, for shrink
+            canonicalize=lambda p: tuple(sorted(p)),   # the symmetry, optional
         )
+    # With `canonicalize`, a REFUTED sweep reports labelled count, orbit count
+    # and a representative per orbit -- 1400 counterexamples that are four
+    # objects relabelled is one answer told 1400 times. Every item is still
+    # evaluated; the quotient happens on the way out.
+    # reduce: "auto" | sets | sequences | decrement | graphs | masks, or your
+    # own. "auto" refuses on a type it does not know rather than inventing a
+    # reduction that would make a witness minimal for the wrong relation.
 
 ## BisectSpec -> bisect (a constant's threshold)
     from certo import BisectSpec
@@ -523,6 +559,31 @@ async def bounds(spec_path: str | None = None, spec_source: str | None = None,
     res = await _off(bd.bounds, sp, _limits(timeout_ms), str(f))
     out = _emit(res, spec_file=f)
     for k in ("lo", "hi", "width", "prec", "backend"):
+        out[k] = res.meta.get(k)
+    return out
+
+
+@mcp.tool(description=(
+    "Finite base cases plus an inductive step, chained by INDUCTION, with the "
+    "join checked. Z3 has no induction schema: the principle is applied by "
+    "this tool and the certificate's structure is the application -- it is "
+    "recorded, not verified by a solver. What IS checked is the part that "
+    "goes wrong: the base cases are exactly k0..base_upto with no gap, the "
+    "step starts no later than the base ends, the step is proved with the "
+    "index FREE (so universally valid), and every base case has its own "
+    "certificate. A base covering 3..8 with a step valid only from k>=10 "
+    "proves nothing about 9, and reads identically in prose."))
+@_guard
+async def induct(spec_path: str | None = None, spec_source: str | None = None,
+                 timeout_ms: int = 60_000) -> dict:
+    from .engines import induct as ind
+    from .spec import InductSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    sp = await _off(load_spec, f, InductSpec)
+    res = await _off(ind.induct, sp, _limits(timeout_ms), str(f))
+    out = _emit(res, spec_file=f)
+    for k in ("base_cases", "step_from", "bridges"):
         out[k] = res.meta.get(k)
     return out
 
