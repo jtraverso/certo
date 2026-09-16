@@ -6,6 +6,42 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-16
+
+**The certificate schema is unchanged: `SCHEMA_VERSION` stays 4.** Everything
+in this release is of the two shapes the freeze permits — an optional field a
+reader may ignore, and commands that emit no certificate at all. A certificate
+produced by 0.4.0 verifies here, and one produced here verifies there, minus
+the optional field it will not know to look at.
+
+### The one that matters: a fractional "integral point" verified as valid
+
+A user reading output rather than code found it. `_verify_lp_dual` checked the
+declared integral point for non-negativity, for `Ax <= b`, and for matching
+its declared objective — and never that the values were **integers**. On
+`max x + y` subject to `x + y <= 3`, a certificate claiming `x = 3/2,
+y = 3/2` as the integral point passed all eight checks, because 3/2 is
+feasible and does hit the declared value of 3.
+
+`mixed_design` has checked this correctly since it shipped. `lp_dual` did not,
+and `lp_dual` is what `opt` produces.
+
+Now checked per **declared kind**, using the `kinds` the payload already
+carried: every variable declared integer holds an integer, every binary holds
+0 or 1, and a mixed problem's continuous weights stay fractional on purpose.
+Both cases are pinned by a test.
+
+No honest certificate is affected — the producer has always rounded, so the
+points it wrote were integral. What changes is that the verification no longer
+takes that on trust, which is the only thing that makes a certificate worth
+anything.
+
+Worth saying how it surfaced: 213 tests did not catch it, because every one of
+them fed verification a certificate the producer had built correctly. **The
+checker has to stand on its own**, and the only way to find out whether it
+does is to hand it something wrong.
+
+
 ### Two commands that make no claim of their own
 
 **`certo lint`** checks a spec before the compute is spent on it. Every other
@@ -107,7 +143,7 @@ which term dominates.
 
 ### Notes
 
-- 283 tests, 32 examples. The example runner now exercises `status` over everything the other examples just produced, which is the only place it can be tried against a directory nobody built to suit it.
+- 285 tests, 32 examples. The example runner now exercises `status` over everything the other examples just produced, which is the only place it can be tried against a directory nobody built to suit it.
 
 ## [0.4.0] — 2026-09-16
 

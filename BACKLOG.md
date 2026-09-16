@@ -259,7 +259,7 @@ local commits; **pushing to the public repository is not automatic** and is
 asked for each time. Each release bumps the version, writes its section of
 [CHANGELOG.md](CHANGELOG.md), and is tagged.
 
-Current: **0.4.0**, and the certificate schema is **frozen** from it.
+Current: **0.5.0**. The certificate schema has been **frozen** since 0.4.0 and `SCHEMA_VERSION` is still 4: everything since has been an optional field or a command that emits no certificate.
 
 Frozen means an existing payload's fields do not move: no renames, no
 removals, no changes of meaning. What stays allowed, permanently:
