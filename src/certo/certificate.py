@@ -69,8 +69,25 @@ class Certificate:
             "payload": self.payload,
         }
 
+    @staticmethod
+    def unwrap(d: dict) -> dict:
+        """The certificate, whether it arrived alone or inside a run.
+
+        `--cert FILE` writes the certificate; `--json` writes the RUN, which
+        contains one under `certificate`. Both shapes are right and a reader
+        who guesses wrong loses an afternoon, so anything that expects a
+        certificate accepts either. They are told apart by what is at the
+        root: a certificate has `kind`, a run has `command`.
+        """
+        if isinstance(d, dict) and "kind" not in d and "certificate" in d:
+            inner = d["certificate"]
+            if isinstance(inner, dict):
+                return inner
+        return d
+
     @classmethod
     def from_dict(cls, d: dict) -> "Certificate":
+        d = cls.unwrap(d)
         return cls(
             kind=d["kind"],
             solver_free=d.get("solver_free", False),
@@ -168,7 +185,7 @@ def model_certificate(smt2: str, assignment: dict) -> Certificate:
 
 
 def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
-                           vacuous: bool = False) -> Certificate:
+                           vacuous: bool = False, clash=None) -> Certificate:
     """`vacuous` means the hypotheses contradict each other.
 
     The proof is still valid -- anything follows from a contradiction -- so
@@ -180,7 +197,9 @@ def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
         kind="unsat_core",
         solver_free=False,
         payload={"core_smt2": core_smt2, "names": names, "dropped": dropped,
-                 "vacuous": bool(vacuous)},
+                 # `clash` is optional, which the frozen schema allows: a
+                 # reader that does not know it simply ignores it.
+                 "vacuous": bool(vacuous), "clash": clash or []},
         note_key="cert.note.unsat_core",
     )
 
@@ -673,6 +692,30 @@ def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
     )
 
 
+
+def order_certificate(laurent, orders, var, terms, collected, degree, verdict,
+                      expect, cancelled, title="") -> Certificate:
+    """The exponent of `var`, and the substitution that produced it.
+
+    The Laurent polynomial travels, so re-checking this needs neither z3 nor
+    the spec: substitute the orders, collect, read the leading exponent. Pure
+    exact arithmetic.
+
+    What it certifies is the EXPONENT, not the constant in front of it. `≍`
+    hides a factor, so a Theta(1) term with a coefficient of 1e-9 may be
+    perfectly fine in practice. What the certificate says is that it does not
+    shrink with `var`, and it says only that.
+    """
+    return Certificate(
+        kind="asymptotic", solver_free=True,
+        payload={"laurent": laurent, "orders": orders, "var": var,
+                 "terms": terms, "collected": collected, "degree": degree,
+                 "verdict": verdict, "expect": expect, "cancelled": cancelled,
+                 "title": title},
+        note_key="cert.note.asymptotic",
+    )
+
+
 def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     h = hashlib.sha256("\n".join(sorted(g6)).encode()).hexdigest()
     return Certificate(
@@ -892,6 +935,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "gap": _verify_gap,
         "farkas_ray": _verify_farkas_ray,
         "branch_bound": _verify_branch_bound,
+        "asymptotic": _verify_asymptotic,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -1542,6 +1586,50 @@ def _node_id(fixed) -> str:
     return ",".join("{}={}".format(v, x) for v, x in fixed)
 
 
+
+def _verify_asymptotic(cert, limits) -> VerifyReport:
+    """Substitute, collect, read off the exponent. No solver, no spec."""
+    from fractions import Fraction
+
+    from . import asymptotics
+
+    p = cert.payload
+    orders = {k: Fraction(v) for k, v in p["orders"].items()}
+    poly = asymptotics.Laurent({
+        tuple((s, int(e)) for s, e in row["monomial"]): Fraction(row["coefficient"])
+        for row in p["laurent"]})
+
+    checks, warnings = [], []
+    try:
+        got = asymptotics.order(poly, orders, p["var"])
+    except asymptotics.NotAsymptotic as e:
+        return VerifyReport(False, "asymptotic", True,
+                            detail=str(e))
+
+    checks.append((t("verify.order.degree"), got["degree"] == p["degree"],
+                   t("verify.order.recomputed", degree=got["degree"] or "-",
+                     declared=p["degree"] or "-")))
+    checks.append((t("verify.order.verdict"), got["verdict"] == p["verdict"],
+                   t("order." + got["verdict"])))
+    checks.append((t("verify.order.cancelled"),
+                   got["cancelled"] == p.get("cancelled", 0),
+                   t("verify.order.cancelled_n", n=got["cancelled"])))
+
+    if p.get("expect") is not None and p["expect"] != p["verdict"]:
+        warnings.append(t("verify.order.disagrees",
+                          want=t("order." + p["expect"]),
+                          got=t("order." + p["verdict"])))
+    # Said every time, because it is the one thing a reader will forget.
+    warnings.append(t("verify.order.constants", var=p["var"]))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "asymptotic", True, checks=checks,
+        warnings=warnings,
+        detail=t("verify.order.detail", degree=p["degree"] or "-",
+                 var=p["var"], verdict=t("order." + p["verdict"])),
+    )
+
+
 def _verify_model(cert, limits) -> VerifyReport:
     import z3
 
@@ -1576,7 +1664,11 @@ def _verify_unsat_core(cert, limits) -> VerifyReport:
     return VerifyReport(
         ok, "unsat_core", False,
         checks=[(t("verify.core.unsat"), ok, str(r))],
-        warnings=[t("verify.core.vacuous")] if cert.payload.get("vacuous") else [],
+        warnings=([t("verify.core.vacuous_named",
+                     names=", ".join(cert.payload.get("clash") or []))]
+                  if cert.payload.get("clash")
+                  else [t("verify.core.vacuous")]
+                  if cert.payload.get("vacuous") else []),
         detail=t("verify.core.detail", n=n),
     )
 

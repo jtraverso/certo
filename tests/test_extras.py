@@ -2695,6 +2695,175 @@ def test_inferring_nothing_is_not_a_failure():
     assert any("inferred NOTHING" in w or "no infirió NADA" in w
                for w in rep.warnings)
 
+# --- order: a feasibility that does not improve with n ---------------------
+
+
+def _sym(*names):
+    import z3
+
+    return z3.Reals(" ".join(names))
+
+
+def test_the_term_that_was_invisible_to_both_lean_and_prove():
+    """Not an infeasibility -- a feasibility that does not improve with n."""
+    from certo import OrderSpec
+    from certo.engines import order
+
+    k, W, C, u, d, p = _sym("k", "W", "C", "u", "d", "p")
+    spec = OrderSpec(
+        expression=5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10),
+        orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0})
+    r = order.order(spec, LIM)
+    assert r.meta["degree"] == "0"
+    assert r.meta["behaviour"] == "constant"
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_claiming_it_decays_is_refuted():
+    from certo import OrderSpec
+    from certo.engines import order
+
+    k, W, C, u, d, p = _sym("k", "W", "C", "u", "d", "p")
+    spec = OrderSpec(
+        expression=5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10),
+        orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0},
+        expect="decays")
+    r = order.order(spec, LIM)
+    assert r.verdict is Verdict.REFUTED
+    assert "Theta(1)" in r.detail
+
+
+def test_decaying_and_growing_terms_are_told_apart():
+    from certo import OrderSpec
+    from certo.engines import order
+
+    C, d = _sym("C", "d")
+    o = {"C": 1, "d": 2}
+    assert order.order(OrderSpec(expression=C / (d * d), orders=o),
+                       LIM).meta["behaviour"] == "decays"
+    assert order.order(OrderSpec(expression=C * d, orders=o),
+                       LIM).meta["behaviour"] == "grows"
+
+
+def test_cancellation_is_decided_not_estimated():
+    """DIFFERENT monomials landing on the same exponent, cancelling exactly.
+
+    `C^2` and `d` are different terms, but with C ~ n and d ~ n^2 both are
+    n^2 -- and their coefficients sum to zero, so the top exponent is not
+    there. With `Fraction` that is decided rather than estimated.
+    """
+    from certo import OrderSpec
+    from certo.engines import order
+
+    C, d, W = _sym("C", "d", "W")
+    r = order.order(OrderSpec(expression=C * C - d + W,
+                              orders={"C": 1, "d": 2, "W": 1}), LIM)
+    assert r.meta["degree"] == "1"          # the two n^2 terms cancelled
+    assert r.meta["cancelled"] == 1
+
+
+def test_a_symbol_with_no_order_is_an_error_not_an_assumption():
+    from certo import OrderSpec
+    from certo.engines import order
+
+    a, b = _sym("a", "b")
+    r = order.order(OrderSpec(expression=a * b, orders={"a": 1}), LIM)
+    assert r.status is Status.OUT_OF_THEORY
+    assert "b" in r.detail
+
+
+def test_dividing_by_a_sum_is_refused_rather_than_guessed():
+    """1/(x+y) has an order that depends on which dominates."""
+    from certo import OrderSpec
+    from certo.engines import order
+
+    x, y = _sym("x", "y")
+    r = order.order(OrderSpec(expression=1 / (x + y), orders={"x": 1, "y": 2}),
+                    LIM)
+    assert r.status is Status.OUT_OF_THEORY
+    assert "sum" in r.detail or "suma" in r.detail
+
+
+def test_the_order_certificate_needs_neither_solver_nor_spec():
+    from certo import OrderSpec
+    from certo.engines import order
+
+    C, d = _sym("C", "d")
+    cert = _roundtrip(order.order(
+        OrderSpec(expression=C / d, orders={"C": 1, "d": 2}), LIM).certificate)
+    rep = verify(cert, LIM)
+    assert rep.ok and rep.solver_free
+    assert any("EXPONENT" in w or "EXPONENTE" in w for w in rep.warnings)
+
+
+def test_a_forged_degree_is_recomputed_and_caught():
+    from certo import OrderSpec
+    from certo.engines import order
+
+    C, d = _sym("C", "d")
+    cert = _roundtrip(order.order(
+        OrderSpec(expression=C / d, orders={"C": 1, "d": 2}), LIM).certificate)
+    assert verify(cert, LIM).ok
+    cert.payload["degree"] = "5"
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("leading exponent" in c and not ok for c, ok, _ in rep.checks)
+
+
+# --- papercuts from the same report ----------------------------------------
+
+
+def test_a_certificate_is_read_whether_it_arrived_alone_or_inside_a_run():
+    """`--cert FILE` writes one shape and `--json` another; both are right."""
+    import json as _json
+
+    from certo import Spec
+    from certo.engines import smt
+
+    x = _sym("x")[0]
+    s = Spec()
+    s.assume("h", x >= 1)
+    s.claim(x >= 1)
+    res = smt.prove(s, LIM)
+
+    alone = Certificate.from_dict(_json.loads(_json.dumps(
+        res.certificate.to_dict())))
+    inside = Certificate.from_dict(_json.loads(_json.dumps(res.to_dict())))
+    assert alone.kind == inside.kind == "unsat_core"
+    assert alone.digest() == inside.digest()
+
+
+def test_vacuity_names_the_minimal_clash_instead_of_sending_you_elsewhere():
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    x, y = _sym("x", "y")
+    s = Spec()
+    s.assume("x_big", x > 10)
+    s.assume("y_ok", y >= 0)            # innocent, and must not be blamed
+    s.assume("x_small", x < 1)
+    s.claim(x + y == 42)
+
+    r = smt.prove(s, LIM)
+    assert r.meta["vacuous"] is True
+    assert set(r.meta["clash"]) == {"x_big", "x_small"}
+    assert "x_big" in r.detail
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("x_big, x_small" in w for w in rep.warnings)
+
+
+def test_the_clash_is_an_optional_field_the_frozen_schema_allows():
+    """An older reader ignores it; a newer one uses it."""
+    from certo.certificate import unsat_core_certificate
+
+    cert = unsat_core_certificate("(check-sat)", ["a"], [], vacuous=True)
+    assert cert.payload["clash"] == []
+    assert verify(_roundtrip(cert), LIM) is not None
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

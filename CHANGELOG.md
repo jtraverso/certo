@@ -4,6 +4,63 @@ Notable changes per release. Dates are ISO. This project uses semantic
 versioning; while the major is 0, a minor bump may change a certificate
 payload — each such change says so and what still reads the old shape.
 
+## [Unreleased]
+
+### The question a solver cannot ask
+
+A user found four bugs in one step they were doing by hand: take a symbolic
+constraint, substitute asymptotic magnitudes (`d ≍ n²`, `C ≍ n`, `|W| ≍ n²`),
+and ask whether a term decays in `n`. One of them,
+
+```
+5|κ| W C² / (u³ d² p¹⁰)
+```
+
+was **Θ(1)**, and it was invisible to Lean *and* to `certo prove`, for the same
+reason: **it is not an infeasibility.** It is a feasibility that does not
+improve with `n`, so a solver asked "is this satisfiable" says yes forever,
+correctly, while the bound it sits in never gets better.
+
+**`certo order`** asks that question. Substitute, collect into powers of the
+parameter with exact rational coefficients, read off the leading exponent:
+negative decays, positive grows, zero is the case that hurt.
+
+What makes it worth a certificate rather than a calculation is that the
+substitution is **written down** instead of done in someone's head, and that
+the collection is exact — two terms landing on the same exponent whose
+coefficients cancel really do cancel, and with `Fraction` that is decided
+rather than estimated. Verification needs neither a solver nor the spec: the
+Laurent polynomial travels.
+
+Two limits it states rather than hides: it certifies the **exponent**, never
+the constant in front of it (`≍` hides a factor, and `verify` repeats that
+every time); and it refuses to divide by a **sum**, whose order depends on
+which term dominates.
+
+### Changed
+
+- **Vacuity now names the minimal clash.** It used to say "run `check` on the
+  hypotheses alone to find which pair clashes" — but the MUS machinery was
+  already there, so it reports the clashing subset directly instead of making
+  the user do the work twice. The set travels in the certificate as an
+  optional field, which the frozen schema allows.
+- **`verify` reads either shape.** `--cert FILE` writes the certificate;
+  `--json` writes the RUN, which contains one. Both are right and a reader who
+  guesses wrong loses an afternoon, so anything expecting a certificate now
+  accepts either. They are told apart by the root key: `kind` versus
+  `command`.
+- **An INVALID report no longer ends on a line that reads like an
+  endorsement.** The trailing detail describes what the certificate *claims*,
+  and after a failure that has to be marked as such.
+- **Vacuity detection is now a headline in the README**, third section in,
+  rather than something to trip over. It is the check a proof assistant cannot
+  do for you: `#print axioms` certifies "I did not cheat" and says nothing
+  about "this is not hollow".
+
+### Notes
+
+- 264 tests.
+
 ## [0.4.0] — 2026-09-16
 
 **The certificate schema is frozen from here.** An existing payload's fields

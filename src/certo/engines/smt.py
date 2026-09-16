@@ -58,21 +58,29 @@ def _mus(s, ind, names, limits):
 
 
 
-def _vacuous(s, ind, names, limits) -> bool:
-    """Are the hypotheses contradictory among themselves?
+def _vacuous(s, ind, names, limits):
+    """Are the hypotheses contradictory among themselves? And WHICH ones?
 
     `prove` succeeds when `hypotheses AND not goal` is unsatisfiable -- and if
     the hypotheses alone are already unsatisfiable, that happens for EVERY
     goal. The proof is valid and says nothing, which is the most embarrassing
     way to be wrong and the easiest to miss: the output looks like success.
 
-    One extra solver call, on a strictly easier problem than the one just
-    solved, and only on the successful path.
+    Returns the MINIMAL clashing subset rather than a bare `True`. The
+    deletion-based MUS is right there and the answer to "which pair clashes"
+    is what anyone asks next; telling them to go and run another command was
+    an answer that made them do the work twice.
+
+    One extra solver call to detect it, plus the MUS on a strictly smaller
+    problem, and only on the successful path.
     """
     hyps = [n for n in names if n != "__goal__"]
     if not hyps:
-        return False
-    return s.check(*[ind[n] for n in hyps]) == z3.unsat
+        return None
+    if s.check(*[ind[n] for n in hyps]) != z3.unsat:
+        return None
+    raw = {str(pp)[4:] for pp in s.unsat_core()}
+    return _mus(s, ind, [n for n in hyps if n in raw] or hyps, limits)
 
 
 # ---------------------------------------------------------------------------
@@ -93,21 +101,23 @@ def prove(spec, limits: Limits | None = None) -> Result:
         raw = {str(p)[4:] for p in s.unsat_core()}
         core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
         dropped = [n for n in all_names if n not in core]
-        vacuous = _vacuous(s, ind, all_names, lim)
+        clash = _vacuous(s, ind, all_names, lim)
+        vacuous = clash is not None
         cert = unsat_core_certificate(
             z3util.smt2(*[formulas[n] for n in core]), core, dropped,
-            vacuous=vacuous,
+            vacuous=vacuous, clash=clash,
         )
         used = [n for n in core if n != "__goal__"]
         # When the proof is vacuous that IS the headline; "proved using 2 of
         # 2 hypotheses" underneath it would read as reassurance.
-        detail = (t("engine.prove.vacuous") if vacuous
+        detail = (t("engine.prove.vacuous_core", names=", ".join(clash))
+                  if vacuous
                   else t("engine.prove.proved", used=len(used),
                          total=len(spec.assumptions)))
         return Result(
             "prove", st, Verdict.PROVED, ENGINE, ms, cert, detail=detail,
             meta={"hypotheses_used": used, "hypotheses_dropped": dropped,
-                  "vacuous": vacuous},
+                  "vacuous": vacuous, "clash": clash},
         )
 
     if st is Status.SAT:

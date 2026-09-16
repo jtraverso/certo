@@ -777,3 +777,37 @@ class NumberSpec:
     n: int
     question: str = "prime"          # "prime" | "factor"
     title: str = ""
+
+
+# ---------------------------------------------------------------------------
+# orders of magnitude
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class OrderSpec:
+    """A term, an assignment of magnitudes, and what you claim about it.
+
+        OrderSpec(
+            expression=5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10),
+            orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0},
+            expect="decays",
+        )
+
+    `orders` gives each symbol its exponent: 2 for "about n^2", 0 for "about a
+    constant", `Fraction(1, 2)` for a square root. A symbol with no entry is an
+    ERROR, not an assumption -- the whole value here is that the substitution
+    is written down instead of done in someone's head.
+
+    `expect` is "decays", "constant" or "grows", and leaving it out measures
+    rather than decides. The case worth naming is `constant`: a term that is
+    Theta(1) is not infeasible, so a solver asked "is this satisfiable" says
+    yes forever and correctly, while the bound it sits in never improves with
+    `n`. That question is invisible to `prove` and to a proof assistant alike.
+    """
+
+    expression: object               # a z3 arithmetic term
+    orders: dict                     # symbol -> exponent of `var`
+    var: str = "n"
+    expect: object = None            # "decays" | "constant" | "grows" | None
+    title: str = ""

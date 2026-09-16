@@ -85,6 +85,7 @@ CHECKS = [
     ("mcp", False, lambda: _module("mcp")),
     ("flint", False, _flint),
     ("mpmath", False, lambda: _module("mpmath")),
+    ("numpy", False, lambda: _module("numpy")),
     ("nauty", False, _geng),
     ("cadical", False, lambda: _binary("cadical")),
     ("kissat", False, lambda: _binary("kissat")),

@@ -64,7 +64,7 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "achieved", "conditional", "discrete_gain", "selected",
                 "skeleton_from", "nodes", "by_bound", "infeasible",
                 "leaves", "closed", "integral_level", "tight",
-                "mu", "nu", "gap")
+                "mu", "nu", "gap", "leading")
 
 
 def _item_id(entry) -> str:
@@ -495,6 +495,26 @@ def cmd_mixed(args):
         print("  " + t("cli.mixed.level." + res.meta["level"]))
         if res.meta.get("skeleton_from") == "external":
             print("  " + t("cli.mixed.external"))
+    return rc
+
+
+def cmd_order(args):
+    from .engines import order
+    from .spec import OrderSpec, load_spec
+
+    spec = load_spec(args.spec, OrderSpec)
+    if args.expect:
+        spec.expect = args.expect
+    res = order.order(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("leading"):
+        print("  " + t("cli.order.leading"))
+        for row in res.meta["leading"]:
+            print("    {}^{:<6} coefficient {}".format(
+                res.certificate.payload["var"], row["exponent"],
+                row["coefficient"]))
+        if res.meta.get("cancelled"):
+            print("  " + t("cli.order.cancelled", n=res.meta["cancelled"]))
     return rc
 
 
@@ -956,7 +976,11 @@ def cmd_verify(args):
         for w in rep.warnings:
             print("  " + t("cli.warning", text=w))
         if rep.detail:
-            print("  " + rep.detail)
+            # The detail describes what the certificate SAYS about itself.
+            # After a failure, a bare trailing summary reads as an
+            # endorsement of the thing the checks above just refuted.
+            print("  " + (rep.detail if rep.ok
+                          else t("cli.verify.despite", detail=rep.detail)))
     return 0 if rep.ok else 1
 
 
@@ -1181,6 +1205,14 @@ def build_parser():
     sp.add_argument("--n", type=int, help="the integer, instead of a spec file")
     sp.add_argument("--question", choices=("prime", "factor"), default="prime")
     sp.set_defaults(func=cmd_number)
+
+    sp = add("order", "the exponent of n in a term, once magnitudes are "
+                      "substituted: does it decay, or is it Theta(1)?")
+    sp.add_argument("spec", help=".py file returning an OrderSpec")
+    sp.add_argument("--expect", choices=("decays", "constant", "grows"),
+                    help="what you claim; without it this measures rather "
+                         "than decides")
+    sp.set_defaults(func=cmd_order)
 
     sp = add("bounds", "settle a numeric inequality with rigorous interval "
                        "arithmetic: e, log, pi and friends, with a certificate")

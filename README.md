@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Twenty-two commands to discover objects, destroy false formulations, calibrate
+Twenty-three commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -33,6 +33,55 @@ which matters as much as the command list.
 problem from not knowing the answer to holding an artefact a referee can
 check. Every other example shows one command; that one shows one problem.
 
+## The check your proof assistant cannot do for you
+
+Lean will prove your theorem, report no `sorry`, and audit clean on
+`#print axioms`. None of that tells you the hypotheses were satisfiable.
+
+A user put it exactly right: `#print axioms` certifies *"I did not cheat"*. It
+says nothing about *"this is not hollow"*. They had two Lean modules — no
+`sorry`, axioms `[propext, Classical.choice, Quot.sound]`, everything a
+formalisation is supposed to look like — and **both had an empty regime**. The
+theorems were true, valid, and about nothing.
+
+```
+$ certo prove regime.py
+PROVED -- symbolic and universal under the hypotheses  [unsat]
+  VACUOUS: these hypotheses contradict each other, so this goal -- and every
+  other goal -- follows. The proof is valid and says nothing.
+  The clash is: dens_high, kappa_small
+  !! the hypotheses are contradictory: this proof is vacuous
+```
+
+The verdict does not change — it really is a proof, and anything follows from
+a contradiction. What changes is that you are told, **and told which
+hypotheses clash**, minimally, so the next question is already answered.
+
+It keeps being told. The flag and the clashing set travel in the certificate,
+so `verify` repeats it months later when only the artefact remains:
+
+```
+WARNING: VACUOUS: the hypotheses contradict each other, so this proof holds
+for any goal. The minimal clash is: dens_high, kappa_small
+```
+
+Checked on every successful `prove`, `core`, `farkas` and `compose`, at the
+cost of one extra solver call on a strictly easier problem than the one just
+solved.
+
+### And the other half: a refutation with a model
+
+The same user wrote that a density constraint "forces `G` almost complete,
+hence trivial". `certo prove` refuted it in 15 ms with `dens = 27/32`
+feasible. Then that `|κ| ≥ 4` sufficed for every density — refuted with
+`dens = 127/128, |κ| = 7`, failing by `0.3351` against `0.3333`. The right
+bound was 8.
+
+Both would otherwise have gone to a formalisation pass. Two of those, at two
+and a half hours each, on a line that had already produced four empty
+regimes.
+
+
 ## Install
 
 Requires Python 3.11+.
@@ -42,8 +91,9 @@ pip install -e ".[mcp,numerics]"
 ```
 
 Dependencies: `z3-solver` and `pulp`, both of which ship their binaries. The
-extras are `mcp` for the MCP server and `numerics` for `bounds` (`python-flint`
-and `mpmath`); without them you get the CLI, minus rigorous numerics.
+extras are `mcp` for the MCP server and `numerics` for `bounds` and `sos`
+(`python-flint`, `mpmath` and `numpy`); without them you get the CLI, minus
+rigorous numerics and sums of squares.
 
 Check it works:
 
@@ -59,6 +109,7 @@ for t in smoke mcp i18n extras; do python tests/test_$t.py; done
 | `cadical` or `kissat` | `cases` on large instances | our own CDCL, correct but slow |
 | `drat-trim` | second opinion on DRAT proofs | the built-in Python checker suffices |
 | `python-flint` (Arb) | `bounds` with special functions | `mpmath.iv`, for the elementary ones |
+| `numpy` | the Gram search behind `sos` | **nothing** — `sos` cannot run without it |
 
 None is installed automatically and none is needed to start.
 
@@ -94,7 +145,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-two commands
+## The twenty-three commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -107,6 +158,7 @@ and what to expect.
 | `synth` | CEGIS: ∃obj ∀input ∃aux | CEGIS/Z3 | object + the counterexamples that forced it |
 | `opt` | LP/ILP, or a packing | CBC | **dual in exact rationals** = the load certificate |
 | `mixed` | A discrete skeleton searched, the continuous part certified | CBC + exact LP | **mixed design**: assignment, exact dual, and a bound |
+| `order` | The exponent of `n` once magnitudes are substituted: decays, or Θ(1)? | exact Laurent | **the exponent**, solver-free |
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
@@ -162,6 +214,7 @@ def spec():
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
+| `OrderSpec` | `order` |
 | `BisectSpec` | `bisect` |
 
 The certificate schema is **frozen from 0.4**: existing payloads do not
@@ -185,6 +238,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `drat` | unsatisfiability of a CNF | **yes**, RUP/RAT |
 | `cnf_model` | an assignment satisfies the CNF | **yes**, evaluation |
 | `farkas` | a combination of the hypotheses that closes the system | **yes**, adding fractions |
+| `asymptotic` | the exponent of a parameter in a term | **yes**, exact arithmetic |
 | `ball` | a real quantity lies in an interval, and that settles the claim | **yes** for the claim; the interval needs the spec |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |
 | `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
@@ -848,6 +902,60 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+## `order`: does this term decay, or is it Theta(1)?
+
+Some bugs are not infeasibilities. A user had this one:
+
+```
+5|k| W C^2 / (u^3 d^2 p^10)
+```
+
+with `d ≍ n²`, `C ≍ n`, `|W| ≍ n²`. The question was whether it decays in `n`.
+It does not — it is **Θ(1)** — and that bug was invisible to Lean **and** to
+`certo prove`, for the same reason. It is not an infeasibility. It is a
+feasibility that does not improve with `n`, so a solver asked "is this
+satisfiable" says yes forever, correctly, while the bound it sits in never
+gets better.
+
+```python
+OrderSpec(
+    expression=5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10),
+    orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0},
+)
+```
+
+```
+$ certo order examples/order_decay.py
+SATISFIABLE  [sat]
+  leading exponent 0: it is Theta(1) in n
+  collected by exponent:
+    n^0      coefficient 5
+
+$ certo order examples/order_decay.py --expect decays
+REFUTED  [sat]
+  REFUTED: you claimed it decays, and it is Theta(1) -- the leading exponent
+  in n is 0
+```
+
+What makes it worth a certificate rather than a calculation is that **the
+substitution is written down** instead of done in someone's head, and that the
+collection is exact: two terms sharing the top exponent whose coefficients
+cancel really do cancel, and with `Fraction` that is decided rather than
+estimated.
+
+Two limits it states rather than hides:
+
+* **It certifies the exponent, not the constant.** `≍` hides a factor, so a
+  Θ(1) term with a coefficient of 1e-9 may be perfectly fine in practice.
+  `verify` repeats that every single time.
+* **You cannot divide by a sum.** `1/(x + y)` has an order that depends on
+  which of `x` and `y` dominates — a question this cannot answer, so it
+  refuses rather than guessing.
+
+A symbol with no entry in `orders` is an **error**, not an assumption. The
+whole value is that the substitution is explicit.
+
 
 ## `bounds`: numbers, rigorously
 

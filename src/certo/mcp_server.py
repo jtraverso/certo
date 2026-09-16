@@ -107,6 +107,21 @@ of these objects. You can pass the file (`spec_path`) or the code itself
     NumberSpec(n=2**31 - 1, question="prime")   # or "factor"
     # A Pratt tree. Checking it is modular exponentiation and nothing else.
 
+## OrderSpec -> order (does this DECAY in n, or is it Theta(1)?)
+    from certo import OrderSpec
+    def spec():
+        return OrderSpec(
+            expression=5*k*W*C*C / (u**3 * d**2 * p**10),
+            orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0},
+            expect="decays",              # optional; without it, it measures
+        )
+    # A question `prove` CANNOT ask. A term constant in n is not infeasible --
+    # it is a feasibility that never improves, so a solver keeps saying "yes,
+    # satisfiable", correctly, while the bound never gets better. Invisible to
+    # SMT and to a proof assistant alike.
+    # orders: the exponent of n per symbol. A missing symbol is an ERROR, not
+    # an assumption. Certifies the EXPONENT, never the constant in front.
+
 ## BoundSpec -> bounds (numbers, rigorously)
     from certo import BoundSpec
     def spec():
@@ -554,6 +569,35 @@ async def core(spec_path: str | None = None, spec_source: str | None = None,
         raise TypeError("core needs a Spec or a MultiSpec; spec() returned "
                         + type(sp).__name__)
     return _emit_f(f, await _off(smt.core, sp, lim))
+
+
+@mcp.tool(description=(
+    "Does a term DECAY in a parameter, or is it Theta(1)? Substitute "
+    "asymptotic magnitudes -- d is about n^2, C about n -- and read off the "
+    "leading exponent. This asks a question `prove` CANNOT: a term constant "
+    "in n is not an infeasibility, it is a feasibility that never improves, "
+    "so a solver asked 'is this satisfiable' says yes forever and correctly "
+    "while the bound it sits in never gets better. That class of bug is "
+    "invisible to an SMT solver and to a proof assistant alike. Orders are "
+    "given per symbol ({'d': 2} for n^2, 0 for a constant); a symbol with no "
+    "entry is an ERROR, not an assumption. It certifies the EXPONENT, never "
+    "the constant in front of it. Division by a SUM is refused, because its "
+    "order depends on which term dominates."))
+@_guard
+async def order(spec_path: str | None = None, spec_source: str | None = None,
+                expect: str | None = None, timeout_ms: int = 20_000) -> dict:
+    from .engines import order as od
+    from .spec import OrderSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    sp = await _off(load_spec, f, OrderSpec)
+    if expect:
+        sp.expect = expect
+    res = await _off(od.order, sp, _limits(timeout_ms), str(f))
+    out = _emit(res, spec_file=f)
+    for k in ("degree", "behaviour", "cancelled", "leading"):
+        out[k] = res.meta.get(k)
+    return out
 
 
 @mcp.tool(description=(

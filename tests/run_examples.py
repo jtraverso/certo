@@ -27,6 +27,7 @@ CASES = [
     ("farkas_linear.py", "farkas", []),
     ("farkas_nonlinear.py", "farkas", ["--nonlinear"]),
     ("bounds_constant.py", "bounds", []),
+    ("order_decay.py", "order", []),
     ("ideal_inconsistent.py", "ideal", []),
     ("sos_quartic.py", "sos", []),
     ("number_mersenne.py", "number", []),

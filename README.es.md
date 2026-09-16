@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Veintidós comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Veintitrés comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -34,6 +34,50 @@ problema desde no saber la respuesta hasta tener un artefacto que un árbitro
 puede comprobar. Los demás ejemplos muestran un comando; ese muestra un
 problema.
 
+## La comprobación que tu asistente de pruebas no puede hacer por ti
+
+Lean demostrará tu teorema, no reportará ningún `sorry`, y `#print axioms`
+saldrá limpio. Nada de eso te dice que las hipótesis fueran satisfacibles.
+
+Un usuario lo formuló exactamente: `#print axioms` certifica *«no hice
+trampa»*. No dice nada de *«esto no es hueco»*. Tenía dos módulos Lean —sin
+`sorry`, axiomas `[propext, Classical.choice, Quot.sound]`, todo lo que una
+formalización debe aparentar— y **los dos tenían el régimen vacío**. Los
+teoremas eran ciertos, válidos, y no iban de nada.
+
+```
+$ certo prove regimen.py
+DEMOSTRADO -- simbólico y universal bajo las hipótesis  [unsat]
+  VACUA: estas hipótesis se contradicen entre sí, así que este objetivo --y
+  cualquier otro-- se sigue. La demostración es válida y no dice nada.
+  El choque es: dens_alta, kappa_pequena
+  !! las hipótesis son contradictorias: esta demostración es vacua
+```
+
+El veredicto no cambia —es una demostración de verdad, y de una contradicción
+se sigue todo—. Lo que cambia es que te lo dicen, **y te dicen qué hipótesis
+chocan**, de forma minimal, así que la siguiente pregunta ya está respondida.
+
+Y se sigue diciendo. La marca y el conjunto en conflicto viajan en el
+certificado, así que `verify` lo repite meses después, cuando solo queda el
+artefacto.
+
+Se comprueba en cada `prove`, `core`, `farkas` y `compose` que sale bien, al
+coste de una llamada extra al solver sobre un problema estrictamente más
+fácil que el que se acaba de resolver.
+
+### Y la otra mitad: una refutación con modelo
+
+El mismo usuario escribió que una restricción de densidad «obliga a `G` casi
+completo, luego es trivial». `certo prove` lo refutó en 15 ms con
+`dens = 27/32` factible. Luego que con `|κ| ≥ 4` bastaba para toda densidad
+—refutado con `dens = 127/128, |κ| = 7`, fallando por `0.3351` frente a
+`0.3333`—. La cota correcta era 8.
+
+Las dos habrían ido a una pasada de formalización. Dos de esas, a dos horas y
+media cada una, en una línea que ya había producido cuatro regímenes vacíos.
+
+
 ## Instalación
 
 Requiere Python 3.11+.
@@ -43,8 +87,9 @@ pip install -e ".[mcp,numerics]"
 ```
 
 Dependencias: `z3-solver` y `pulp`, que traen sus propios binarios. Los extras
-son `mcp` para el servidor MCP y `numerics` para `bounds` (`python-flint` y
-`mpmath`); sin ellos queda el CLI, menos la numérica rigurosa.
+son `mcp` para el servidor MCP y `numerics` para `bounds` y `sos`
+(`python-flint`, `mpmath` y `numpy`); sin ellos queda el CLI, menos la
+numérica rigurosa y las sumas de cuadrados.
 
 Comprueba que funciona:
 
@@ -60,6 +105,7 @@ python tests/test_smoke.py && python tests/test_mcp.py
 | `cadical` o `kissat` | `cases` en instancias grandes | CDCL propio, correcto pero lento |
 | `drat-trim` | segunda opinión sobre las pruebas DRAT | el verificador propio en Python basta |
 | `python-flint` (Arb) | `bounds` con funciones especiales | `mpmath.iv`, para las elementales |
+| `numpy` | la búsqueda de Gram tras `sos` | **nada** — `sos` no puede correr sin él |
 
 Ninguna se instala automáticamente y ninguna hace falta para empezar.
 
@@ -94,7 +140,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintidós comandos
+## Los veintitrés comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -107,6 +153,7 @@ esperar.
 | `synth` | CEGIS: ∃obj ∀entrada ∃aux | CEGIS/Z3 | objeto + contraejemplos que lo forzaron |
 | `opt` | LP/ILP, o un packing | CBC | **dual exacto** = el certificado de cargas |
 | `mixed` | Un esqueleto discreto buscado, la parte continua certificada | CBC + LP exacto | **diseño mixto**: asignación, dual exacto y una cota |
+| `order` | El exponente de `n` tras sustituir magnitudes: ¿decae, o Θ(1)? | Laurent exacto | **el exponente**, sin solver |
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
@@ -162,6 +209,7 @@ def spec():
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
+| `OrderSpec` | `order` |
 | `BisectSpec` | `bisect` |
 
 El esquema de certificados está **congelado desde 0.4**: los payloads
@@ -185,6 +233,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `drat` | insatisfacibilidad de una CNF | **sí**, RUP/RAT |
 | `cnf_model` | una asignación satisface la CNF | **sí**, evaluación |
 | `farkas` | una combinación de las hipótesis que cierra el sistema | **sí**, sumando fracciones |
+| `asymptotic` | el exponente de un parámetro en un término | **sí**, aritmética exacta |
 | `ball` | una cantidad real cae en un intervalo, y eso zanja la afirmación | **sí** para la afirmación; el intervalo necesita la spec |
 | `proof` | los lemas **y** que cada uno se usa como su certificado permite | no, re-resuelve |
 | `induction` | los casos base, el paso **y** que encadenan sin hueco | no, re-resuelve |
@@ -852,6 +901,56 @@ Tres detalles que separan un certificado de un test:
 
 `--question factor` da la factorización, con cada factor llevando su propio
 certificado de primalidad, para que «y estos son primos» no quede colgando.
+
+## `order`: ¿decae este término, o es Theta(1)?
+
+Algunos bugs no son infactibilidades. Un usuario tenía este:
+
+```
+5|k| W C^2 / (u^3 d^2 p^10)
+```
+
+con `d ≍ n²`, `C ≍ n`, `|W| ≍ n²`. La pregunta era si decae en `n`. No decae
+—es **Θ(1)**— y ese bug era invisible para Lean **y** para `certo prove`, por
+la misma razón. No es una infactibilidad. Es una factibilidad que no mejora
+con `n`, así que un solver al que preguntas «¿es satisfacible?» dice que sí
+para siempre, correctamente, mientras la cota en la que vive no mejora nunca.
+
+```python
+OrderSpec(
+    expression=5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10),
+    orders={"k": 0, "W": 2, "C": 1, "u": 0, "d": 2, "p": 0},
+)
+```
+
+```
+$ certo order examples/order_decay.py
+SATISFIABLE  [sat]
+  leading exponent 0: it is Theta(1) in n
+
+$ certo order examples/order_decay.py --expect decays
+REFUTED  [sat]
+  REFUTED: you claimed it decays, and it is Theta(1)
+```
+
+Lo que lo hace digno de un certificado y no solo de una cuenta es que **la
+sustitución queda escrita** en vez de hecha en la cabeza de alguien, y que la
+agrupación es exacta: dos términos con el mismo exponente cuyos coeficientes
+se cancelan se cancelan de verdad, y con `Fraction` eso se decide, no se
+estima.
+
+Dos límites que declara en vez de esconder:
+
+* **Certifica el exponente, no la constante.** `≍` esconde un factor, así que
+  un término Θ(1) con coeficiente 1e-9 puede estar perfectamente bien en la
+  práctica. `verify` lo repite todas las veces.
+* **No se puede dividir por una suma.** El orden de `1/(x + y)` depende de
+  cuál de `x` e `y` domine —una pregunta que esto no puede responder—, así que
+  se niega en vez de adivinar.
+
+Un símbolo sin entrada en `orders` es un **error**, no una suposición. Todo el
+valor está en que la sustitución sea explícita.
+
 
 ## `bounds`: números, con rigor
 

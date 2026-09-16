@@ -38,6 +38,7 @@ Last updated: 2026-09-16 (after 0.4.0 — schema frozen).
 | ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
 | ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
 | ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **`certo order`** *(user feedback)* | The exponent of a parameter once magnitudes are substituted. Asks what `prove` cannot: a Θ(1) term is not infeasible, so a solver says "satisfiable" forever while the bound never improves. Found four bugs in a user's session before it existed. |
 | ✅ | **Branch and bound with certified leaves** *(0.4, P1)* | `mixed --prove-optimal`. Every leaf closed by an exact dual, a Farkas ray, or a fully-fixed residual LP; the tree checked to COVER the integer domain. Turned `ν = 7` from a design into the proved optimum on the research instance, in 73 nodes. |
 | ✅ | **`farkas_ray`: LP infeasibility with a certificate** *(0.4)* | `y >= 0`, `A^T y >= 0`, `b.y < 0`. Three dot products, no solver. |
 | ✅ | **`PackingSpec.lists` and `opt --gap`** *(0.4, P1)* | The shape 51 of 131 corpus scripts share, in three lines; and `mu* - nu` as one exact rational with both sides certified and checked to be the same packing. |
@@ -94,7 +95,30 @@ items below still say "build against a real problem".
 
 ## P1 — next
 
-Empty. Everything that was here shipped in 0.4.
+### 1. `certo status` — the state of a proof, not of a command
+
+Twenty-three commands, twenty-nine certificate kinds, a ledger, and no way to
+see where a proof stands. A command that reads a directory and shows the DAG:
+proved, bridged, open, and what depends on what. This is where `certo repro`
+stops being a loose item.
+
+### 2. `certo lint` — before the compute is spent
+
+An LLM writing a spec has no way to know it is well-posed until it runs. A dry
+check: this Spec has no goal, this domain is 10^9 items, this predicate
+returns `bool` so you will get `reproducible` and not `certified`. Cheap, and
+it prevents a class of wasted runs by the primary consumer.
+
+### 3. Parametric certificates — the jump from finite case to theorem
+
+`order` is the first step of this and it shipped. The rest: an LP dual given
+as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial
+inequalities in `s`, certified for all `s >= s0` by `sos` or
+`farkas --nonlinear` — both of which already exist.
+
+That turns "checked for s = 7..20" into "holds for every s >= 7", which is the
+one thing the tool keeps saying it cannot do. Wanted: an instance where the
+dual weights follow a visible pattern in `s`.
 
 ---
 
@@ -154,7 +178,6 @@ instance that hits the cap.
 | | Cutting-plane certificates | Gomory–Chvátal for **integer** infeasibility, not just the LP relaxation. Relevant to packing bounds. |
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
 | | `certo repro` | Bundle spec + certificates + versions + hashes for a paper appendix. Partly absorbed by the Lean manifest in P1 #3. |
-| | A full worked example | The published examples cover each command; none walks one problem from exploration to Lean. `examples/compose_proof.py` also needs two certificates that are deliberately not committed (they are output) — a `make examples` would remove that friction. |
 
 ---
 
