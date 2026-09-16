@@ -6,6 +6,12 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-09-16
+
+**Schema unchanged: `SCHEMA_VERSION` stays 4.** A new flag, a new Lean
+exporter, and fixes. Nothing here moves a payload field.
+
+
 ### The last two items of a user report
 
 **`check --hypotheses-only`.** The natural way to ask "are my hypotheses
