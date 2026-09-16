@@ -289,6 +289,41 @@ def spec():
     rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
     assert any("re-running" in c["check"] and c["ok"] for c in rep["checks"])
 
+def test_the_algebra_tools_reach_the_model_over_mcp():
+    ideal_src = """
+import z3
+from certo import IdealSpec
+def spec():
+    x, y = z3.Reals("x y")
+    return IdealSpec(variables=["x", "y"],
+                     equations=[x - 2, x - 3], claim=None)
+"""
+    out = run(call("ideal", {"spec_source": ideal_src}))
+    assert out["verdict"] == "proved"
+    assert out["cofactors"]
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"] and rep["solver_free"]
+    assert any("COMPLEX" in w for w in rep["warnings"])
+
+    sos_src = """
+import z3
+from certo import SOSSpec
+def spec():
+    x, y = z3.Reals("x y")
+    return SOSSpec(variables=["x", "y"], poly=x*x - 2*x*y + y*y)
+"""
+    out = run(call("sos", {"spec_source": sos_src}))
+    assert out["verdict"] == "proved" and out["squares"]
+    assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
+
+
+def test_number_over_mcp_refuses_a_composite():
+    ok = run(call("number", {"n": 1000003}))
+    assert ok["verdict"] == "proved" and ok["witness"]
+    bad = run(call("number", {"n": 561}))
+    assert bad["verdict"] == "refuted"
+    assert bad["certificate"] is None
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

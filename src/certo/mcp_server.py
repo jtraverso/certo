@@ -90,6 +90,23 @@ of these objects. You can pass the file (`spec_path`) or the code itself
             hypotheses are added first. HEURISTIC -- finding nothing does not
             mean the claim is false; that is what `prove` is for.
 
+## IdealSpec / SOSSpec / NumberSpec -> ideal, sos, number (no SMT at all)
+    from certo import IdealSpec, SOSSpec, NumberSpec
+    IdealSpec(variables=["x","y"], equations=[x*x+y*y-1, x-y, x+y-3],
+              claim=None)        # None: is the system INCONSISTENT?
+    # Cofactors with 1 = sum h_i g_i refute it over C, hence over R, Q and Z.
+    # With claim=f it certifies f = sum h_i g_i. Groebner DECIDES membership,
+    # so a negative answer is conclusive, not a timeout. Checking a cofactor
+    # certificate is expanding a product: no solver, no algebra system.
+
+    SOSSpec(variables=["x","y"], poly=x**4 + y**4 - x**2*y**2)
+    # p = sum d_i q_i^2, exact rationals. Searched in floating point, rounded
+    # and re-verified exactly. NOT complete: a non-negative polynomial need
+    # not be a sum of squares, so nothing found is unknown_solver.
+
+    NumberSpec(n=2**31 - 1, question="prime")   # or "factor"
+    # A Pratt tree. Checking it is modular exponentiation and nothing else.
+
 ## BoundSpec -> bounds (numbers, rigorously)
     from certo import BoundSpec
     def spec():
@@ -560,6 +577,78 @@ async def bounds(spec_path: str | None = None, spec_source: str | None = None,
     out = _emit(res, spec_file=f)
     for k in ("lo", "hi", "width", "prec", "backend"):
         out[k] = res.meta.get(k)
+    return out
+
+
+@mcp.tool(description=(
+    "POLYNOMIAL equations, decided algebraically -- no SMT involved. With "
+    "claim=None it asks whether the system is INCONSISTENT and returns "
+    "cofactors h_i with 1 = sum h_i g_i, which refutes it over the COMPLEX "
+    "numbers and hence over the reals, rationals and integers. With a claim f "
+    "it certifies f = sum h_i g_i, i.e. f vanishes on every common root. "
+    "Finding the cofactors is a Groebner basis computation; CHECKING them is "
+    "expanding a product in exact rationals, so the certificate needs neither "
+    "a solver nor an algebra system. Groebner DECIDES membership: a negative "
+    "answer is conclusive, not a timeout. Reach for this when `prove` is "
+    "grinding on polynomial equalities."))
+@_guard
+async def ideal(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import IdealSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    sp = await _off(load_spec, f, IdealSpec)
+    res = await _off(algebra.ideal, sp, _limits(timeout_ms), str(f))
+    out = _emit(res, spec_file=f)
+    out["cofactors"] = res.meta.get("cofactors")
+    return out
+
+
+@mcp.tool(description=(
+    "Certify a polynomial NON-NEGATIVE everywhere as an exact sum of squares: "
+    "p = sum d_i q_i^2 with rational d_i and rational linear forms. The Gram "
+    "matrix is searched for in floating point and never reaches the "
+    "certificate -- it is rounded, re-projected and re-verified in exact "
+    "rationals, the same way `opt` reconstructs its dual. INCOMPLETE on "
+    "purpose: from degree 4 in 3 variables there are non-negative polynomials "
+    "that are not sums of squares (Motzkin), so finding nothing is "
+    "unknown_solver and NEVER 'it goes negative'. For degree 2, `farkas "
+    "--nonlinear` is cheaper."))
+@_guard
+async def sos(spec_path: str | None = None, spec_source: str | None = None,
+              timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import SOSSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    sp = await _off(load_spec, f, SOSSpec)
+    res = await _off(algebra.sos, sp, _limits(timeout_ms), str(f))
+    out = _emit(res, spec_file=f)
+    out["squares"] = res.meta.get("squares")
+    return out
+
+
+@mcp.tool(description=(
+    "PRIMALITY with a certificate, or a factorisation whose factors carry "
+    "one. `n.is_prime()` is true, fast and unciteable; a Pratt certificate is "
+    "the same fact with the evidence: a witness generating (Z/n)^*, plus a "
+    "certificate for each prime factor of n-1, recursively down to 2. "
+    "Checking the whole tree is modular exponentiation and nothing else. A "
+    "composite n comes back REFUTED, which is a real answer rather than a "
+    "failure to find one."))
+@_guard
+async def number(n: int, question: str = "prime",
+                 timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import NumberSpec
+
+    res = await _off(algebra.number, NumberSpec(n=n, question=question),
+                     _limits(timeout_ms), "")
+    out = _emit(res)
+    for k in ("witness", "factors", "checks", "nodes", "depth"):
+        if res.meta.get(k) is not None:
+            out[k] = res.meta[k]
     return out
 
 

@@ -4,7 +4,62 @@ Notable changes per release. Dates are ISO. This project uses semantic
 versioning; while the major is 0, a minor bump may change a certificate
 payload — each such change says so and what still reads the old shape.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-16
+
+The release where certo stopped being Z3 with a nicer interface.
+
+Three engines that are not a solver, each answering a question an SMT solver
+either grinds on or cannot phrase, and each producing a certificate that is
+checked by arithmetic alone.
+
+### `ideal` — polynomial systems, decided
+
+Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system outright,
+`f = Σ hᵢgᵢ` certifies that `f` follows from it. Finding them is a Gröbner
+basis computation with the transformation tracked through Buchberger; checking
+them is expanding a product and comparing coefficients in exact rationals —
+no solver, no algebra system. A library that says "yes, it's in the ideal"
+leaves you with its word; this leaves you with the polynomials.
+
+Two things worth knowing. **It decides**: membership is decidable, so a
+negative answer is `REFUTED`, not `unknown_solver` — rare in this tool. And
+**the field is ℂ**: `1 ∈ I` refutes over the complex numbers and hence over
+everything smaller, while a proper ideal implies nothing about a real
+solution. `verify` says so every time.
+
+### `sos` — a numeric search, an exact certificate
+
+This project's own notes argued twice that sums of squares were not worth
+having, because an SDP is solved in floating point and an inexact certificate
+is not citable. The objection was aimed at the wrong half: it would rule out
+`opt` too, and `opt` answers it. Solve numerically, reconstruct rationals,
+re-verify exactly.
+
+`p = zᵀGz` is a linear condition on `G`; a numeric `G` is found by alternating
+projections onto that affine subspace and the PSD cone (no SDP solver needed,
+which matters, because there is not one here), then rounded, **projected back
+onto the subspace exactly in `Fraction`**, and decomposed by an exact LDLᵀ.
+Every pivot non-negative means the decomposition *is* the sum of squares. The
+floats were the search and never reach the certificate.
+
+Incomplete on purpose: from degree 4 in 3 variables there are non-negative
+polynomials that are not sums of squares, so nothing found is
+`unknown_solver`, never "it goes negative". Motzkin's polynomial is in the
+tests for exactly that reason.
+
+### `number` — primality you can cite
+
+`n.is_prime()` is true, fast and uncitable. A Pratt certificate is the same
+fact with the evidence: a witness generating `(ℤ/n)*`, plus a certificate for
+each prime factor of `n−1`, recursively down to 2. Checking the tree is a
+handful of `pow(a, e, n)` calls — 53 of them for 2³¹−1.
+
+Three details that separate a certificate from a test: the factor list of
+`n−1` must be complete (missing one would let a composite through, so that is
+checked before the witness is looked at); Carmichael numbers like 561 pass the
+Fermat condition and are caught by the order condition; and the witness is
+found by trying small bases in order rather than randomly, so the same `n`
+gives the same certificate and the same digest on every machine.
 
 ### Added
 
@@ -52,7 +107,9 @@ payload — each such change says so and what still reads the old shape.
 
 ### Notes
 
-- 182 tests.
+- 210 tests.
+- New certificate kinds: `ideal`, `sos`, `number`, `induction`,
+  `orbit_witnesses`. All five verify without a solver except `induction`.
 - The three Lean exporters were checked by compiling them against Mathlib
   v4.28.0. `nlinarith` alone could not close the nonlinear example — the
   `sq_nonneg` hint from the certificate is what makes it compile, which is

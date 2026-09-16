@@ -20,17 +20,19 @@ from .structures import SetFamily, family_from_masks, mask_to_set, set_to_mask
 from .packing import PackingSpec, loads_from_dual
 from .i18n import set_lang, t
 from .limits import Limits
-from .spec import (BisectSpec, BoundSpec, DomainSpec, InductSpec, Lemma,
-                   LPSpec,
+from .polynomials import Poly
+from .spec import (BisectSpec, BoundSpec, DomainSpec, IdealSpec,
+                   InductSpec, Lemma, LPSpec, NumberSpec, SOSSpec,
                    MultiSpec, Outcome, ProofSpec, Spec, SweepSpec,
                    SynthSpec, load_spec)
 from .status import Result, Status, Verdict
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",
-    "BisectSpec", "BoundSpec", "DomainSpec", "InductSpec", "MultiSpec",
+    "BisectSpec", "BoundSpec", "DomainSpec", "IdealSpec", "InductSpec",
+    "NumberSpec", "SOSSpec", "Poly", "MultiSpec",
     "ProofSpec", "Lemma",
     "Outcome", "load_spec",
     "Limits", "Status", "Verdict", "Result",

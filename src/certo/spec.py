@@ -628,3 +628,78 @@ class InductSpec:
     bridge: str = ""                 # how a finite check becomes P(k)
     describe: str = ""               # the conclusion, in words
     title: str = ""
+
+
+# ---------------------------------------------------------------------------
+# polynomial ideals, sums of squares, and integers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class IdealSpec:
+    """Polynomial equations, and what follows from them.
+
+        IdealSpec(
+            variables=["x", "y"],
+            equations=[x*x + y*y - 1, x - 2],     # z3 terms, or Poly
+            claim=None,                           # None = "no solution at all"
+        )
+
+    With `claim=None` the question is whether the system is INCONSISTENT, and
+    the certificate is cofactors with `1 = sum h_i g_i`. With a claim `f`, the
+    question is whether `f` vanishes on every common root, certified the same
+    way: `f = sum h_i g_i`.
+
+    The field matters and the certificate says so. `1 = sum h_i g_i` refutes
+    solutions over the COMPLEX numbers, hence over the reals, the rationals
+    and the integers. The converse does not hold: a proper ideal does not mean
+    a real solution exists, only that a complex one might.
+    """
+
+    variables: list
+    equations: list                  # z3 terms or Poly, each meaning "= 0"
+    claim: object = None             # a z3 term or Poly, or None
+    max_pairs: int = 20_000
+    title: str = ""
+
+
+@dataclass
+class SOSSpec:
+    """A polynomial claimed non-negative everywhere, certified as a sum of
+    squares.
+
+        SOSSpec(variables=["x", "y"], poly=x**4 + y**4 - x**2 * y**2)
+
+    The search is numeric and the certificate is exact: rational coefficients
+    and rational linear forms, checked by expanding. Nothing approximate
+    survives into the certificate.
+
+    Incomplete, and in a way worth knowing: every sum of squares is
+    non-negative, but from degree 4 in 3 variables there are non-negative
+    polynomials that are not sums of squares (Motzkin's is the standard one).
+    So no certificate found is `unknown_solver`, never "it goes negative".
+    """
+
+    variables: list
+    poly: object                     # a z3 term or Poly
+    half_degree: object = None       # default: deg(p)/2
+    iterations: int = 600
+    title: str = ""
+
+
+@dataclass
+class NumberSpec:
+    """An integer question with a certificate anyone can redo by hand.
+
+        NumberSpec(n=2 ** 31 - 1, question="prime")
+        NumberSpec(n=600851475143, question="factor")
+
+    `prime` emits a Pratt certificate: a witness generating (Z/n)^*, plus a
+    certificate for each prime factor of n-1, recursively. Checking it is
+    modular exponentiation. `factor` emits the factors, each with its own
+    primality certificate, so "and these are prime" is not left hanging.
+    """
+
+    n: int
+    question: str = "prime"          # "prime" | "factor"
+    title: str = ""

@@ -499,6 +499,59 @@ def orbit_witnesses_certificate(sweep_cert, witnesses, labelled,
     )
 
 
+
+def ideal_certificate(variables, equations, claim, cofactors, inconsistent,
+                      title="") -> Certificate:
+    """`f = sum h_i g_i`, with the cofactors attached.
+
+    Finding them is a Groebner basis computation; checking them is expanding a
+    product. That gap is the whole reason this travels as a certificate rather
+    than as "the algebra system agreed".
+
+    With `claim` absent the left-hand side is 1, and the certificate refutes
+    the system outright -- over the complex numbers, hence over everything
+    smaller. It does NOT say a real solution exists when it fails.
+    """
+    return Certificate(
+        kind="ideal", solver_free=True,
+        payload={"variables": list(variables), "equations": equations,
+                 "claim": claim, "cofactors": cofactors,
+                 "inconsistent": bool(inconsistent), "title": title},
+        note_key="cert.note.ideal",
+    )
+
+
+def sos_certificate(variables, poly, terms, basis_size, denom,
+                    title="") -> Certificate:
+    """`p = sum d_i q_i^2` in exact rationals.
+
+    The Gram matrix was found in floating point and is not here: it was the
+    search. What is here are rational coefficients and rational linear forms,
+    and checking them is multiplying polynomials out.
+    """
+    return Certificate(
+        kind="sos", solver_free=True,
+        payload={"variables": list(variables), "poly": poly, "terms": terms,
+                 "squares": len(terms), "basis_size": basis_size,
+                 "denominator": denom, "title": title},
+        note_key="cert.note.sos",
+    )
+
+
+def number_certificate(kind, tree, title="") -> Certificate:
+    """A Pratt primality tree, or a factorisation whose factors carry one.
+
+    `n.is_prime()` is true, fast and unciteable. This is the same fact with
+    the evidence attached, and the evidence is a handful of `pow(a, e, n)`.
+    """
+    return Certificate(
+        kind="number", solver_free=True,
+        payload={"question": kind, "tree": tree, "n": tree["n"],
+                 "title": title},
+        note_key="cert.note.number",
+    )
+
+
 def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     h = hashlib.sha256("\n".join(sorted(g6)).encode()).hexdigest()
     return Certificate(
@@ -696,6 +749,9 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "ball": _verify_ball,
         "induction": _verify_induction,
         "orbit_witnesses": _verify_orbit_witnesses,
+        "ideal": _verify_ideal,
+        "sos": _verify_sos,
+        "number": _verify_number,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -987,6 +1043,74 @@ def _verify_orbit_witnesses(cert, limits) -> VerifyReport:
         warnings=warnings,
         detail=t("verify.witness.detail", labelled=p["labelled"],
                  orbits=p["orbits"]),
+    )
+
+
+
+def _verify_ideal(cert, limits) -> VerifyReport:
+    """Expand the combination and compare. No solver, no algebra system."""
+    from .polynomials import Poly, combination
+
+    p = cert.payload
+    variables = tuple(p["variables"])
+    gs = [Poly.parse(variables, g) for g in p["equations"]]
+    hs = [Poly.parse(variables, h) for h in p["cofactors"]]
+    lhs = (Poly.const(variables, 1) if p["inconsistent"]
+           else Poly.parse(variables, p["claim"]))
+
+    checks = [(t("verify.ideal.count"), len(hs) == len(gs),
+               t("verify.ideal.n", h=len(hs), g=len(gs)))]
+    if len(hs) == len(gs):
+        got = combination(hs, gs)
+        checks.append((t("verify.ideal.expands"), got == lhs,
+                       t("verify.ideal.difference", d=str(got - lhs)[:60])))
+
+    warnings = []
+    if p["inconsistent"]:
+        warnings.append(t("verify.ideal.field"))
+    return VerifyReport(
+        all(c[1] for c in checks), "ideal", True, checks=checks,
+        warnings=warnings,
+        detail=t("verify.ideal.detail", n=len(gs),
+                 what=t("verify.ideal.inconsistent") if p["inconsistent"]
+                 else t("verify.ideal.member")),
+    )
+
+
+def _verify_sos(cert, limits) -> VerifyReport:
+    """Square the forms, add them up, compare coefficients."""
+    from . import sos as sosmod
+    from .polynomials import Poly
+
+    p = cert.payload
+    variables = tuple(p["variables"])
+    target = Poly.parse(variables, p["poly"])
+    terms = sosmod.parse(variables, p["terms"])
+
+    checks = [(t("verify.sos.nonneg"), all(d >= 0 for d, _ in terms),
+               t("verify.sos.count", n=len(terms)))]
+    got = sosmod.expand(terms, variables)
+    checks.append((t("verify.sos.expands"), got == target,
+                   t("verify.ideal.difference", d=str(got - target)[:60])))
+    return VerifyReport(
+        all(c[1] for c in checks), "sos", True, checks=checks,
+        detail=t("verify.sos.detail", n=len(terms)),
+    )
+
+
+def _verify_number(cert, limits) -> VerifyReport:
+    """Modular exponentiation, and nothing else."""
+    from . import numbers
+
+    p = cert.payload
+    tree = p["tree"]
+    if p["question"] == "factor":
+        checks = numbers.verify_factorisation(tree)
+    else:
+        checks = numbers.verify_pratt(tree)
+    return VerifyReport(
+        all(c[1] for c in checks), "number", True, checks=checks,
+        detail=t("verify.number.detail", n=p["n"], checks=len(checks)),
     )
 
 

@@ -3,7 +3,7 @@
 A laboratory for supporting mathematical proofs, over CLI and over MCP.
 **Every result comes with a certificate that verifies without trusting the solver.**
 
-Eighteen commands to discover objects, destroy false formulations, calibrate
+Twenty-one commands to discover objects, destroy false formulations, calibrate
 constants and minimise hypotheses — before paying the cost of formalising.
 
 ```
@@ -90,7 +90,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The eighteen commands
+## The twenty-one commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -103,6 +103,9 @@ and what to expect.
 | `synth` | CEGIS: ∃obj ∀input ∃aux | CEGIS/Z3 | object + the counterexamples that forced it |
 | `opt` | LP/ILP, or a packing | CBC | **dual in exact rationals** = the load certificate |
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
+| `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
+| `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
+| `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
 | `cases` | SAT with a verified DRAT proof | own CDCL or external binary | DRAT proof |
 | `enum` | Non-isomorphic graphs with filters | nauty or Python | canonical list + hash |
 | `sweep` | Predicate and/or value over a family or ANY finite domain | nauty or Python | family **+ predicate certificates** |
@@ -150,6 +153,9 @@ def spec():
 | `MultiSpec` | `core` over several goals |
 | `ProofSpec` | `compose` |
 | `InductSpec` | `induct` |
+| `IdealSpec` | `ideal` |
+| `SOSSpec` | `sos` |
+| `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
 
@@ -173,6 +179,9 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `ball` | a real quantity lies in an interval, and that settles the claim | **yes** for the claim; the interval needs the spec |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |
 | `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
+| `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
+| `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
+| `number` | primality, or a factorisation | **yes**, modular exponentiation |
 | `mus` | unsatisfiability **and** minimality | **yes** |
 | `graph_set` | non-isomorphic family passing the filters | **yes** |
 | `sweep` | family + predicate certificates | depends on the predicate |
@@ -563,6 +572,115 @@ In `compose` the check lands where it matters most. Two *derived* lemmas can
 never contradict each other — both are true. Only **bridges** can, because a
 bridge is asserted rather than derived. Two bridges that clash make the whole
 theorem vacuous, and that is reported by name.
+
+## Three engines that are not a solver
+
+`prove`, `check`, `core`, `synth` and `compose` are Z3 wearing different hats.
+These three are not, and they exist because the questions they answer are ones
+an SMT solver either grinds on or cannot phrase.
+
+### `ideal` — polynomial systems, decided algebraically
+
+```python
+IdealSpec(
+    variables=["x", "y"],
+    equations=[x*x + y*y - 1, x - y, x + y - 3],
+    claim=None,                    # None: is the system inconsistent?
+)
+```
+
+```
+$ certo ideal examples/ideal_inconsistent.py
+PROVED  [unsat]
+  the system has NO common solution: 1 is in the ideal, and the cofactors prove it
+  cofactors:
+    g0 * (2/7)
+    g1 * (2/7*y - 3/7)
+    g2 * (-2/7*x - 3/7)
+```
+
+Multiply that out and you get `1`. That is the whole proof, and checking it is
+expanding a product and comparing coefficients in exact rationals — **no
+solver, no algebra system, nothing to take on trust.** Finding the cofactors is
+a Gröbner basis computation; a library that merely tells you "yes, it's in the
+ideal" leaves you with nothing but its word.
+
+With a `claim`, the same machinery certifies `f = Σ hᵢgᵢ` — that `f` vanishes
+on every common root.
+
+Two properties worth knowing:
+
+* **It decides.** Gröbner basis membership is decidable, so a negative answer
+  is `REFUTED`, not `unknown_solver`. That is rare in this tool and worth
+  using: `prove` on a system of polynomial equalities can grind where this
+  answers.
+* **The field is ℂ.** `1 ∈ I` refutes solutions over the complex numbers,
+  hence over the reals, rationals and integers. The converse does **not**
+  hold: a proper ideal means a complex root exists, and says nothing about a
+  real one. `verify` repeats that every time.
+
+### `sos` — a numeric search, an exact certificate
+
+I argued twice in this project's own notes that sums of squares were not worth
+having, because an SDP is solved in floating point and an inexact certificate
+is not citable. That objection was aimed at the wrong half. It would rule out
+`opt` too — and `opt` answers it: solve numerically, reconstruct rationals,
+re-verify exactly.
+
+```
+$ certo sos examples/sos_quartic.py
+PROVED  [unsat]
+  a sum of 2 squares, exact, with denominator 2
+  squares:
+    1 * (-1/2*x^2 + y^2)^2
+    3/4 * (x^2)^2
+```
+
+The pipeline: write `p = zᵀGz` (a linear condition on `G`), find a numeric `G`
+by alternating projections onto that affine subspace and the PSD cone, round
+it, **project back onto the subspace exactly in `Fraction`**, then do an exact
+LDLᵀ. If every pivot is non-negative the decomposition *is* the sum of
+squares. The floats were the search; they never reach the certificate.
+
+Incomplete, and in a way worth knowing: every sum of squares is non-negative,
+but from degree 4 in 3 variables there are non-negative polynomials that are
+not sums of squares. Motzkin's is the standard one, and `certo sos` comes back
+`unknown_solver` on it — never "the polynomial goes negative".
+
+For degree 2, `farkas --nonlinear` is cheaper and gets there first.
+
+### `number` — primality you can cite
+
+`n.is_prime()` is true, fast and uncitable. A Pratt certificate is the same
+fact with the evidence attached:
+
+```
+$ certo number --n 2147483647
+PROVED  [unsat]
+  2147483647 is prime, with a Pratt certificate of 53 modular checks
+  witness: 7
+  Pratt tree: 29 nodes, depth 5
+```
+
+`n` is prime exactly when some `a` generates `(ℤ/n)*`: `a^(n−1) ≡ 1` and
+`a^((n−1)/q) ≢ 1` for every prime `q | n−1`. Those `q` need certificates too,
+so the thing is a **tree** recursing down to 2 — and checking the whole tree is
+a handful of `pow(a, e, n)` calls.
+
+Three details that are the difference between a certificate and a test:
+
+* **The factor list must be complete.** Missing one prime factor of `n−1`
+  would let a composite through, so `verify` checks the factors multiply back
+  to `n−1` before it looks at the witness.
+* **Carmichael numbers.** 561 passes the Fermat condition for most bases; the
+  order condition is what catches it, and `certo number --n 561` comes back
+  `REFUTED` with no certificate.
+* **The witness is reproducible.** Small bases are tried in order rather than
+  randomly, so the same `n` gives the same certificate — and the same digest —
+  on every machine.
+
+`--question factor` gives the factorisation instead, each factor carrying its
+own primality certificate, so "and these are prime" is not left hanging.
 
 ## `bounds`: numbers, rigorously
 
@@ -1283,7 +1401,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-168 of them, no test framework required.
+210 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

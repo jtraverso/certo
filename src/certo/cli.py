@@ -60,7 +60,7 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
                 "banner_key", "level", "orbits", "spot_checks",
-                "by_orbit", "evaluated", "inferred")
+                "by_orbit", "evaluated", "inferred", "cofactors", "squares")
 
 
 def _item_id(entry) -> str:
@@ -393,6 +393,52 @@ def _print_witnesses(witnesses):
         print("    " + t("cli.witness.row", rep=w["representative"],
                          size=w["size"], minimal=w["minimal"],
                          steps=w["steps"]))
+
+
+def cmd_ideal(args):
+    from .engines import algebra
+    from .spec import IdealSpec, load_spec
+
+    spec = load_spec(args.spec, IdealSpec)
+    res = algebra.ideal(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("cofactors"):
+        print("  " + t("cli.ideal.cofactors"))
+        for i, h in res.meta["cofactors"].items():
+            print("    g{} * ({})".format(i, h))
+    return rc
+
+
+def cmd_sos(args):
+    from .engines import algebra
+    from .spec import SOSSpec, load_spec
+
+    spec = load_spec(args.spec, SOSSpec)
+    res = algebra.sos(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("squares"):
+        print("  " + t("cli.sos.squares"))
+        for line in res.meta["squares"]:
+            print("    " + line)
+    return rc
+
+
+def cmd_number(args):
+    from .engines import algebra
+    from .spec import NumberSpec, load_spec
+
+    if args.n is not None:
+        spec = NumberSpec(n=args.n, question=args.question)
+        path = ""
+    else:
+        spec = load_spec(args.spec, NumberSpec)
+        path = args.spec
+    res = algebra.number(spec, limits_from(args), spec_path=path)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("nodes"):
+        print("  " + t("cli.number.tree", n=res.meta["nodes"],
+                       depth=res.meta["depth"]))
+    return rc
 
 
 def cmd_synth(args):
@@ -1001,6 +1047,23 @@ def build_parser():
                     help="add certo to .mcp.json in the current directory, "
                          "merging with whatever is already registered")
     sp.set_defaults(func=cmd_doctor)
+
+    sp = add("ideal", "polynomial equations: refute them outright, or certify "
+                      "what follows, with Groebner cofactors")
+    sp.add_argument("spec", help=".py file returning an IdealSpec")
+    sp.set_defaults(func=cmd_ideal)
+
+    sp = add("sos", "certify a polynomial non-negative as an exact sum of "
+                    "squares: numeric search, rational certificate")
+    sp.add_argument("spec", help=".py file returning a SOSSpec")
+    sp.set_defaults(func=cmd_sos)
+
+    sp = add("number", "primality with a Pratt certificate, or a factorisation "
+                       "whose factors carry one")
+    sp.add_argument("spec", nargs="?", help=".py file returning a NumberSpec")
+    sp.add_argument("--n", type=int, help="the integer, instead of a spec file")
+    sp.add_argument("--question", choices=("prime", "factor"), default="prime")
+    sp.set_defaults(func=cmd_number)
 
     sp = add("bounds", "settle a numeric inequality with rigorous interval "
                        "arithmetic: e, log, pi and friends, with a certificate")

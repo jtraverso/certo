@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after 0.2.0).
+Last updated: 2026-09-16 (after 0.3.0).
 
 ---
 
@@ -36,6 +36,9 @@ Last updated: 2026-09-16 (after 0.2.0).
 | ✅ | **Symmetries on graph sweeps** *(P2)* | `SweepSpec(canonicalize=...)`, for a symmetry finer than isomorphism. `"auto"` asks the item for its own canonical form. |
 | ✅ | **`sweep --by-orbit`** *(P1)* | Evaluate one item per orbit. Sound only under an invariance nothing can prove, so it is named in the certificate AND spot-checked against real non-representatives; a predicate that is not invariant stops the run by name. |
 | ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
+| ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
+| ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
 
 ---
@@ -65,7 +68,22 @@ runs the examples' exports against Mathlib would catch the next
 
 ## P2 — high value, more work
 
-### 4. Combinatorial types beyond set families
+### 4. Flag algebras, now that the objection is gone
+
+`sos` established the pattern: numeric search, rational reconstruction, exact
+re-verification. A flag-algebra bound is the same shape one level up. Wanted:
+2–3 real packing instances to build against, so the interface is designed
+around a problem rather than around the method.
+
+### 5. Resultants and elimination
+
+`ideal` covers membership. Elimination — "remove `t` from these equations and
+tell me the condition on the parameters" — is the algebraic route to the same
+place `qe` would reach, and it is exact. The certificate wants the Bézout
+identity `Res(f,g) = Af + Bg`, which is verifiable by expansion exactly like
+the cofactors.
+
+### 6. Combinatorial types beyond set families
 
 `SetFamily` covers hypergraphs, designs, codes and mask systems, because they
 are all one shape. What it does not cover: ordered structures (sequences,
@@ -73,7 +91,7 @@ words, permutation patterns) and edge-coloured or directed objects. Worth
 adding when a real problem asks, not before — the value of a native type is
 the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
-### 5. A canonical form that scales past the cap
+### 7. A canonical form that scales past the cap
 
 `SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
 very regular family on more than ~10 points will hit. The fix is individual-
@@ -107,11 +125,13 @@ in one line instead of leaving it to be discovered.
 
 ## Won't do
 
-**Flag algebras / SDP.** An SDP is solved in floating point, so what comes back
-is not exact, and an inexact certificate is not citable — the same reason
-`farkas` does not go through an SOS relaxation and `opt` reconstructs
-rationals. Revisit only with 2–3 real packing instances on the table and a
-rounding-plus-exact-reverification plan.
+**Nothing, currently.** The one long-standing entry here was flag algebras and
+SDP, refused on the grounds that floating point cannot produce a citable
+certificate. `certo sos` (0.3.0) shows that argument was wrong: the same
+round-and-re-verify-exactly move that `opt` has always used applies, and the
+floats stay in the search. Flag algebras are now a P2 item rather than a
+refusal — still wanting 2–3 real packing instances before anyone builds it,
+but for reasons of demand, not of principle.
 
 ---
 
@@ -122,4 +142,4 @@ local commits; **pushing to the public repository is not automatic** and is
 asked for each time. Each release bumps the version, writes its section of
 [CHANGELOG.md](CHANGELOG.md), and is tagged.
 
-Current: **0.2.0**.
+Current: **0.3.0**.

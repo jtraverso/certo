@@ -5,7 +5,7 @@
 Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
 **Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
 
-Dieciocho comandos para descubrir objetos, destruir formulaciones falsas, calibrar
+Veintiún comandos para descubrir objetos, destruir formulaciones falsas, calibrar
 constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
 
 ```
@@ -89,7 +89,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los dieciocho comandos
+## Los veintiún comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -102,6 +102,9 @@ esperar.
 | `synth` | CEGIS: ∃obj ∀entrada ∃aux | CEGIS/Z3 | objeto + contraejemplos que lo forzaron |
 | `opt` | LP/ILP, o un packing | CBC | **dual exacto** = el certificado de cargas |
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
+| `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
+| `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
+| `number` | Primalidad, o una factorización | Pratt | **árbol de exponenciación modular** |
 | `cases` | SAT con prueba DRAT verificada | CDCL propio o binario externo | prueba DRAT |
 | `enum` | Grafos no isomorfos con filtros | nauty o Python | lista canónica + hash |
 | `sweep` | Predicado y/o magnitud sobre una familia o CUALQUIER dominio finito | nauty o Python | familia **+ certificados del predicado** |
@@ -149,6 +152,9 @@ def spec():
 | `MultiSpec` | `core` multiobjetivo |
 | `ProofSpec` | `compose` |
 | `InductSpec` | `induct` |
+| `IdealSpec` | `ideal` |
+| `SOSSpec` | `sos` |
+| `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
 
@@ -171,6 +177,9 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `ball` | una cantidad real cae en un intervalo, y eso zanja la afirmación | **sí** para la afirmación; el intervalo necesita la spec |
 | `proof` | los lemas **y** que cada uno se usa como su certificado permite | no, re-resuelve |
 | `induction` | los casos base, el paso **y** que encadenan sin hueco | no, re-resuelve |
+| `ideal` | `f = Σ hᵢgᵢ` | **sí**, expandir un producto |
+| `sos` | `p = Σ dᵢqᵢ²` en racionales exactos | **sí**, expandir un producto |
+| `number` | primalidad, o una factorización | **sí**, exponenciación modular |
 | `mus` | insatisfacibilidad **y** minimalidad | **sí** |
 | `graph_set` | familia no isomorfa que pasa los filtros | **sí** |
 | `sweep` | familia + certificados del predicado | según el predicado |
@@ -565,6 +574,116 @@ En `compose` la comprobación cae donde más importa. Dos lemas *derivados* no
 pueden contradecirse nunca: los dos son ciertos. Solo pueden los **puentes**,
 porque un puente se aserta en vez de derivarse. Dos puentes que chocan hacen
 vacuo el teorema entero, y eso se informa con nombre y apellido.
+
+## Tres motores que no son un solver
+
+`prove`, `check`, `core`, `synth` y `compose` son Z3 con distintos sombreros.
+Estos tres no, y existen porque las preguntas que responden son de las que un
+solver SMT o mastica sin fin o no sabe ni formular.
+
+### `ideal` — sistemas polinómicos, decididos algebraicamente
+
+```python
+IdealSpec(
+    variables=["x", "y"],
+    equations=[x*x + y*y - 1, x - y, x + y - 3],
+    claim=None,                    # None: ¿es inconsistente el sistema?
+)
+```
+
+```
+$ certo ideal examples/ideal_inconsistent.py
+PROVED  [unsat]
+  the system has NO common solution: 1 is in the ideal, and the cofactors prove it
+  cofactores:
+    g0 * (2/7)
+    g1 * (2/7*y - 3/7)
+    g2 * (-2/7*x - 3/7)
+```
+
+Multiplica eso y sale `1`. Esa es toda la demostración, y comprobarla es
+expandir un producto y comparar coeficientes en racionales exactos — **sin
+solver, sin sistema de álgebra, sin nada que creerse.** Encontrar los
+cofactores es un cómputo de base de Gröbner; una biblioteca que solo te dice
+«sí, está en el ideal» te deja únicamente con su palabra.
+
+Con un `claim`, la misma maquinaria certifica `f = Σ hᵢgᵢ`: que `f` se anula en
+toda raíz común.
+
+Dos propiedades que conviene saber:
+
+* **Decide.** La pertenencia por bases de Gröbner es decidible, así que una
+  respuesta negativa es `REFUTED`, no `unknown_solver`. Eso es raro en esta
+  herramienta y vale la pena usarlo: `prove` sobre un sistema de igualdades
+  polinómicas puede atascarse donde esto responde.
+* **El cuerpo es ℂ.** `1 ∈ I` refuta soluciones sobre los complejos, luego
+  también sobre reales, racionales y enteros. El recíproco **no** vale: un
+  ideal propio significa que hay raíz compleja, y no dice nada de una real.
+  `verify` lo repite cada vez.
+
+### `sos` — búsqueda numérica, certificado exacto
+
+Argumenté dos veces en las notas de este proyecto que las sumas de cuadrados
+no valían la pena, porque un SDP se resuelve en coma flotante y un certificado
+inexacto no es citable. Esa objeción apuntaba a la mitad equivocada. Dejaría
+fuera también a `opt` — y `opt` la responde: resolver numéricamente,
+reconstruir racionales, re-verificar exacto.
+
+```
+$ certo sos examples/sos_quartic.py
+PROVED  [unsat]
+  a sum of 2 squares, exact, with denominator 2
+  cuadrados:
+    1 * (-1/2*x^2 + y^2)^2
+    3/4 * (x^2)^2
+```
+
+El proceso: escribir `p = zᵀGz` (una condición lineal sobre `G`), encontrar una
+`G` numérica por proyecciones alternas sobre ese subespacio afín y sobre el
+cono PSD, redondearla, **volver a proyectarla sobre el subespacio de forma
+exacta en `Fraction`**, y hacer una LDLᵀ exacta. Si todos los pivotes son no
+negativos, la descomposición *es* la suma de cuadrados. Los flotantes eran la
+búsqueda; no llegan al certificado.
+
+Incompleto, y de una forma que conviene conocer: toda suma de cuadrados es no
+negativa, pero desde grado 4 en 3 variables hay polinomios no negativos que no
+son suma de cuadrados. El de Motzkin es el habitual, y `certo sos` devuelve
+`unknown_solver` con él — nunca «el polinomio se hace negativo».
+
+Para grado 2, `farkas --nonlinear` es más barato y llega antes.
+
+### `number` — primalidad citable
+
+`n.is_prime()` es cierto, rápido e incitable. Un certificado de Pratt es el
+mismo hecho con la evidencia pegada:
+
+```
+$ certo number --n 2147483647
+PROVED  [unsat]
+  2147483647 is prime, with a Pratt certificate of 53 modular checks
+  witness: 7
+  árbol de Pratt: 29 nodos, profundidad 5
+```
+
+`n` es primo exactamente cuando algún `a` genera `(ℤ/n)*`: `a^(n−1) ≡ 1` y
+`a^((n−1)/q) ≢ 1` para todo primo `q | n−1`. Esos `q` también necesitan
+certificado, así que la cosa es un **árbol** que recursa hasta el 2 — y
+comprobarlo entero son un puñado de `pow(a, e, n)`.
+
+Tres detalles que separan un certificado de un test:
+
+* **La lista de factores tiene que estar completa.** Saltarse un factor primo
+  de `n−1` dejaría pasar un compuesto, así que `verify` comprueba que los
+  factores multiplican de vuelta a `n−1` antes de mirar el testigo.
+* **Números de Carmichael.** 561 pasa la condición de Fermat para casi
+  cualquier base; lo que lo caza es la condición de orden, y
+  `certo number --n 561` sale `REFUTED` sin certificado.
+* **El testigo es reproducible.** Se prueban bases pequeñas en orden, no al
+  azar, así que el mismo `n` da el mismo certificado —y el mismo digest— en
+  cualquier máquina.
+
+`--question factor` da la factorización, con cada factor llevando su propio
+certificado de primalidad, para que «y estos son primos» no quede colgando.
 
 ## `bounds`: números, con rigor
 
@@ -1270,7 +1389,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-168, y sin necesidad de ningún framework de tests.
+210, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

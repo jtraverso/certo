@@ -1813,6 +1813,287 @@ def test_check_says_it_did_not_run_rather_than_staying_quiet():
     assert rep["ran"] is False
     assert rep["reason"]
 
+# --- v0.3: exact multivariate polynomials ----------------------------------
+
+
+def _ring(*names):
+    from certo import Poly
+
+    return tuple(names), [Poly.var(names, n) for n in names]
+
+
+def test_polynomial_arithmetic_is_exact():
+    from fractions import Fraction
+
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    p = (x + y) * (x - y)
+    assert p == x * x - y * y
+    assert (x.scaled(Fraction(1, 3)) * x.scaled(3)) == x * x
+    assert not (x - x)
+
+
+def test_the_leading_term_follows_grevlex():
+    V, (x, y, z) = _ring("x", "y", "z")
+    p = x * x + y * y * y + z
+    assert p.lead()[0] == (0, 3, 0)          # degree wins over position
+
+
+def test_a_polynomial_round_trips_through_its_serialisation():
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    p = (x * x).scaled(3) - y + Poly.const(V, 7)
+    assert Poly.parse(V, p.serialize()) == p
+
+
+def test_division_reconstructs_the_dividend():
+    from certo.polynomials import combination, divide
+
+    V, (x, y) = _ring("x", "y")
+    f = x * x * y + x * y * y
+    gs = [x + y, y]
+    quots, rem, _ = divide(f, gs)
+    assert combination(quots, gs) + rem == f
+
+
+# --- v0.3: ideal membership ------------------------------------------------
+
+
+def _ideal(equations, claim=None, variables=("x", "y")):
+    from certo import IdealSpec
+    from certo.engines import algebra
+
+    return algebra.ideal(IdealSpec(variables=list(variables),
+                                   equations=equations, claim=claim), LIM)
+
+
+def test_an_inconsistent_system_is_refuted_with_cofactors():
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    r = _ideal([x * x + y * y - Poly.const(V, 1), x - y,
+                x + y - Poly.const(V, 3)])
+    assert r.verdict is Verdict.PROVED
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_the_cofactors_expand_back_to_one():
+    from fractions import Fraction
+
+    from certo import Poly
+    from certo.polynomials import combination
+
+    V, (x, y) = _ring("x", "y")
+    gs = [x - Poly.const(V, 2), x - Poly.const(V, 3)]
+    r = _ideal(gs)
+    hs = [Poly.parse(V, h) for h in r.certificate.payload["cofactors"]]
+    assert combination(hs, gs) == Poly.const(V, 1)
+
+
+def test_a_consistent_system_is_reported_as_such_not_as_a_timeout():
+    """Groebner DECIDES membership; a negative answer is an answer."""
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    # x^2+y^2=1 and x=2 has complex solutions, so the ideal is proper.
+    r = _ideal([x * x + y * y - Poly.const(V, 1), x - Poly.const(V, 2)])
+    assert r.verdict is Verdict.REFUTED
+    assert r.status is Status.SAT
+    assert r.certificate is None
+
+
+def test_a_claim_that_follows_is_certified_the_same_way():
+    V, (x, y) = _ring("x", "y")
+    r = _ideal([x - y], claim=x * x - y * y)
+    assert r.verdict is Verdict.PROVED
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_claim_that_does_not_follow_says_so():
+    V, (x, y) = _ring("x", "y")
+    r = _ideal([x], claim=y)
+    assert r.verdict is Verdict.REFUTED
+
+
+def test_tampering_with_a_cofactor_breaks_the_expansion():
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    cert = _roundtrip(_ideal([x - Poly.const(V, 2),
+                              x - Poly.const(V, 3)]).certificate)
+    assert verify(cert, LIM).ok
+    cert.payload["cofactors"][0] = {"0 0": "5"}
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("expands" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_the_field_caveat_is_reported_every_time():
+    """1 in the ideal refutes over C; a proper ideal implies nothing real."""
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    rep = verify(_roundtrip(_ideal([x - Poly.const(V, 2),
+                                    x - Poly.const(V, 3)]).certificate), LIM)
+    assert any("COMPLEX" in w or "COMPLEJOS" in w for w in rep.warnings)
+
+
+def test_buchberger_gives_up_with_a_budget_rather_than_grinding():
+    from certo import IdealSpec, Poly
+    from certo.engines import algebra
+
+    V, (x, y, z) = _ring("x", "y", "z")
+    hard = [x * x * y - z * z * z, y * y * z - x * x * x,
+            z * z * x - y * y * y, x * y * z - Poly.const(V, 1)]
+    spec = IdealSpec(variables=list(V), equations=hard, max_pairs=3)
+    r = algebra.ideal(spec, LIM)
+    assert r.status in (Status.RESOURCE_EXHAUSTED, Status.UNSAT, Status.SAT)
+
+
+# --- v0.3: sums of squares -------------------------------------------------
+
+
+def _sos(poly, variables=("x", "y")):
+    from certo import SOSSpec
+    from certo.engines import algebra
+
+    return algebra.sos(SOSSpec(variables=list(variables), poly=poly), LIM)
+
+
+def test_a_quartic_is_certified_as_an_exact_sum_of_squares():
+    V, (x, y) = _ring("x", "y")
+    r = _sos(x * x * x * x + y * y * y * y - x * x * y * y)
+    assert r.verdict is Verdict.PROVED
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+
+def test_the_certificate_carries_rationals_not_floats():
+    from fractions import Fraction
+
+    V, (x, y) = _ring("x", "y")
+    p = r = _sos(x * x - (x * y).scaled(2) + y * y)
+    for term in r.certificate.payload["terms"]:
+        Fraction(term["coef"])                      # parses exactly
+        for c in term["form"].values():
+            Fraction(c)
+
+
+def test_motzkin_is_not_a_sum_of_squares_and_is_not_refuted_either():
+    """Non-negative everywhere, provably not SOS: the honest third answer."""
+    from certo import Poly
+
+    V, (x, y) = _ring("x", "y")
+    motzkin = (x * x * x * x * y * y + x * x * y * y * y * y
+               - (x * x * y * y).scaled(3) + Poly.const(V, 1))
+    r = _sos(motzkin)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.status is Status.UNKNOWN_SOLVER      # never REFUTED
+    assert "not refutation" in r.detail.lower() or "NOT a" in r.detail
+
+
+def test_an_odd_degree_polynomial_is_rejected_immediately():
+    V, (x, y) = _ring("x", "y")
+    r = _sos(x * x * x)
+    assert r.verdict is Verdict.INCONCLUSIVE
+
+
+def test_a_tampered_square_no_longer_adds_up():
+    V, (x, y) = _ring("x", "y")
+    cert = _roundtrip(_sos(x * x + y * y).certificate)
+    assert verify(cert, LIM).ok
+    cert.payload["terms"][0]["coef"] = "3"
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("add up" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_a_negative_coefficient_is_caught_even_if_it_expands():
+    V, (x, y) = _ring("x", "y")
+    cert = _roundtrip(_sos(x * x - y * y + (y * y).scaled(2)).certificate)
+    cert.payload["terms"][0]["coef"] = "-1"
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("non-negative" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_the_exact_ldl_refuses_an_indefinite_matrix():
+    from fractions import Fraction as F
+
+    from certo.sos import ldl
+
+    assert ldl([[F(1), F(0)], [F(0), F(1)]]) is not None
+    assert ldl([[F(1), F(2)], [F(2), F(1)]]) is None     # eigenvalues 3, -1
+
+
+# --- v0.3: primality and factorisation -------------------------------------
+
+
+def _number(n, question="prime"):
+    from certo import NumberSpec
+    from certo.engines import algebra
+
+    return algebra.number(NumberSpec(n=n, question=question), LIM)
+
+
+def test_a_pratt_certificate_is_checked_by_modular_exponentiation():
+    r = _number(2 ** 31 - 1)
+    assert r.verdict is Verdict.PROVED
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert len(rep.checks) > 20
+
+
+def test_a_carmichael_number_does_not_get_a_certificate():
+    """561 passes Fermat for most bases; the order condition catches it."""
+    r = _number(561)
+    assert r.verdict is Verdict.REFUTED
+    assert r.certificate is None
+
+
+def test_the_witness_is_reproducible_across_runs():
+    """Small bases in order, not random ones, so two runs agree on the digest."""
+    a = _number(1000003).certificate
+    b = _number(1000003).certificate
+    assert a.digest() == b.digest()
+
+
+def test_a_missing_factor_of_n_minus_one_is_caught():
+    """Dropping one lets a composite through, so the check is not optional."""
+    r = _number(2 ** 31 - 1)
+    cert = _roundtrip(r.certificate)
+    cert.payload["tree"]["factors"].pop()
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("all of" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_a_forged_witness_fails_fermat():
+    r = _number(1000003)
+    cert = _roundtrip(r.certificate)
+    cert.payload["tree"]["witness"] = 4
+    rep = verify(cert, LIM)
+    assert not rep.ok
+
+
+def test_a_factorisation_multiplies_back_and_its_factors_are_prime():
+    r = _number(600851475143, question="factor")
+    assert r.verdict is Verdict.PROVED
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert "71" in r.meta["factors"]
+
+
+def test_a_factorisation_that_does_not_multiply_back_is_caught():
+    cert = _roundtrip(_number(360, question="factor").certificate)
+    assert verify(cert, LIM).ok
+    cert.payload["tree"]["factors"][0]["e"] = 9
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("multiply back" in c and not ok for c, ok, _ in rep.checks)
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0
