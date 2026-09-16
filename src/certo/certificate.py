@@ -20,7 +20,16 @@ from pathlib import Path
 
 from .i18n import t
 
-SCHEMA_VERSION = 3
+# FROZEN AT 0.4. From this version an existing payload's fields do not move:
+# no renames, no removals, no changes of meaning. Adding a NEW certificate
+# kind stays allowed and always will -- that is additive and breaks nothing --
+# and so does adding an OPTIONAL field that readers may ignore. Anything else
+# needs a bump here and a migration note in CHANGELOG.md.
+#
+# What this buys: a certificate produced for a paper today still verifies
+# against a later certo, which is the only way "re-verifiable" survives
+# contact with time.
+SCHEMA_VERSION = 4
 
 
 @dataclass
@@ -275,7 +284,8 @@ def bisect_certificate(direction, integer, tol, good_t, bad_t,
 
 def sweep_certificate(n, filters, family_g6, entries, mode, counts,
                       values=None, stats=None, outcomes="",
-                      orbits=None, labelled=0) -> Certificate:
+                      orbits=None, labelled=0, by_orbit=False,
+                      spot_checks=None, evaluated=0) -> Certificate:
     """The examined family, the VERDICT VECTOR, and whatever certificates the
     predicate supplied.
 
@@ -305,7 +315,9 @@ def sweep_certificate(n, filters, family_g6, entries, mode, counts,
                  "evaluations": evaluations, "certified": certified,
                  "outcomes": outcomes,
                  "outcomes_sha256": outcomes_digest(outcomes) if outcomes else "",
-                 "orbits": orbits, "labelled": labelled},
+                 "orbits": orbits, "labelled": labelled,
+                 "by_orbit": by_orbit, "spot_checks": spot_checks,
+                 "evaluated": evaluated},
         note_key="cert.note.sweep",
         note_args={"certified": certified, "total": evaluations},
     )
@@ -603,6 +615,64 @@ def mixed_design_certificate(assignment, continuous, kinds, system, objective,
     )
 
 
+
+def gap_certificate(fractional, integral, mu, nu, gap, tight, level,
+                    title="") -> Certificate:
+    """The integrality gap of a packing, with both sides attached.
+
+    `nu` against `mu*` used to be two runs someone subtracted afterwards --
+    two artefacts, and two chances to line up the wrong pair. Here they travel
+    together and verification checks they are about THE SAME packing, which a
+    folder of certificates cannot say.
+
+    `tight` names the resources carrying positive load in the fractional dual:
+    the obstruction, in the language of the problem rather than of the LP.
+    """
+    return Certificate(
+        kind="gap", solver_free=False,
+        payload={"fractional": fractional, "integral": integral,
+                 "mu": mu, "nu": nu, "gap": gap, "tight": tight,
+                 "level": level, "title": title},
+        note_key="cert.note.gap",
+    )
+
+
+
+def farkas_ray_certificate(A, b, y, names) -> Certificate:
+    """`Ax <= b, x >= 0` has no solution, and here is why.
+
+    A ray `y >= 0` with `A^T y >= 0` and `b.y < 0`. For any feasible x this
+    gives `0 <= (A^T y).x = y.(Ax) <= y.b < 0`, so there is no feasible x.
+    Checking it is three dot products in exact rationals -- no solver, and no
+    trusting the one that said "infeasible".
+    """
+    return Certificate(
+        kind="farkas_ray", solver_free=True,
+        payload={"A": A, "b": b, "y": y, "names": names},
+        note_key="cert.note.farkas_ray",
+    )
+
+
+def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
+                             title="") -> Certificate:
+    """The optimum, and the account of every design that was not taken.
+
+    To say "no design does better" you have to account for all of them. Each
+    node here is closed by a certificate -- an exact dual bounding its subtree
+    below the incumbent, a Farkas ray showing it is empty, or the residual LP
+    of a fully fixed design -- and the tree is checked to COVER the integer
+    domain, node by node. A tree with a missing child is a proof that some
+    designs were never looked at, and it reads exactly like a complete one.
+    """
+    return Certificate(
+        kind="branch_bound", solver_free=False,
+        payload={"incumbent": incumbent, "incumbent_cert": incumbent_cert,
+                 "nodes": nodes, "order": order, "sense": sense,
+                 "title": title},
+        note_key="cert.note.branch_bound",
+    )
+
+
 def graph_set_certificate(n: int, filters: list, g6: list) -> Certificate:
     h = hashlib.sha256("\n".join(sorted(g6)).encode()).hexdigest()
     return Certificate(
@@ -724,11 +794,26 @@ def _replay(cert, limits, kind):
     spec = load_spec(path)
 
     if kind == "sweep":
-        from .engines.graphsearch import _evaluate
+        from .engines.graphsearch import _evaluate, orbit_codes
         from .graphs import Graph
 
         items = [Graph.from_graph6(s) for s in p.get("family_graph6", [])]
         ids = list(p.get("family_graph6", []))
+        if p.get("by_orbit"):
+            from . import orbits as orb
+
+            groups = orb.build(spec, items, ids)
+            if groups is None:
+                return False, t("verify.sweep.replay.no_symmetry")
+            got = "".join(orbit_codes(spec, items, groups)[1])
+            if outcomes_digest(got) == want:
+                return True, t("verify.sweep.replay.agrees", n=len(got))
+            old = p.get("outcomes", "")
+            where = next((i for i, c in enumerate(got)
+                          if i < len(old) and c != old[i]), 0)
+            return False, t("verify.sweep.replay.differs",
+                            item=ids[where] if where < len(ids) else "?",
+                            index=where)
     else:
         from .engines.domain import _evaluate
 
@@ -804,6 +889,9 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "sos": _verify_sos,
         "number": _verify_number,
         "mixed_design": _verify_mixed_design,
+        "gap": _verify_gap,
+        "farkas_ray": _verify_farkas_ray,
+        "branch_bound": _verify_branch_bound,
     }.get(cert.kind)
     if fn is None:
         return VerifyReport(
@@ -1294,6 +1382,164 @@ def _residual_matches(p, assign, sub) -> bool:
             if got_row[j] != want:
                 return False
     return True
+
+
+
+def _verify_gap(cert, limits) -> VerifyReport:
+    from . import exact
+
+    p = cert.payload
+    checks, warnings = [], []
+
+    for key, label in (("fractional", t("verify.gap.fractional")),
+                       ("integral", t("verify.gap.integral"))):
+        sub = p.get(key)
+        if sub is None:
+            checks.append((label, False, t("verify.bisect.no_cert")))
+            continue
+        rep = verify(Certificate.from_dict(sub), limits)
+        checks.append((label, rep.ok, rep.detail))
+        warnings.extend(rep.warnings)
+
+    # The two halves must be about the SAME packing. Without this the gap is
+    # a subtraction of two numbers that were never compared.
+    same = _same_packing(p)
+    checks.append((t("verify.gap.same"), same, ""))
+
+    mu, nu = exact.to_fraction(p["mu"]), exact.to_fraction(p["nu"])
+    checks.append((t("verify.gap.arithmetic"),
+                   mu - nu == exact.to_fraction(p["gap"]),
+                   "{} - {} = {}".format(p["mu"], p["nu"], p["gap"])))
+    checks.append((t("verify.gap.order"), nu <= mu,
+                   t("verify.gap.relaxation")))
+
+    if p.get("level") != "global_optimum":
+        warnings.append(t("verify.gap.nu_not_optimal"))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "gap", False, checks=checks,
+        warnings=warnings,
+        detail=t("verify.gap.detail", mu=p["mu"], nu=p["nu"], gap=p["gap"]),
+    )
+
+
+def _same_packing(p) -> bool:
+    """Both sides must carry the same constraint matrix and objective."""
+    frac = (p.get("fractional") or {}).get("payload") or {}
+    whole = (p.get("integral") or {}).get("payload") or {}
+    system = whole.get("system")
+    if not system or not frac.get("names"):
+        return False
+    # The mixed certificate keeps the original rows by name; the lp_dual one
+    # keeps them positionally. Same names, same count, is what can be checked
+    # from the two payloads alone.
+    return [r["name"] for r in system] == list(frac["names"])
+
+
+
+def _verify_farkas_ray(cert, limits) -> VerifyReport:
+    """Three dot products. That is the whole thing."""
+    from fractions import Fraction
+
+    from . import exact
+
+    p = cert.payload
+    A = [exact.parse_all(r) for r in p["A"]]
+    b, y = exact.parse_all(p["b"]), exact.parse_all(p["y"])
+    cols = len(A[0]) if A else 0
+
+    checks = [
+        (t("verify.ray.nonneg"), all(v >= 0 for v in y),
+         "min(y) = {}".format(exact.serialize(min(y)) if y else "-")),
+        (t("verify.ray.columns"),
+         all(sum(A[i][j] * y[i] for i in range(len(A))) >= 0
+             for j in range(cols)), "A^T y >= 0"),
+    ]
+    dot = sum(bi * yi for bi, yi in zip(b, y))
+    checks.append((t("verify.ray.negative"), dot < 0,
+                   "b.y = {}".format(exact.serialize(dot))))
+    return VerifyReport(
+        all(c[1] for c in checks), "farkas_ray", True, checks=checks,
+        detail=t("verify.ray.detail", n=len(y)),
+    )
+
+
+def _verify_branch_bound(cert, limits) -> VerifyReport:
+    """Every leaf closed, and the tree covering everything it should."""
+    from fractions import Fraction
+
+    from . import exact
+
+    p = cert.payload
+    incumbent = exact.to_fraction(p["incumbent"])
+    nodes = p["nodes"]
+    checks, warnings = [], []
+
+    by_key = {_node_id(n["fixed"]): n for n in nodes}
+    checks.append((t("verify.bb.unique"), len(by_key) == len(nodes),
+                   t("verify.bb.duplicates", n=len(nodes) - len(by_key))))
+
+    # The incumbent is a design that exists and attains the claimed value.
+    sub = p.get("incumbent_cert")
+    if sub is None:
+        checks.append((t("verify.bb.incumbent"), False,
+                       t("verify.bisect.no_cert")))
+    else:
+        rep = verify(Certificate.from_dict(sub), limits)
+        reached = exact.to_fraction(
+            (sub.get("payload") or {}).get("achieved") or p["incumbent"])
+        checks.append((t("verify.bb.incumbent"), rep.ok and reached == incumbent,
+                       t("verify.lp.declared", value=p["incumbent"])))
+
+    # Every node is closed, or branches and its children are all present.
+    bad_close, missing, open_nodes = [], [], []
+    for n in nodes:
+        why = n["why"]
+        if why == "branch":
+            for val in n["values"]:
+                child = list(n["fixed"]) + [[n["on"], val]]
+                if _node_id(child) not in by_key:
+                    missing.append("{}={}".format(n["on"], val))
+            continue
+        if why == "infeasible":
+            if n.get("cert") is None:
+                open_nodes.append(_node_id(n["fixed"]) or "root")
+                continue
+            r = verify(Certificate.from_dict(n["cert"]), limits)
+            if not r.ok:
+                bad_close.append(_node_id(n["fixed"]) or "root")
+            continue
+        # bound and leaf both close by an exact dual that must not exceed the
+        # incumbent -- otherwise the subtree was pruned on a false promise.
+        if n.get("cert") is None or n.get("bound") is None:
+            open_nodes.append(_node_id(n["fixed"]) or "root")
+            continue
+        r = verify(Certificate.from_dict(n["cert"]), limits)
+        if not r.ok or exact.to_fraction(n["bound"]) > incumbent:
+            bad_close.append(_node_id(n["fixed"]) or "root")
+
+    checks.append((t("verify.bb.covered"), not missing,
+                   t("verify.bb.missing", names=", ".join(missing[:3]) or "-",
+                     n=len(missing))))
+    checks.append((t("verify.bb.closed"), not bad_close and not open_nodes,
+                   t("verify.bb.open", names=", ".join(
+                       (bad_close + open_nodes)[:3]) or "-",
+                     n=len(bad_close) + len(open_nodes))))
+
+    kinds = {}
+    for n in nodes:
+        kinds[n["why"]] = kinds.get(n["why"], 0) + 1
+    return VerifyReport(
+        all(c[1] for c in checks), "branch_bound", False, checks=checks,
+        warnings=warnings,
+        detail=t("verify.bb.detail", value=p["incumbent"], n=len(nodes),
+                 bound=kinds.get("bound", 0), inf=kinds.get("infeasible", 0),
+                 leaf=kinds.get("leaf", 0)),
+    )
+
+
+def _node_id(fixed) -> str:
+    return ",".join("{}={}".format(v, x) for v, x in fixed)
 
 
 def _verify_model(cert, limits) -> VerifyReport:
@@ -1916,13 +2162,7 @@ def _verify_domain_sweep(cert, limits) -> VerifyReport:
 
     pchecks, pwarn, level = _predicate_level(cert, limits, "domain")
     if p.get("by_orbit"):
-        spot = p.get("spot_checks") or []
-        pchecks.append((t("verify.orbits.spot"),
-                        all(s_.get("agreed") for s_ in spot) and bool(spot),
-                        t("verify.orbits.spot_n", n=len(spot))))
-        pwarn.insert(0, t("verify.orbits.assumed",
-                          evaluated=p.get("evaluated", "?"),
-                          n=len(spot)))
+        pchecks, pwarn = _by_orbit_checks(p, pchecks, pwarn)
     checks += pchecks
     free = cert.solver_free and level is not REPRODUCIBLE
 
@@ -2011,6 +2251,29 @@ def _predicate_level(cert, limits, kind):
     return checks, warnings, level
 
 
+def _by_orbit_checks(p, checks, warnings):
+    """What a --by-orbit run has to say, the same for both sweep kinds.
+
+    The degenerate case is not a failure. When every orbit is a singleton --
+    which is exactly what happens on a graph sweep quotiented by isomorphism,
+    since the enumerator already did that -- nothing was inferred, there are
+    no non-representatives to look at, and the invariance assumption was never
+    used. That run IS a full sweep and says so.
+    """
+    spot = p.get("spot_checks") or []
+    inferred = max(0, p.get("evaluations", 0) - p.get("evaluated", 0))
+    if not inferred:
+        warnings.insert(0, t("verify.orbits.nothing_inferred"))
+        return checks, warnings
+
+    checks.append((t("verify.orbits.spot"),
+                   bool(spot) and all(s_.get("agreed") for s_ in spot),
+                   t("verify.orbits.spot_n", n=len(spot))))
+    warnings.insert(0, t("verify.orbits.assumed",
+                         evaluated=p.get("evaluated", "?"), n=len(spot)))
+    return checks, warnings
+
+
 def _method(level) -> str:
     return "cli.verify.by_replay" if level == REPRODUCIBLE else ""
 
@@ -2042,6 +2305,8 @@ def _verify_sweep(cert, limits) -> VerifyReport:
         checks += orb.check(p)
 
     pchecks, pwarn, level = _predicate_level(cert, limits, "sweep")
+    if p.get("by_orbit"):
+        pchecks, pwarn = _by_orbit_checks(p, pchecks, pwarn)
     checks += pchecks
 
     # Replaying means running the spec's predicate, which is arbitrary Python

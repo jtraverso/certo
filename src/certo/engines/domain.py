@@ -48,50 +48,18 @@ SPOT_CHECKS = 12
 
 
 def orbit_codes(spec, items, groups):
-    """The verdict vector a `--by-orbit` run produces: representatives
-    evaluated, the rest inferred and marked in lower case.
-
-    Shared with verification, so a replay reproduces the inference instead of
-    re-evaluating everything and disagreeing with itself.
-    """
-    reps = {c: groups.representative(c) for c in groups.order}
-    evaluated = {c: _evaluate(spec, items[i]) for c, i in reps.items()}
-    outcomes, codes = [], []
-    for i in range(len(items)):
-        c = groups.canon[i]
-        out = evaluated[c]
-        outcomes.append(out)
-        code = outcome_code(out)
-        codes.append(code if i == reps[c] else code.lower())
-    return outcomes, codes, reps, evaluated
+    """The verdict vector a `--by-orbit` run produces, for this domain."""
+    return orb.infer(lambda item: _evaluate(spec, item), items, groups,
+                     outcome_code)
 
 
 def _by_orbit(spec, items, groups, rng):
-    """Evaluate one item per orbit, then go and look at some of the rest.
-
-    `--by-orbit` reports a representative's verdict for its whole orbit. That
-    is sound only if the predicate cannot tell members of an orbit apart, and
-    nothing can prove it can't: `canonicalize` and the predicate are both
-    arbitrary Python. So the assumption is named in the certificate, like a
-    bridge -- and then tested, which is the part that costs nothing and
-    catches a wrong symmetry immediately instead of in a referee's report.
-
-    Returns (outcomes, codes, spot, clash). `clash` is the pair that broke the
-    assumption, and when it is set the sweep is not sound and says so.
-    """
+    """Representatives evaluated, the rest inferred -- and then spot-checked."""
     outcomes, codes, reps, evaluated = orbit_codes(spec, items, groups)
-    pool = [(c, i) for c, members in groups.groups.items() for i in members
-            if i != reps[c]]
-    spot, clash = [], None
-    for c, idx in rng.sample(pool, min(SPOT_CHECKS, len(pool))):
-        got = outcome_code(_evaluate(spec, items[idx]))
-        want = outcome_code(evaluated[c])
-        spot.append({"index": idx, "id": spec.id_of(items[idx]),
-                     "representative": spec.id_of(items[reps[c]]),
-                     "agreed": got == want})
-        if got != want:
-            clash = (spec.id_of(items[idx]), spec.id_of(items[reps[c]]))
-            break
+    ids = [spec.id_of(i) for i in items]
+    spot, clash = orb.spot_check(lambda item: _evaluate(spec, item), items,
+                                 groups, reps, evaluated, ids, outcome_code,
+                                 rng)
     return outcomes, codes, spot, clash
 
 

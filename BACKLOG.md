@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after 0.3.0, two rounds of feedback in).
+Last updated: 2026-09-16 (after 0.4.0 — schema frozen).
 
 ---
 
@@ -38,6 +38,11 @@ Last updated: 2026-09-16 (after 0.3.0, two rounds of feedback in).
 | ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
 | ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
 | ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **Branch and bound with certified leaves** *(0.4, P1)* | `mixed --prove-optimal`. Every leaf closed by an exact dual, a Farkas ray, or a fully-fixed residual LP; the tree checked to COVER the integer domain. Turned `ν = 7` from a design into the proved optimum on the research instance, in 73 nodes. |
+| ✅ | **`farkas_ray`: LP infeasibility with a certificate** *(0.4)* | `y >= 0`, `A^T y >= 0`, `b.y < 0`. Three dot products, no solver. |
+| ✅ | **`PackingSpec.lists` and `opt --gap`** *(0.4, P1)* | The shape 51 of 131 corpus scripts share, in three lines; and `mu* - nu` as one exact rational with both sides certified and checked to be the same packing. |
+| ✅ | **`--by-orbit` for graph sweeps** *(0.4, P1)* | Both sweep payloads are now symmetric, which is what made it urgent before the freeze. |
+| ✅ | **`examples/WALKTHROUGH.md`** *(0.4)* | One problem, end to end. |
 | ✅ | **MILP levels named, `--freeze`, `opt --target`, per-kind packing integrality** *(user feedback, 2nd round)* | The taxonomy the user asked for — feasible / conditional_optimum / global_optimum — plus taking the skeleton from their own solver, certifying a target rather than an optimum, and whole-or-fractional per item kind. |
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
@@ -89,55 +94,20 @@ items below still say "build against a real problem".
 
 ## P1 — next
 
-### 1. `--by-orbit` for graph sweeps
-
-It is on `DomainSpec` only. Graph sweeps take `canonicalize` but still
-evaluate every graph; the same spot-checked inference applies.
-
-### 2. Full MILP optimality *(user feedback, deliberately deferred)*
-
-`mixed` certifies a construction and says plainly it does not claim the
-skeleton is optimal. Certifying the MILP optimum needs a branch-and-bound
-certificate: an exact dual or an infeasibility proof at every leaf, each
-branch verified, and the integer domain shown to be covered.
-
-The user who asked for `mixed` was explicit that this is not what their proof
-needs -- exhibiting a construction that reaches the target is the whole job --
-and they are right. Worth building only when someone needs the optimum itself
-rather than a witness.
-
-Note that `mixed` already closes the easy half for free: when the achieved
-value meets the relaxation bound, global optimality IS certified, no
-branch-and-bound required.
-
-### 3. Packings, from the shape the corpus actually uses
-
-The `(list, pair)` packing above is not one instance, it is the shape 51
-scripts share. A `PackingSpec.lists(L)` constructor, the integrality gap
-`μ* − ν` reported as one number with both sides certified, and the family
-carried as a `SetFamily` so `canonicalize="auto"` gives the orbits -- that
-turns a recurring fifteen-line rebuild into three lines, on the problem the
-tool is actually being used for.
-
-### 4. Close the loop on `opt --by-type` for gaps
-
-`--by-type` answers "does mixing buy anything". The corpus asks a neighbouring
-question constantly: "how far is `ν` from `μ*`, and which resources are tight
-in the dual". The dual is already exact; what is missing is reporting it as a
-gap rather than as two runs someone has to subtract.
+Empty. Everything that was here shipped in 0.4.
 
 ---
 
 ## P2 — high value, more work
 
-### 4. Flag algebras, now that the objection is gone
+### 5. Flag algebras, now that the objection is gone
 
 `sos` established the pattern: numeric search, rational reconstruction, exact
 re-verification. A flag-algebra bound is the same shape one level up. Wanted:
 2–3 real packing instances to build against, so the interface is designed
 around a problem rather than around the method.
 
-### 5. Resultants and elimination
+### 6. Resultants and elimination
 
 `ideal` covers membership. Elimination — "remove `t` from these equations and
 tell me the condition on the parameters" — is the algebraic route to the same
@@ -145,7 +115,7 @@ place `qe` would reach, and it is exact. The certificate wants the Bézout
 identity `Res(f,g) = Af + Bg`, which is verifiable by expansion exactly like
 the cofactors.
 
-### 6. `SetFamily` canonicalisation for matchings and coloured hypergraphs
+### 7. `SetFamily` canonicalisation for matchings and coloured hypergraphs
 *(user feedback)*
 
 `canonical()` quotients by relabelling the ground set. A family of MATCHINGS
@@ -158,7 +128,7 @@ Worth building against the real instance rather than in the abstract: which
 symmetries are genuine depends on the problem, and guessing wrong merges two
 orbits, which nothing downstream would notice.
 
-### 7. Combinatorial types beyond set families
+### 8. Combinatorial types beyond set families
 
 `SetFamily` covers hypergraphs, designs, codes and mask systems, because they
 are all one shape. What it does not cover: ordered structures (sequences,
@@ -166,7 +136,7 @@ words, permutation patterns) and edge-coloured or directed objects. Worth
 adding when a real problem asks, not before — the value of a native type is
 the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
-### 8. A canonical form that scales past the cap
+### 9. A canonical form that scales past the cap
 
 `SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
 very regular family on more than ~10 points will hit. The fix is individual-
@@ -185,7 +155,6 @@ instance that hits the cap.
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
 | | `certo repro` | Bundle spec + certificates + versions + hashes for a paper appendix. Partly absorbed by the Lean manifest in P1 #3. |
 | | A full worked example | The published examples cover each command; none walks one problem from exploration to Lean. `examples/compose_proof.py` also needs two certificates that are deliberately not committed (they are output) — a `make examples` would remove that friction. |
-| | Repository topics | `theorem-proving`, `smt`, `z3`, `lean`, `mcp`. **Needs authorisation.** |
 
 ---
 
@@ -219,4 +188,13 @@ local commits; **pushing to the public repository is not automatic** and is
 asked for each time. Each release bumps the version, writes its section of
 [CHANGELOG.md](CHANGELOG.md), and is tagged.
 
-Current: **0.3.0**. Next: **0.4**, which also freezes the certificate schema.
+Current: **0.4.0**, and the certificate schema is **frozen** from it.
+
+Frozen means an existing payload's fields do not move: no renames, no
+removals, no changes of meaning. What stays allowed, permanently:
+
+* a NEW certificate kind — additive, breaks nothing;
+* an OPTIONAL field on an existing payload that older readers may ignore.
+
+Anything else needs a `SCHEMA_VERSION` bump and a migration note. Every item
+left below is of the first kind, which is why none of them is urgent.

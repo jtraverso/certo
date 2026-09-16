@@ -16,6 +16,7 @@ Un contraejemplo, en cambio, refuta aunque otros grafos hayan fallado.
 """
 from __future__ import annotations
 
+import random
 import time
 
 from .. import exact
@@ -66,8 +67,14 @@ def _evaluate(spec, g) -> Outcome:
     return out
 
 
+def orbit_codes(spec, graphs, groups):
+    """The verdict vector a `--by-orbit` run produces, for this family."""
+    return orb.infer(lambda g: _evaluate(spec, g), graphs, groups,
+                     outcome_code)
+
+
 def sweep(spec, limits: Limits | None = None, use_geng=True,
-          cert_mode: str = "failures") -> Result:
+          cert_mode: str = "failures", by_orbit: bool = False) -> Result:
     """Corre el predicado sobre toda la familia. Esto es validar exhaustivamente.
 
     cert_mode: 'failures' (solo los contraejemplos), 'all' (todos, caro),
@@ -76,13 +83,36 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
     t0 = time.perf_counter()
     graphs, engine, total = enumerate_graphs(spec.n, spec.filters, use_geng=use_geng)
 
-    groups = orb.build(spec, graphs, [g.to_graph6() for g in graphs])
+    ids = [g.to_graph6() for g in graphs]
+    groups = orb.build(spec, graphs, ids)
+
+    if by_orbit and groups is None:
+        return Result("sweep", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      engine, (time.perf_counter() - t0) * 1000, None,
+                      detail=t("engine.sweep.no_canonicalize"))
+
+    spot, precomputed, pre_codes = [], None, None
+    if by_orbit:
+        rng = random.Random((limits or Limits()).seed or 0)
+        precomputed, pre_codes, reps, evaluated = orbit_codes(spec, graphs,
+                                                              groups)
+        spot, clash = orb.spot_check(lambda g: _evaluate(spec, g), graphs,
+                                     groups, reps, evaluated, ids,
+                                     outcome_code, rng)
+        if clash is not None:
+            return Result("sweep", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                          engine, (time.perf_counter() - t0) * 1000, None,
+                          detail=t("engine.sweep.not_invariant",
+                                   item=clash[0], rep=clash[1]),
+                          meta={"spot_checks": spot})
+
     failures, errors, unknowns, certs, values = [], [], [], [], []
     codes = []
-    for g in graphs:
-        out = _evaluate(spec, g)
-        g6 = g.to_graph6()
-        codes.append(outcome_code(out))
+    for pos, g in enumerate(graphs):
+        out = precomputed[pos] if precomputed is not None else _evaluate(spec, g)
+        g6 = ids[pos]
+        codes.append(pre_codes[pos] if precomputed is not None
+                     else outcome_code(out))
         if out.value is not None:
             values.append({"id": g6, "value": exact.serialize(out.value)})
         if out.errored:
@@ -121,9 +151,12 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
         entries=certs, mode=cert_mode, counts=counts,
         values=values, stats=calib["stats"] if calib else None,
         outcomes="" if spec.predicate is None else "".join(codes),
-        orbits=(groups.summary(only={i for i, c in enumerate(codes) if c == "F"})
-                if groups is not None and "F" in codes else None),
-        labelled=sum(1 for c in codes if c == "F"),
+        orbits=(groups.summary(
+            only={i for i, c in enumerate(codes) if c in ("F", "f")})
+            if groups is not None and ("F" in codes or "f" in codes) else None),
+        labelled=sum(1 for c in codes if c in ("F", "f")),
+        by_orbit=by_orbit, spot_checks=spot or None,
+        evaluated=groups.count if by_orbit else 0,
     )
     if spec.predicate is None:
         cert.payload["no_predicate"] = True
@@ -143,9 +176,14 @@ def sweep(spec, limits: Limits | None = None, use_geng=True,
     if spec.predicate is not None:
         base["level"] = level
         base["banner_key"] = "scope.sweep." + level
+    if by_orbit:
+        base["by_orbit"] = True
+        base["evaluated"] = groups.count
+        base["inferred"] = len(graphs) - groups.count
+        base["spot_checks"] = len(spot)
     if groups is not None:
         base["domain_orbits"] = groups.count
-        base["labelled"] = sum(1 for c in codes if c == "F")
+        base["labelled"] = sum(1 for c in codes if c in ("F", "f"))
         rows = cert.payload.get("orbits")
         if rows:
             base["orbits"] = rows

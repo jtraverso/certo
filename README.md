@@ -29,6 +29,10 @@ constant with a certificate, synthesise a candidate over a bounded domain.
 computer algebra catalogue. See [What it does not do](#what-it-does-not-do),
 which matters as much as the command list.
 
+**New here?** [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) takes one
+problem from not knowing the answer to holding an artefact a referee can
+check. Every other example shows one command; that one shows one problem.
+
 ## Install
 
 Requires Python 3.11+.
@@ -159,6 +163,10 @@ def spec():
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
+
+The certificate schema is **frozen from 0.4**: existing payloads do not
+move, so a certificate produced for a paper still verifies against a later
+certo. New certificate kinds stay additive and always will.
 
 ## Why the certificate is the centre
 
@@ -1560,7 +1568,7 @@ Yes. `z3-solver` and `pulp` ship their binaries; the rest is pure Python.
 
 ## Tests
 
-240 of them, no test framework required.
+253 of them, no test framework required.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

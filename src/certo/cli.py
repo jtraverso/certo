@@ -62,7 +62,9 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "banner_key", "level", "orbits", "spot_checks",
                 "by_orbit", "evaluated", "inferred", "cofactors", "squares",
                 "achieved", "conditional", "discrete_gain", "selected",
-                "skeleton_from")
+                "skeleton_from", "nodes", "by_bound", "infeasible",
+                "leaves", "closed", "integral_level", "tight",
+                "mu", "nu", "gap")
 
 
 def _item_id(entry) -> str:
@@ -445,9 +447,21 @@ def cmd_number(args):
 
 def cmd_mixed(args):
     from .engines import mixed
+    from .packing import PackingSpec
     from .spec import LPSpec, load_spec
 
-    spec = load_spec(args.spec, LPSpec)
+    spec = load_spec(args.spec)
+    if isinstance(spec, PackingSpec):
+        # A packing whose items are whole-or-nothing IS a mixed design, and
+        # making the user write the conversion would be busywork.
+        spec = PackingSpec(items=spec.items, capacities=spec.capacities,
+                           sense=spec.sense,
+                           integer=spec.integer or True,
+                           title=spec.title).to_lp()
+    elif not isinstance(spec, LPSpec):
+        print("mixed needs an LPSpec or a PackingSpec; spec() returned "
+              + type(spec).__name__, file=sys.stderr)
+        return 1
     target = args.target if args.target is not None else spec.target
     freeze = None
     if args.freeze:
@@ -456,9 +470,19 @@ def cmd_mixed(args):
         # certo's limits in front of a construction that already exists.
         data = json.loads(Path(args.freeze).read_text(encoding="utf-8"))
         freeze = data.get("assignment", data)
-    res = mixed.mixed(spec, limits_from(args), spec_path=args.spec,
-                      target=target, freeze=freeze)
+    if args.prove_optimal:
+        from .engines import bb
+
+        res = bb.prove_optimal(spec, limits_from(args), spec_path=args.spec,
+                               max_nodes=args.max_nodes)
+    else:
+        res = mixed.mixed(spec, limits_from(args), spec_path=args.spec,
+                          target=target, freeze=freeze)
     rc = emit(res, args)
+    if not args.json and res.meta.get("optimum"):
+        print("  " + t("cli.bb.tree", n=res.meta["nodes"],
+                       bound=res.meta["by_bound"],
+                       inf=res.meta["infeasible"], leaf=res.meta["leaves"]))
     if not args.json and res.meta.get("achieved"):
         print("  " + t("cli.mixed.numbers",
                        achieved=res.meta["achieved"],
@@ -544,6 +568,8 @@ def cmd_opt(args):
 
     spec = load_spec(args.spec)
     if isinstance(spec, PackingSpec):
+        if getattr(args, "gap", False):
+            return _opt_gap(args, spec)
         if args.by_type and spec.kinds:
             return _opt_by_type(args, spec)
         spec = spec.to_lp()
@@ -569,6 +595,24 @@ def cmd_opt(args):
                            "cli.opt.target.short",
                            value=res.meta["objective"],
                            target=res.meta["target"]))
+    return rc
+
+
+def _opt_gap(args, packing):
+    """nu against mu*, as one artefact rather than two runs to subtract."""
+    from . import packing as pk
+
+    cert, meta = pk.gap(packing, limits_from(args))
+    if cert is None:
+        return emit(meta, args)
+    res = Result("opt", Status.SAT, Verdict.SATISFIABLE, "certo/gap", 0.0,
+                 cert, detail=t("engine.opt.gap", mu=meta["mu"], nu=meta["nu"],
+                                gap=meta["gap"]), meta=meta)
+    rc = emit(res, args)
+    if not args.json:
+        print("  " + t("cli.opt.gap.tight", n=meta["tight"]))
+        print("  " + t("cli.mixed.level."
+                       + (meta["integral_level"] or "feasible")))
     return rc
 
 
@@ -618,7 +662,8 @@ def cmd_sweep(args):
                                   by_orbit=getattr(args, "by_orbit", False))
     elif isinstance(spec, SweepSpec):
         res = graphsearch.sweep(spec, limits_from(args),
-                                use_geng=not args.no_geng, cert_mode=mode)
+                                use_geng=not args.no_geng, cert_mode=mode,
+                                by_orbit=getattr(args, "by_orbit", False))
     else:
         print("sweep needs a SweepSpec (graphs) or a DomainSpec (any finite "
               "domain); spec() returned " + type(spec).__name__, file=sys.stderr)
@@ -644,7 +689,9 @@ def cmd_sweep(args):
     if res.verdict is Verdict.REFUTED:
         # With a symmetry declared, the orbits ARE the answer: printing a
         # thousand relabelled copies underneath them would bury it again.
-        if res.meta.get("by_orbit"):
+        if res.meta.get("by_orbit") and not res.meta.get("inferred"):
+            print("  " + t("cli.orbits.nothing_inferred"))
+        elif res.meta.get("by_orbit"):
             print("  !! " + t("cli.orbits.by_orbit",
                               evaluated=res.meta["evaluated"],
                               inferred=res.meta["inferred"],
@@ -1073,6 +1120,10 @@ def build_parser():
                          "reporting the optimum. For an existence proof the "
                          "question is usually whether a bound is reached, not "
                          "what the best possible value is")
+    sp.add_argument("--gap", action="store_true",
+                    help="with a PackingSpec: the integrality gap mu* - nu as "
+                         "ONE exact rational, with both sides certified and "
+                         "checked to be about the same packing")
     sp.add_argument("--by-type", action="store_true", dest="by_type",
                     help="with a PackingSpec: also report the optimum of each "
                          "item kind on its own, to see if mixing buys anything")
@@ -1083,6 +1134,14 @@ def build_parser():
     sp.add_argument("spec", help=".py file returning an LPSpec with kinds")
     sp.add_argument("--target", metavar="VALUE",
                     help="the value to reach, as an exact rational like 602/9")
+    sp.add_argument("--prove-optimal", action="store_true",
+                    dest="prove_optimal",
+                    help="prove the MILP optimum by branch and bound, with "
+                         "every leaf certified and the tree checked to cover "
+                         "the integer domain. Exponential, and it says so "
+                         "rather than returning the incumbent when it runs out")
+    sp.add_argument("--max-nodes", type=int, default=5000, dest="max_nodes",
+                    help="node budget for --prove-optimal (default 5000)")
     sp.add_argument("--freeze", metavar="FILE",
                     help="a JSON assignment for the discrete variables, from "
                          "YOUR solver rather than CBC: {\"y17\": 1, ...} or "
@@ -1179,7 +1238,10 @@ def build_parser():
                          "the predicate is invariant under your symmetry, "
                          "which nothing can prove -- so it is spot-checked "
                          "against real non-representatives and recorded as an "
-                         "assumption in the certificate")
+                         "assumption in the certificate. Works for graph "
+                         "sweeps too, where it is for a symmetry FINER than "
+                         "isomorphism: the enumerator already quotients by "
+                         "that one")
     sp.add_argument("--n-range", metavar="LO..HI", dest="n_range",
                     help="sweep every size in the range and report the first "
                          "one that fails (overrides the spec's n)")

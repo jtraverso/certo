@@ -33,6 +33,9 @@ CASES = [
     ("induct_sum.py", "induct", []),
     ("lp_mixed_packing.py", "opt", []),
     ("mixed_design.py", "mixed", []),
+    ("walkthrough.py", "opt", ["--gap"]),
+    ("walkthrough_ideal.py", "ideal", []),
+    ("walkthrough_proof.py", "compose", []),
     ("packing_mixed.py", "opt", ["--by-type"]),
     ("synth_constant.py", "synth", []),
     ("synth_prove_identity.py", "synth", ["--prove-candidate"]),
@@ -53,6 +56,14 @@ CASES = [
 # have to exist before it runs. This is the `make examples` the backlog wants,
 # in the one place that already knows the order.
 PREREQS = {
+    # The walkthrough's proof reads the two certificates the earlier steps
+    # produce, which is the point of it -- so they have to exist first.
+    "walkthrough_proof.py": [
+        ("opt", "walkthrough.py", ["--gap", "--cert", "out/gap.json"]),
+        ("mixed", "walkthrough.py",
+         ["--prove-optimal", "--max-nodes", "30000",
+          "--cert", "out/optimal.json"]),
+    ],
     "compose_proof.py": [
         ("cases", "ramsey.py", ["--cert", "out/r33_k6.json"]),
         ("cases", "ramsey_k5.py", ["--cert", "out/r33_k5.json"]),

@@ -29,6 +29,11 @@ constante con certificado, sintetizar un candidato sobre un dominio acotado.
 catálogo de cálculo simbólico. Ver [Qué no hace](#qué-no-hace), que es tan
 importante como la lista de comandos.
 
+**¿Primera vez?** [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) lleva un
+problema desde no saber la respuesta hasta tener un artefacto que un árbitro
+puede comprobar. Los demás ejemplos muestran un comando; ese muestra un
+problema.
+
 ## Instalación
 
 Requiere Python 3.11+.
@@ -158,6 +163,11 @@ def spec():
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
 | `BisectSpec` | `bisect` |
+
+El esquema de certificados está **congelado desde 0.4**: los payloads
+existentes no se mueven, así que un certificado hecho para un paper sigue
+verificando contra un certo posterior. Los tipos nuevos siguen siendo
+aditivos, y lo seguirán siendo.
 
 ## Por qué el certificado es el centro
 
@@ -1547,7 +1557,7 @@ Sí. `z3-solver` y `pulp` traen sus binarios; el resto es Python puro.
 
 ## Tests
 
-240, y sin necesidad de ningún framework de tests.
+253, y sin necesidad de ningún framework de tests.
 
 ```bash
 for t in smoke mcp i18n extras; do python tests/test_$t.py; done

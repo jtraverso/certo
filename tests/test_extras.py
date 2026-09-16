@@ -2505,6 +2505,196 @@ def test_the_certificate_records_which_variables_are_discrete():
     assert p["kinds"]["y0"] == "binary"
     assert p["kinds"]["q0"] == "continuous"
 
+# --- P1: lists packings, the gap, and proved optimality --------------------
+
+
+def _core():
+    from certo import PackingSpec, SetFamily
+
+    fam = SetFamily(5, [(0, 1), (0, 1, 2), (0, 1, 2, 3),
+                        (0, 1, 3), (0, 2, 3, 4), (0, 4)])
+    return PackingSpec.lists(fam)
+
+
+def test_the_lists_constructor_builds_the_packing_the_corpus_uses():
+    """A pair once globally, and once per (list, element)."""
+    spec = _core()
+    assert len(spec.items) == 20
+    name, res, gain, kind = spec.items[0]
+    assert kind == "pair" and gain == 1
+    assert len(res) == 3                       # the pair, and two incidences
+
+
+def test_the_gap_carries_both_sides_and_they_match():
+    from certo import packing as pk
+
+    cert, meta = pk.gap(_core(), LIM)
+    assert (meta["mu"], meta["nu"], meta["gap"]) == ("15/2", "7", "1/2")
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok
+    assert any("same packing" in c and ok for c, ok, _ in rep.checks)
+
+
+def test_a_gap_whose_halves_disagree_is_caught():
+    from certo import packing as pk
+
+    cert = _roundtrip(pk.gap(_core(), LIM)[0])
+    assert verify(cert, LIM).ok
+    cert.payload["gap"] = "1/3"                # no longer the difference
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("difference" in c and not ok for c, ok, _ in rep.checks)
+
+
+def test_a_gap_from_a_design_says_nu_is_not_proved_optimal():
+    from certo import packing as pk
+
+    rep = verify(_roundtrip(pk.gap(_core(), LIM)[0]), LIM)
+    assert any("not a proven integral optimum" in w or "no un óptimo" in w
+               for w in rep.warnings)
+
+
+def test_branch_and_bound_proves_the_integral_optimum():
+    """The whole point: nu = 7 stops being a design and becomes the optimum."""
+    from certo import PackingSpec
+    from certo.engines import bb
+
+    core = _core()
+    whole = PackingSpec(items=core.items, capacities=core.capacities,
+                        sense="max", integer=True)
+    r = bb.prove_optimal(whole.to_lp(), LIM, max_nodes=30_000)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["optimum"] == "7"
+    assert r.meta["infeasible"] > 0            # Farkas rays closed real leaves
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_missing_child_makes_the_tree_a_non_proof():
+    """A tree with a hole reads exactly like a complete one."""
+    from certo.engines import bb
+
+    cert = _roundtrip(bb.prove_optimal(_c5(), LIM).certificate)
+    assert verify(cert, LIM).ok
+    branch = next(n for n in cert.payload["nodes"] if n["why"] == "branch")
+    child = branch["fixed"] + [[branch["on"], branch["values"][0]]]
+    key = ",".join("{}={}".format(v, x) for v, x in child)
+    cert.payload["nodes"] = [n for n in cert.payload["nodes"]
+                             if ",".join("{}={}".format(v, x)
+                                         for v, x in n["fixed"]) != key]
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("children" in c and not ok for c, ok, _ in rep.checks)
+
+
+def _c5():
+    from certo import LPSpec
+
+    lp = LPSpec(sense="max")
+    for i in range(5):
+        lp.variable("y{}".format(i), kind="binary")
+    lp.objective({"y{}".format(i): 1 for i in range(5)})
+    for i in range(5):
+        lp.constraint({"y{}".format(i): 1, "y{}".format((i + 1) % 5): 1},
+                      "<=", 1, name="e{}".format(i))
+    return lp
+
+
+def test_a_leaf_pruned_above_the_incumbent_is_caught():
+    from certo.engines import bb
+
+    cert = _roundtrip(bb.prove_optimal(_c5(), LIM).certificate)
+    node = next(n for n in cert.payload["nodes"] if n["why"] == "bound")
+    node["bound"] = "99"                       # it could have held something
+    rep = verify(cert, LIM)
+    assert not rep.ok
+    assert any("closed by a certificate" in c and not ok
+               for c, ok, _ in rep.checks)
+
+
+def test_an_unbounded_discrete_variable_has_no_tree_to_exhibit():
+    from certo import LPSpec
+    from certo.engines import bb
+
+    lp = LPSpec(sense="max")
+    lp.variable("n", kind="integer")            # no upper bound
+    lp.objective({"n": 1})
+    lp.constraint({"n": 1}, "<=", 10, name="c")
+    r = bb.prove_optimal(lp, LIM)
+    assert r.status is Status.OUT_OF_THEORY
+    assert "upper bound" in r.detail
+
+
+def test_a_farkas_ray_certifies_infeasibility_by_three_dot_products():
+    from certo import LPSpec
+    from certo.engines import lp
+
+    s = LPSpec(sense="max")
+    s.variable("x")
+    s.objective({"x": 1})
+    s.constraint({"x": 1}, "<=", 1, name="hi")
+    s.constraint({"x": -1}, "<=", -2, name="lo")     # x >= 2 and x <= 1
+    cert = lp.infeasible_certificate(s, LIM)
+    assert cert is not None
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok and rep.solver_free
+    assert len(rep.checks) == 3
+
+
+def test_a_tampered_ray_stops_being_a_ray():
+    from certo import LPSpec
+    from certo.engines import lp
+
+    s = LPSpec(sense="max")
+    s.variable("x")
+    s.objective({"x": 1})
+    s.constraint({"x": 1}, "<=", 1, name="hi")
+    s.constraint({"x": -1}, "<=", -2, name="lo")
+    cert = _roundtrip(lp.infeasible_certificate(s, LIM))
+    cert.payload["y"] = ["1", "0"]              # b.y is now positive
+    rep = verify(cert, LIM)
+    assert not rep.ok
+
+
+def test_a_packing_item_is_bounded_by_its_tightest_resource():
+    """Without it branch and bound has infinitely many children per node."""
+    spec = _core()
+    lp_spec = spec.to_lp()
+    assert all(hi is None for _, hi in lp_spec.bounds.values())   # fractional
+
+    from certo import PackingSpec
+
+    whole = PackingSpec(items=spec.items, capacities=spec.capacities,
+                        sense="max", integer=True).to_lp()
+    assert all(hi == 1 for _, hi in whole.bounds.values())
+
+
+def test_by_orbit_works_on_graph_sweeps_too():
+    from certo.graphs import is_chordal
+
+    r = graphsearch.sweep(
+        SweepSpec(n=6, filters=["connected"], predicate=is_chordal,
+                  canonicalize="auto"),
+        LIM, use_geng=False, by_orbit=True)
+    assert r.meta["by_orbit"] is True
+    p = r.certificate.payload
+    assert all(k in p for k in ("by_orbit", "evaluated", "spot_checks"))
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_inferring_nothing_is_not_a_failure():
+    """Every orbit a singleton means it was a full sweep, not a broken one."""
+    from certo.graphs import is_chordal
+
+    r = graphsearch.sweep(
+        SweepSpec(n=5, filters=["connected"], predicate=is_chordal,
+                  canonicalize="auto"),
+        LIM, use_geng=False, by_orbit=True)
+    assert r.meta["inferred"] == 0
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("inferred NOTHING" in w or "no infirió NADA" in w
+               for w in rep.warnings)
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

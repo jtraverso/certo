@@ -4,7 +4,80 @@ Notable changes per release. Dates are ISO. This project uses semantic
 versioning; while the major is 0, a minor bump may change a certificate
 payload — each such change says so and what still reads the old shape.
 
-## [Unreleased]
+## [0.4.0] — 2026-09-16
+
+**The certificate schema is frozen from here.** An existing payload's fields
+do not move: no renames, no removals, no changes of meaning. Adding a new
+certificate kind stays allowed and always will — that is additive and breaks
+nothing — and so does adding an optional field a reader may ignore. Anything
+else needs a schema bump and a migration note.
+
+What that buys: a certificate produced for a paper today still verifies
+against a later certo, which is the only way "re-verifiable" survives contact
+with time. `SCHEMA_VERSION` is 4.
+
+The release also closes the last of P1, which means the two sweep payloads are
+finally symmetric — `--by-orbit` for graph sweeps needed three fields in
+`sweep` that `domain_sweep` already had, and adding them after the freeze
+would have cost a bump for a feature that was already designed.
+
+### The headline: an optimum, proved
+
+`mixed --prove-optimal` proves the MILP optimum by branch and bound, with
+**every leaf carrying a certificate** and the tree checked to cover the
+integer domain. A leaf closes for one of three reasons, each checkable by
+arithmetic:
+
+* its LP bound cannot beat the incumbent — an exact dual;
+* it is infeasible — a **Farkas ray**, `y ≥ 0` with `A^T y ≥ 0` and `b·y < 0`,
+  which checks in three dot products;
+* every variable is fixed, so the residual LP *is* that design's answer.
+
+And then the part that is easy to omit and fatal to: **the tree must cover the
+integer domain**, checked node by node rather than assumed. A tree with a
+missing child reads exactly like a complete one.
+
+On the research instance this was built against, `ν = 7` went from "a design
+that exists" to the proved integral optimum in 73 nodes — 19 closed by bound,
+18 by Farkas rays — which pins the integrality gap at exactly `1/2` with both
+sides certified.
+
+### Added
+
+- **`certo mixed --prove-optimal`** and the `branch_bound` certificate.
+- **`farkas_ray`** — LP infeasibility with a certificate. `opt` used to report
+  an infeasible LP and leave nothing behind; now there is a ray, and checking
+  it needs no solver and no trust in the one that said "infeasible".
+- **`PackingSpec.lists(family)`** — the `(list, pair)` packing, which is the
+  shape 51 of 131 scripts in one research corpus share. Three lines instead of
+  fifteen, and the constraint that goes missing by hand does not.
+- **`opt --gap`** and the `gap` certificate — `μ* − ν` as **one exact
+  rational**, with both sides certified and verification checking they are
+  about the same packing. Two numbers from two runs are two numbers.
+- **`sweep --by-orbit` for graph sweeps.** On a family quotiented by
+  isomorphism it infers nothing, because the enumerator already did that — and
+  it says so rather than silently doing the same work. It is for a symmetry
+  *finer* than isomorphism.
+- **`examples/WALKTHROUGH.md`** — one problem from not knowing the answer to
+  holding an artefact a referee can check. Every other example shows one
+  command; this shows one problem, and it is the only thing that explains what
+  the tool is for.
+
+### Changed
+
+- A discrete packing item is bounded above by its tightest resource. With
+  capacities of 1 that makes it binary, which it always was — and it is what
+  gives branch and bound a finite tree to exhibit.
+- `certo mixed` accepts a `PackingSpec` directly.
+- `SCHEMA_VERSION` 3 → 4.
+
+### Fixed
+
+- `--by-orbit` that infers nothing is no longer reported as a failed check.
+  Every orbit a singleton means the run *was* a full sweep and the invariance
+  assumption was never used, which is a different thing from something being
+  wrong.
+
 
 ### Added
 

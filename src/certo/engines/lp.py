@@ -233,3 +233,56 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
                                exact.to_fraction(meta_obj)
                                >= exact.to_fraction(target))},
     )
+
+
+def infeasible_certificate(spec, limits=None):
+    """A Farkas ray proving `Ax <= b, x >= 0` has no solution.
+
+    `y >= 0` with `A^T y >= 0` and `b.y < 0`. If such a y exists then for any
+    feasible x we would have `0 <= (A^T y).x = y.(Ax) <= y.b < 0`, which is
+    the contradiction -- and checking it is three dot products in exact
+    rationals, with no solver and no trust in the one that said "infeasible".
+
+    Returns None when no ray is found, which is not the same as "the system is
+    feasible": the auxiliary LP is itself solved numerically, and a failure to
+    reconstruct it exactly leaves us with nothing to say rather than with a
+    claim.
+    """
+    from .. import exact
+    from ..certificate import farkas_ray_certificate
+    from ..spec import LPSpec
+
+    A, b, c, names = spec.as_leq_system()
+    if not A:
+        return None
+
+    # minimise b.y subject to A^T y >= 0, y >= 0, sum y = 1. The normalisation
+    # keeps the ray bounded; any positive multiple of a ray is a ray.
+    aux = LPSpec(sense="min", title="farkas ray")
+    ys = ["y{}".format(i) for i in range(len(A))]
+    for v in ys:
+        aux.variable(v)
+    aux.objective({v: b[i] for i, v in enumerate(ys)})
+    for j in range(len(c)):
+        aux.constraint({ys[i]: A[i][j] for i in range(len(A))}, ">=", 0,
+                       name="col{}".format(j))
+    aux.constraint({v: 1 for v in ys}, "==", 1, name="norm")
+
+    res = opt(aux, limits)
+    if res.verdict is not Verdict.SATISFIABLE or not res.meta.get("exact"):
+        return None
+    y = [exact.to_fraction(res.meta["solution"].get(v, 0)) for v in ys]
+
+    # Check the ray ourselves before emitting it. An "infeasibility
+    # certificate" that does not certify infeasibility is worse than none.
+    if any(v < 0 for v in y):
+        return None
+    if any(sum(A[i][j] * y[i] for i in range(len(A))) < 0
+           for j in range(len(c))):
+        return None
+    if sum(b[i] * y[i] for i in range(len(A))) >= 0:
+        return None
+
+    return farkas_ray_certificate(
+        A=[exact.serialize_all(r) for r in A], b=exact.serialize_all(b),
+        y=exact.serialize_all(y), names=names)

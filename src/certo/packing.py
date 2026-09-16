@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 
 from .exact import to_fraction
+from .status import Verdict
 
 
 @dataclass
@@ -107,9 +108,17 @@ class PackingSpec:
         discrete = self.discrete_kinds()
         lp = LPSpec(sense=self.sense, integer=False,
                     title=self.title or "packing")
-        for name, _, _, kind in self.items:
-            lp.variable(name, kind="integer" if kind in discrete
-                        else "continuous")
+        for name, res, _, kind in self.items:
+            # A discrete item cannot be taken more times than its tightest
+            # resource allows, and saying so explicitly is what gives branch
+            # and bound a finite tree to exhibit. With capacities of 1 -- the
+            # usual case -- this makes the item binary, which it always was.
+            hi = None
+            if kind in discrete:
+                caps = [to_fraction(self.capacity_of(str(r))) for r in res]
+                hi = int(min(caps)) if caps else None
+            lp.variable(name, hi=hi,
+                        kind="integer" if kind in discrete else "continuous")
         lp.objective({name: gain for name, _, gain, _ in self.items})
 
         by_resource: dict = {}
@@ -120,6 +129,43 @@ class PackingSpec:
             lp.constraint({n: 1 for n in by_resource[r]}, "<=",
                           self.capacity_of(r), name=r)
         return lp
+
+
+    @classmethod
+    def lists(cls, family, gains=None, title=""):
+        """The `(list, pair)` packing: the shape 51 of 131 research scripts share.
+
+        A "list" is a set -- a neighbourhood, a palette, a block. Taking the
+        pair {a,b} from list j is an item; each pair may be taken once in
+        total, and each (list, element) incidence once. That is all of it, and
+        rebuilding it by hand every time is fifteen lines and a place for a
+        constraint to go missing.
+
+        `family` is a `SetFamily`, or anything iterable of iterables. Passing a
+        SetFamily is worth it: `canonicalize="auto"` then quotients the
+        counterexamples by relabelling for free.
+
+        `gains` maps a pair's size to its worth; the default is 1 each, which
+        is the counting version.
+        """
+        from itertools import combinations
+
+        blocks = (family.blocks if hasattr(family, "blocks")
+                  else [tuple(sorted(set(b))) for b in family])
+        gains = gains or {}
+        items = []
+        for j, block in enumerate(blocks):
+            for a, b in combinations(sorted(block), 2):
+                items.append((
+                    "t{}_{}_{}".format(j, a, b),
+                    ["e{}_{}".format(a, b),        # the pair, once globally
+                     "d{}_{}".format(j, a),        # (list j, element a)
+                     "d{}_{}".format(j, b)],
+                    gains.get(2, 1),
+                    "pair",
+                ))
+        return cls(items=items, capacities=1, sense="max",
+                   title=title or "lists packing")
 
     # -- convenience for graphs -------------------------------------------
 
@@ -153,3 +199,50 @@ def loads_from_dual(cert) -> dict:
     p = cert.payload if hasattr(cert, "payload") else cert.get("payload", {})
     names, dual = p.get("names", []), p.get("dual", [])
     return {n: v for n, v in zip(names, dual) if str(v) not in ("0", "0.0")}
+
+
+def gap(spec, limits=None):
+    """The integrality gap, with BOTH sides certified.
+
+    `nu` against `mu*` is the question a packing is usually asked, and it used
+    to be two runs someone subtracted afterwards -- two artefacts, two chances
+    to line up the wrong pair. Here they travel together: the fractional
+    optimum with its exact dual, the integral optimum with a feasible point,
+    and the difference as one exact rational.
+
+    Nothing new is proved. What is added is that the two numbers are about the
+    same packing, which two files in a folder cannot say.
+    """
+    from . import exact
+    from .certificate import gap_certificate
+    from .engines import lp, mixed
+
+    frac = lp.opt(spec.to_lp(), limits)
+    if frac.verdict is not Verdict.SATISFIABLE or not frac.meta.get("exact"):
+        return None, frac
+
+    whole = PackingSpec(items=spec.items, capacities=spec.capacities,
+                        sense=spec.sense, integer=True, title=spec.title)
+    integral = mixed.mixed(whole.to_lp(), limits)
+    if integral.verdict not in (Verdict.SATISFIABLE, Verdict.REFUTED):
+        return None, integral
+
+    mu = exact.to_fraction(frac.meta["objective"])
+    nu = exact.to_fraction(integral.meta["achieved"])
+    cert = gap_certificate(
+        fractional=frac.certificate.to_dict(),
+        integral=integral.certificate.to_dict(),
+        mu=exact.serialize(mu), nu=exact.serialize(nu),
+        gap=exact.serialize(mu - nu),
+        tight=[r for r, v in loads_from_dual(frac.certificate).items()
+               if exact.to_fraction(v) > 0],
+        level=integral.meta.get("level", "feasible"),
+        title=spec.title,
+    )
+    # NOT "level": `emit` reserves that key for a sweep's predicate level, and
+    # two different meanings under one name is how a display ends up saying
+    # something nobody meant.
+    return cert, {"mu": exact.serialize(mu), "nu": exact.serialize(nu),
+                  "gap": exact.serialize(mu - nu),
+                  "integral_level": integral.meta.get("level"),
+                  "tight": len(cert.payload["tight"])}

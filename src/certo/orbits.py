@@ -125,6 +125,54 @@ def build(spec, items, ids) -> Orbits | None:
     return Orbits(items, ids, canon)
 
 
+SPOT_CHECKS = 12
+
+
+def infer(evaluate, items, groups, outcome_code):
+    """Evaluate one item per orbit; infer the rest, marked in lower case.
+
+    Shared by both sweeps rather than written twice: two copies of "what a
+    --by-orbit run produces" that drifted apart would make a replay disagree
+    with the vector it is replaying.
+    """
+    reps = {c: groups.representative(c) for c in groups.order}
+    evaluated = {c: evaluate(items[i]) for c, i in reps.items()}
+    outcomes, codes = [], []
+    for i in range(len(items)):
+        c = groups.canon[i]
+        out = evaluated[c]
+        outcomes.append(out)
+        code = outcome_code(out)
+        codes.append(code if i == reps[c] else code.lower())
+    return outcomes, codes, reps, evaluated
+
+
+def spot_check(evaluate, items, groups, reps, evaluated, ids, outcome_code,
+               rng, n=SPOT_CHECKS):
+    """Go and look at real non-representatives.
+
+    `--by-orbit` reports a representative's verdict for its whole orbit, which
+    is sound only if the predicate cannot tell members apart -- and nothing
+    can prove that, since `canonicalize` and the predicate are both arbitrary
+    Python. This cannot make the sweep sound. It can make a wrong symmetry
+    surface immediately instead of in a referee's report.
+    """
+    pool = [(c, i) for c, members in groups.groups.items() for i in members
+            if i != reps[c]]
+    done, clash = [], None
+    if not pool:
+        return done, clash
+    for c, idx in rng.sample(pool, min(n, len(pool))):
+        got = outcome_code(evaluate(items[idx]))
+        want = outcome_code(evaluated[c])
+        done.append({"index": idx, "id": ids[idx],
+                     "representative": ids[reps[c]], "agreed": got == want})
+        if got != want:
+            clash = (ids[idx], ids[reps[c]])
+            break
+    return done, clash
+
+
 def check(payload) -> list:
     """What a stored decomposition can be checked for, without the spec.
 
