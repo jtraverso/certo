@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after 0.4.0 — schema frozen; `status` and `lint` landed since).
+Last updated: 2026-09-16 (after the second user report: the integral-point hole fixed, three items added to P1).
 
 ---
 
@@ -48,6 +48,7 @@ Last updated: 2026-09-16 (after 0.4.0 — schema frozen; `status` and `lint` lan
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **A fractional "integral point" verified as valid** *(user feedback)* | `_verify_lp_dual` checked the declared integral point for feasibility and for matching its objective, and never that the values were integers: `x = 3/2` passed. Now checked per DECLARED KIND, so a mixed problem's continuous weights stay fractional on purpose. `mixed_design` had it right all along; `lp_dual`, which `opt` produces, did not. |
 | ✅ | **`certo status`** *(P1)* | Reads a directory of certificates and reports where the work stands: RESULTS (nothing else builds on them), STILL OWED (every bridge and unclaimed optimality, including ones three levels down), HOLLOW (vacuous proofs with their clash named, sweeps that certified nothing), STALE (the spec moved under the certificate). Emits no certificate of its own: it makes no claim. |
 | ✅ | **`certo lint`** *(P1)* | The dry pass before the compute. Contradictory hypotheses found BEFORE the proof rather than after a valid-and-empty win; an inductive step that starts after the base cases end, caught by comparing two integers instead of discharging six sweeps; a `bool` predicate named as `reproducible` in advance. Counts a domain without materialising it and reads a graph family's size from a table. |
 | ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
@@ -97,7 +98,58 @@ items below still say "build against a real problem".
 
 ## P1 — next
 
-### 1. Parametric certificates — the jump from finite case to theorem
+### 1. Derive the LP dual instead of reconstructing it *(user feedback)*
+
+**3 of 56 exact LPs needed the rational primal/dual injected by hand**, all on
+symmetric solutions. The cause is in `exact.certify`: it reconstructs `x` and
+`y` at the SAME rung of the denominator ladder and requires all five checks to
+pass together. Two ways that fails on a symmetric instance, both real:
+
+* the primal needs denominator 3 and the dual needs 2, so no single rung
+  works — the coupling is gratuitous;
+* on a degenerate vertex CBC returns one of MANY optimal duals, and rounding
+  an arbitrary one need not be dual-feasible at all.
+
+The fix is not a longer ladder. Given the reconstructed primal, complementary
+slackness DETERMINES the dual: `y_i = 0` on every slack row, and
+`sum_i A_ij y_i = c_j` for every `j` with `x_j > 0`. That is a linear system
+over the tight rows, solvable exactly in `Fraction` by Gaussian elimination,
+and then checked for `y >= 0` and `A^T y >= c` as now.
+
+That removes the dependence on CBC's dual entirely — which is precisely the
+fragile part, since on a symmetric optimum CBC's choice among the optimal
+duals is arbitrary. Decoupling the two ladders is worth doing on its own and
+is three lines.
+
+### 2. A solver-free certificate for linear-arithmetic proofs *(user feedback)*
+
+"`unsat_core` certificates depend on trusting Z3 again; useful, but not
+solver-free like a rational Farkas certificate." Correct, and the machinery to
+fix it is already here: `farkas` takes the same `Spec`, `linarith.rows_of`
+already converts one, and the search is a small LP.
+
+So: after `prove` succeeds, if the core is over linear arithmetic, run the
+Farkas search and attach the multipliers as an OPTIONAL payload field — which
+the frozen schema allows. Verification then expands the combination and finds
+the contradiction by arithmetic, and the certificate's `solver_free` becomes
+true. The core stays, because `compose` needs it for the entailment check.
+
+The result is that the most-used command in the tool stops producing the
+least-checkable certificate.
+
+### 3. Local loads as part of a packing certificate *(user feedback)*
+
+The user is building a resource-packing / hypergraph-matching layer AROUND
+certo: generate the physical rows automatically, and ask for "preserve these
+local loads" as part of what gets certified. `PackingSpec.lists` covers the
+first half. The second is new: pin named local loads and have the certificate
+record that the solution holds them.
+
+**Wants their instance before it is designed.** Which loads are worth pinning,
+and whether they are equalities or bounds, is a property of the problem; the
+same argument as P2 #7, and guessing produced a bad check once already.
+
+### 4. Parametric certificates — the jump from finite case to theorem
 
 `order` is the first step of this and it shipped. The rest: an LP dual given
 as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial
@@ -108,12 +160,13 @@ That turns "checked for s = 7..20" into "holds for every s >= 7", which is the
 one thing the tool keeps saying it cannot do. Wanted: an instance where the
 dual weights follow a visible pattern in `s`.
 
-### 2. `export --lean` for `unsat_core` *(user feedback)*
+### 5. `export --lean` for `unsat_core` *(user feedback)*
 
 A `theorem` skeleton carrying the core's hypotheses and the statement, no
 proof. The user's words were that it "would close the circle": every other
 certificate kind that can reach Lean already does, and the one produced by the
-most-used command does not.
+most-used command does not. Worth doing after item 2, which changes what that
+certificate contains.
 
 ---
 
