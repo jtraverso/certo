@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17. Four items that were waiting for a real instance now have one, located in the corpus and measured rather than assumed — see each item.
+Last updated: 2026-09-17. Reordered after measuring an adjacent library, the self-check finding, and a negative result on the canonical form — see "What changed the ranking".
 
 ---
 
@@ -143,134 +143,133 @@ when first checked, including one claiming a `branch_bound` certificate
 verifies *without* a solver. It does not.
 
 
+## What changed the ranking
+
+Reordered 2026-09-17. Four things were measured in the last few days, and each
+one moves something. The evidence is kept next to the item it moves.
+
+**1. An adjacent library has 1175 modules and certo has 28 commands.** Read
+against `jacobian` v0.20: exact rationals throughout, and in the overlap it
+already does what we do — `_optimality.py` is "exact checking of supplied
+rational primal-dual pairs, without search", and `clique_partition` prioritises
+non-clique part, uncovered edge, overcovered edge, which is the same three
+classes `cover` reports.
+
+What it does NOT do is the artefact. Its caps are 32 LP variables, 64
+constraints, 256 graph vertices; the corpus here runs ~1000-column LPs and
+20,000-node searches. And its only writes are `json.dump` to a worker's
+stdout: no ledger, no spec hash, no re-verifying a file months later without
+the tool installed.
+
+So the differentiator is **the artefact that outlives the tool**, and
+everything that strengthens it is worth more than anything that adds a
+computation. That moves three items up and two down.
+
+**2. A certificate shipped that its own verifier rejected — twice.** 339 tests
+missed both, because every one of them fed verification a certificate the
+producer had built. Producer and verifier agreed by being wrong in the same
+place. `--self-check` fixes the instances; the METHOD gap is new and is now P1.
+
+**3. Individualisation-refinement does not fix the canonical form.** Measured:
+correct against the exhaustive reference on 400 families, and no faster where
+it matters, because a vertex-transitive object has no invariant for refinement
+to split on. The real content of nauty is automorphism pruning — and that
+library computes **full automorphism groups** as of 0.21. The item moves from
+"reimplement nauty" to "consume a group somebody else computed", which is a
+different size of job.
+
+**4. An exact rational simplex now exists.** Anything that needed an exact dual
+on a degenerate LP at realistic scale is unblocked.
+
+---
+
 ## P1 — next
 
-Everything here comes from the 0.6 field report, and the two P0s it named are
-already fixed.
+### 1. `certo repro`: the artefact, bundled
 
-### 1. `verify --spec` and `certo --version` *(user feedback)*
+Was P3 for a year on the grounds that nobody was asking. Finding 1 makes it
+the clearest expression of what certo is for: spec, certificates, versions,
+hashes and the ledger in one directory a referee can be handed, verifying
+end to end with nothing installed but certo.
 
-The certificate already stores `spec_path` and `spec_sha256`, and `status`
-already reports staleness. What is missing is the direct form:
+Everything it needs already exists — provenance, `status`, `verify`, the
+ledger — and is currently spread across four commands and a convention. This
+is the item that says what the tool is, and it is small because the parts are
+built.
+
+### 2. Adversarial verification tests
+
+Two certificates shipped that `verify` rejects, and the test suite could not
+have caught either: every test feeds verification something the producer made,
+so a contract misread in both places passes.
+
+The fix is a suite that feeds each verifier certificates it did NOT produce —
+hand-built, mutated field by field, and cross-kind. Every mutation of a
+payload field should flip exactly one check, and a mutation that flips nothing
+is a check that is not being made.
+
+Not a feature. It is the reason to believe the other thirty-two kinds are not
+carrying the same bug, and right now there is no such reason.
+
+### 3. `certo repro`'s prerequisites: `verify --spec` and `certo --version`
+*(user feedback)*
 
     certo verify cert.json --spec spec.py     # fail if the hash differs
 
 so nobody verifies an old certificate believing it describes the file in front
 of them. And `certo --version` currently reads as a missing subcommand; it
-should print the version, the commit when available, and the maximum
-certificate schema.
+should print version, commit where available, and the maximum certificate
+schema. Both are small, both are provenance, and `repro` wants them.
 
-### 2. A compact, solver-free branch-and-bound certificate *(user feedback)*
+### 4. A `--fully-checkable` branch-and-bound certificate *(user feedback)*
 
-63 nodes cost 842 KB, and the certificate is `solver_free: false`. Both are
-honest and both are worth improving:
+63 nodes cost 842 KB and the certificate is `solver_free: false`. Of everything
+certo produces, this is the weakest artefact — and by finding 1, the artefact
+is the whole point.
 
-* document exactly what needs a solver during `verify`, and what each leaf
-  stores;
-* inherit bounds and decisions from the parent instead of repeating the node's
-  whole state, which on a mid-sized tree is most of the bytes;
-* a `--fully-checkable` mode that stores an exact dual or Farkas ray at every
-  leaf, larger but solver-free, for archival.
+Two halves, and the second matters more:
+
+* **compression**: inherit bounds and decisions from the parent instead of
+  repeating each node's whole state;
+* **`--fully-checkable`**: an exact dual or Farkas ray at every leaf, larger
+  but solver-free, so a tree can be archived and re-checked by arithmetic.
+
+Document, either way, exactly what needs a solver during `verify` and what
+each leaf stores.
 
 ---
 
-### A note on adjacent tools
-
-Checked 2026-09-17 against a library of atomic mathematical tools a user runs
-alongside certo (`jacobian`, v0.21.0). The division of labour is clean and
-worth stating so neither side gets rebuilt here by accident:
-
-**That library COMPUTES.** Minimum generalized exact covers, full graph
-automorphism groups, exact enclosures, algebraic number arithmetic — a large
-surface of "give me the answer to this".
-
-**certo CERTIFIES.** It takes an answer, from anywhere, and produces an
-artefact that re-checks without the thing that produced it. `cover` came
-directly from that split: the audit it was built for sends a graph and a
-partition to a service for checking, and a certificate does the same job
-without the service needing to exist later.
-
-Two consequences worth remembering:
-
-* Do not build a search here because a certificate needs one. `cover` takes a
-  partition; `parametric` takes a dual; `farkas` finds its own multipliers
-  only because the search is an LP that was already in the box.
-* That library computes **full automorphism groups**, which is exactly the
-  missing ingredient in P2 #5. If that item is ever built, it should be
-  against a group somebody else computed, not a reimplementation of nauty.
-
-
 ## P2 — high value, more work
 
-### 2. Flag algebras, now that the objection is gone
+### 1. A canonical form that scales, by consuming an automorphism group
+
+Finding 3. The instance exists and is in the corpus — a 1-factorisation of K6,
+fifteen points and five blocks, hits the cap — and the missing ingredient is
+computed by an adjacent tool.
+
+So the shape is: take a generating set for the automorphism group as INPUT,
+prune the individualisation-refinement search with it, and check the result
+against the exhaustive reference wherever that can still run. certo does not
+compute the group, the same way `parametric` does not search for its dual.
+
+This also unblocks matchings and coloured hypergraphs, which were a separate
+item and turn out to be the same blocker: the structure that hits the cap IS
+a family of matchings.
+
+### 2. Flag algebras
 
 `sos` established the pattern: numeric search, rational reconstruction, exact
-re-verification. A flag-algebra bound is the same shape one level up.
+re-verification. Still wants 2–3 real packing instances so the interface is
+designed around a problem rather than a method — and now also wants checking
+against what an adjacent library already does, before anything is built.
 
-**The instances exist**: the corpus has over a hundred scripts solving
-LP/ILP triangle packings, several of them asking whether an invariant stays
-bounded or grows with `n` — which is the question a flag-algebra bound
-answers. More than the 2–3 this item was waiting for.
+### 3. Combinatorial types beyond set families
 
-### 3. `SetFamily` canonicalisation for matchings and coloured hypergraphs
-*(user feedback)*
-
-**The instance is confirmed**: the corpus enumerates every matching of a
-complete graph on a vertex set and indexes LP columns by them, which is
-precisely the structure below.
-
-`canonical()` quotients by relabelling the ground set. A family of MATCHINGS
-has more structure than that — the blocks partition, and a factorisation of
-K_{s+1} into perfect matchings has the matchings themselves permutable — and a
-coloured hypergraph has colours that may or may not be permutable. Both would
-benefit from a canonical form that knows it.
-
-Worth building against the real instance rather than in the abstract: which
-symmetries are genuine depends on the problem, and guessing wrong merges two
-orbits, which nothing downstream would notice.
-
-### 4. Combinatorial types beyond set families
-
-`SetFamily` covers hypergraphs, designs, codes and mask systems, because they
-are all one shape. What it does not cover: ordered structures (sequences,
-words, permutation patterns) and edge-coloured or directed objects. Worth
-adding when a real problem asks, not before — the value of a native type is
-the boilerplate it removes, and boilerplate nobody is writing is not a cost.
-
-### 5. A canonical form that scales past the cap
-
-`SetFamily.canonical()` refuses above 200,000 candidate relabellings.
-
-**Measured, 2026-09-17, and it bites far earlier than this item claimed.** A
-1-factorisation of K6 — 15 points, 5 blocks, which is exactly the matchings
-structure of item 3 — hits the cap. So does K9 as a family, and all triples on
-9 points. Below the cap it is already slow: all triples on 8 points takes 13
-seconds.
-
-**And the proposed fix was tried and does not work.** This item said "the fix
-is individualisation-refinement, the way nauty does it". Implemented and
-verified correct — 400 random families agreed exactly with the exhaustive
-reference, and 120 families relabelled twelve ways each gave one form — and
-then measured:
-
-| | individualisation-refinement | exhaustive |
-|---|---|---|
-| K7 as a family | 157 ms | 89 ms |
-| K8 as a family | 1809 ms | 2041 ms |
-| K6 1-factorisation | still refuses | still refuses |
-
-Refinement splits a cell only when its points differ by an isomorphism
-invariant. A vertex-transitive object has none by definition, so refinement
-does nothing and the search degenerates to the brute force it was meant to
-replace — on precisely the objects that hit the cap.
-
-**What the fix actually is**: automorphism pruning. When two branches of the
-search produce the same form, the permutation between them is an
-automorphism, and every branch related to an explored one by a known
-automorphism can be skipped. That is the content of nauty, and refinement is
-the cheap part around it. Reverted rather than shipped, because a second
-canonical routine that must stay in agreement with the first is a maintenance
-cost, and this one bought nothing where it mattered.
+`SetFamily` covers hypergraphs, designs, codes and mask systems because they
+are one shape. Ordered structures — sequences, words, permutation patterns —
+and edge-coloured or directed objects are not. Worth adding when a real
+problem asks: the value of a native type is the boilerplate it removes, and
+boilerplate nobody is writing is not a cost.
 
 ---
 
@@ -282,7 +281,6 @@ cost, and this one bought nothing where it mattered.
 | | `certo qe` | Quantifier elimination to **derive** the optimal constant instead of bracketing it with `bisect`. Genuinely distinctive; no demand yet. |
 | | Cutting-plane certificates | Gomory–Chvátal for **integer** infeasibility, not just the LP relaxation. Relevant to packing bounds. |
 | | Exact first moment | `E[X] < 1` in `Fraction` ⇒ existence. Small, and common in the probabilistic method. |
-| | `certo repro` | Bundle spec + certificates + versions + hashes for a paper appendix. Partly absorbed by the Lean manifest in P1 #3. |
 
 ---
 
@@ -299,7 +297,28 @@ where an external solver could be installed if anyone ever needs one.
 
 ## Won't do
 
-**Nothing, currently.** The one long-standing entry here was flag algebras and
+**Chasing an adjacent library's coverage.** Measured 2026-09-17: 1175 modules
+against 28 commands, with whole areas — topology, probability, analysis,
+groups, lattices, finite fields — where certo has no analogue and no reason to
+grow one. Trying would lose, and the attempt would produce a thousand commands
+with no certificate.
+
+The rule that falls out, and that has already been applied twice: **do not
+build a search here because a certificate needs one.** `cover` takes a
+partition, `parametric` takes a dual, `farkas` finds its own multipliers only
+because that search was an LP already in the box. What another tool computes,
+certo certifies and archives — and certo has no 32-variable cap because it is
+not a service with a request quota.
+
+One correction to how that is applied, from the same reading: **look at the
+catalogue before building in the overlap.** `cover` would have shipped anyway,
+since the persisted certificate and the pairing with a lower bound are the
+point, but the plain check already existed and knowing that would have started
+the work at the pairing, which is the half that fixed a real misreading.
+
+---
+
+The one long-standing entry that used to be here was flag algebras and
 SDP, refused on the grounds that floating point cannot produce a citable
 certificate. `certo sos` (0.3.0) shows that argument was wrong: the same
 round-and-re-verify-exactly move that `opt` has always used applies, and the
