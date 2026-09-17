@@ -266,6 +266,20 @@ def test_branch_bound():
     _report("branch_bound", probe(cert))
 
 
+def test_first_moment():
+    from certo import MomentSpec
+    from certo.engines import algebra
+
+    got = algebra.moment(MomentSpec(
+        events=[("a", Fraction(1, 4)), ("b", Fraction(1, 8))],
+        counts=True), LIM).certificate
+    _report("first_moment", probe(got))
+
+    tails = algebra.moment(MomentSpec(
+        tails=[Fraction(1, 2), Fraction(1, 8)], counts=True), LIM).certificate
+    _report("first_moment_tails", probe(tails))
+
+
 def test_ratio_bound():
     from certo.engines import algebra
     from certo.polynomials import Poly

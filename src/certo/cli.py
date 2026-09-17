@@ -250,6 +250,7 @@ BY_QUESTION = (
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
+        ("commands.q.moment", "moment"),
         ("commands.q.ratio", "ratio"),
         ("commands.q.family", "family"),
         ("commands.q.exists", "exists"),
@@ -596,6 +597,15 @@ def cmd_cover(args):
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
     return rc
+
+
+def cmd_moment(args):
+    from .engines import algebra
+    from .spec import MomentSpec, load_spec
+
+    spec = load_spec(args.spec, MomentSpec)
+    res = algebra.moment(spec, limits_from(args), spec_path=args.spec)
+    return emit(res, args)
 
 
 def cmd_ratio(args):
@@ -1711,6 +1721,11 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("moment", "the expected number of bad events, exactly -- and the "
+                       "existence a mean below one buys")
+    sp.add_argument("spec", help=".py file returning a MomentSpec")
+    sp.set_defaults(func=cmd_moment)
 
     sp = add("ratio", "a rational-function inequality, for every parameter "
                       "at once and with no solver")

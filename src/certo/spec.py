@@ -899,6 +899,43 @@ class ParametricSpec:
 
 
 @dataclass
+class MomentSpec:
+    """The first moment, exactly, and the existence it buys.
+
+        MomentSpec(                        # by event: linearity, no independence
+            events=[("mono_K4_on_{}".format(i), Fraction(1, 64))
+                    for i in range(35)],
+            counts=True,
+        )
+
+        MomentSpec(                        # by tail: P(X>=1), P(X>=2), ...
+            tails=[Fraction(1, 2), Fraction(1, 8), Fraction(1, 64)],
+            counts=True,
+        )
+
+    `events` gives the expected count as a sum of probabilities, which is
+    linearity of expectation and needs NO independence -- the reason the method
+    is usable at all. `tails` gives a distribution by `P(X >= k)`; the masses
+    are the successive differences and `E[X]` is the sum of the tails. Exactly
+    one of the two.
+
+    `counts=True` says the quantity is a COUNT: non-negative and integer
+    valued. Only then does `E[X] < 1` give the existence conclusion -- some
+    outcome has none of the bad events -- because a quantity that could be one
+    half everywhere has a mean below one with no outcome at zero. Without it,
+    or with a threshold other than one, what comes back is a bound on a mean,
+    which is a smaller and still useful statement.
+    """
+
+    events: list = None              # [(name, probability)]
+    tails: list = None               # [P(X>=1), P(X>=2), ...]
+    threshold: object = 1
+    relation: str = "<"              # "<" or "<="
+    counts: bool = True              # the quantity is a non-negative integer count
+    title: str = ""
+
+
+@dataclass
 class RatioSpec:
     """A rational-function inequality, claimed for every parameter at once.
 

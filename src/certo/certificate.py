@@ -593,6 +593,36 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
     )
 
 
+def first_moment_certificate(terms, expectation, threshold, relation, counts,
+                             concludes, masses=None, title="") -> Certificate:
+    """`E[X] < 1`, in exact rationals, and the existence it buys.
+
+    The probabilistic method in one line, and the line is a sum of rationals.
+    Done in floating point, `0.9999999` and `1.0000001` have both been written
+    down as "less than one"; done here, the sum is re-added on verification
+    and compared exactly.
+
+    What the certificate carries is every term, so the sum is re-derivable
+    rather than asserted. `concludes` records whether the EXISTENCE statement
+    was drawn -- which needs the quantity to be a count, non-negative and
+    integer-valued, and the threshold to be one. A mean below one for a
+    quantity that could be one half everywhere puts no outcome at zero.
+    """
+    payload = {"terms": terms, "expectation": expectation,
+               "threshold": threshold, "relation": relation,
+               "counts": bool(counts), "concludes": bool(concludes),
+               "title": title}
+    # `masses` present IS what makes this a tails certificate. A separate
+    # flag would be a second source of truth, and turning it off would drop
+    # the mass check while the rest still verified.
+    if masses is not None:
+        payload["masses"] = masses
+    return Certificate(
+        kind="first_moment", solver_free=True, payload=payload,
+        note_key="cert.note.first_moment",
+    )
+
+
 def ratio_bound_certificate(parameters, left, right, relation, difference,
                             region=None, title="") -> Certificate:
     """`f/g <= h/k` for every parameter at or above the floor. No solver.
@@ -1184,6 +1214,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "first_moment": _verify_first_moment,
         "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
@@ -1538,6 +1569,65 @@ def _verify_exact_cover(cert, limits) -> VerifyReport:
                  n=out["universe"],
                  kind=t("verify.cover.exactly" if p.get("exact", True)
                         else "verify.cover.atleast")),
+    )
+
+
+def _verify_first_moment(cert, limits) -> VerifyReport:
+    """Re-add the terms, re-derive the masses, re-make the comparison."""
+    from fractions import Fraction
+
+    p = cert.payload
+    values = [Fraction(v) for _n, v in p["terms"]]
+    checks = []
+
+    out = [n for (n, _v), v in zip(p["terms"], values) if v < 0 or v > 1]
+    checks.append((t("verify.moment.probabilities"), not out,
+                   t("verify.moment.offenders", n=len(values),
+                     names=", ".join(map(str, out[:3])) or "-")))
+
+    if p.get("masses") is not None:
+        from .moment import masses_from_tails
+
+        got = masses_from_tails(values)
+        want = [Fraction(m) for m in p.get("masses") or []]
+        negative = [i for i, m in enumerate(got) if m < 0]
+        checks.append((t("verify.moment.masses"),
+                       got == want and not negative,
+                       t("verify.moment.sum_to_one",
+                         total=str(sum(got, Fraction(0))))))
+
+    total = sum(values, Fraction(0))
+    declared = Fraction(p["expectation"])
+    checks.append((t("verify.moment.expectation"), total == declared,
+                   str(declared)))
+
+    threshold = Fraction(p["threshold"])
+    if p["relation"] not in ("<", "<="):
+        checks.append((t("verify.moment.relation"), False, str(p["relation"])))
+        return VerifyReport(False, "first_moment", True, checks=checks,
+                            detail=t("moment.relation", rel=p["relation"]))
+    holds = total < threshold if p["relation"] == "<" else total <= threshold
+    checks.append((t("verify.moment.comparison"), holds,
+                   "{} {} {}".format(str(total), p["relation"],
+                                     str(threshold))))
+
+    # The existence conclusion is drawn only under conditions that are
+    # re-checked here, not taken from the flag.
+    earned = bool(p["counts"] and threshold == 1 and p["relation"] == "<"
+                  and holds and not out)
+    checks.append((t("verify.moment.conclusion"), earned == p["concludes"],
+                   t("verify.moment.earned" if earned
+                     else "verify.moment.bound_only")))
+
+    warnings = [t("verify.moment.scope")]
+    if not p["counts"]:
+        warnings.append(t("verify.moment.not_a_count"))
+    return VerifyReport(
+        all(c[1] for c in checks), "first_moment", True, checks=checks,
+        warnings=warnings, method_key="verify.moment.method",
+        detail=t("verify.moment.detail_exists" if p["concludes"]
+                 else "verify.moment.detail", value=str(declared),
+                 rel=p["relation"], threshold=str(threshold)),
     )
 
 

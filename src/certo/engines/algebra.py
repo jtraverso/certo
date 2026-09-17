@@ -29,6 +29,7 @@ import time
 from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
                            family_extremum_certificate,
+                           first_moment_certificate,
                            ratio_bound_certificate,
                            integer_peak_certificate,
                            resultant_certificate, sos_certificate)
@@ -137,6 +138,51 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
             out["stopped"] = got.meta
             out["stopped_detail"] = got.detail
     return out
+
+
+def moment(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """The first moment, exactly, and the existence a mean below one buys."""
+    from ..moment import NotAMoment, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotAMoment as e:
+        return Result("moment", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    shown = str(out["expectation"])
+    if out["out_of_range"]:
+        return Result("moment", Status.OUT_OF_THEORY, Verdict.REFUTED,
+                      ENGINE_PARAM, ms, None,
+                      detail=t("engine.moment.range",
+                               n=len(out["out_of_range"]),
+                               names=", ".join(out["out_of_range"][:4])),
+                      meta={"expectation": shown})
+    if not out["holds"]:
+        # Not a failed route: the sum is the sum, and it is on the wrong side.
+        return Result("moment", Status.SAT, Verdict.REFUTED, ENGINE_PARAM, ms,
+                      None,
+                      detail=t("engine.moment.fails", value=shown,
+                               rel=out["relation"],
+                               threshold=str(out["threshold"])),
+                      meta={"expectation": shown})
+
+    cert = first_moment_certificate(
+        terms=out["terms"], expectation=shown,
+        threshold=str(out["threshold"]), relation=out["relation"],
+        counts=out["counts"], concludes=out["concludes"],
+        masses=out["masses"], title=spec.title,
+    ).stamp(spec_path or None)
+
+    key = "engine.moment.exists" if out["concludes"] else "engine.moment.bound"
+    return Result("moment", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM, ms,
+                  cert,
+                  detail=t(key, value=shown, rel=out["relation"],
+                           threshold=str(out["threshold"]),
+                           n=len(out["terms"])),
+                  meta={"expectation": shown, "exists": out["concludes"]})
 
 
 def ratio(spec, limits: Limits | None = None, spec_path: str = "") -> Result:

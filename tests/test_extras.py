@@ -1217,6 +1217,98 @@ def _mirror_spec(n=7):
     )
 
 
+# --- moment: the first moment, exactly, and the existence it buys ----------
+
+
+def _run_moment(spec):
+    from certo.engines import algebra
+
+    return algebra.moment(spec, LIM)
+
+
+def test_a_mean_below_one_buys_an_object_and_says_so():
+    """The probabilistic method, with the arithmetic in exact rationals."""
+    from math import comb
+
+    from certo import MomentSpec
+
+    each = Fraction(2, 2 ** comb(4, 2))
+    r = _run_moment(MomentSpec(
+        events=[("copy_%d" % i, each) for i in range(comb(6, 4))],
+        counts=True))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["expectation"] == "15/32" and r.meta["exists"] is True
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+    # one vertex more and the sum crosses: that is arithmetic, not a failure
+    seven = _run_moment(MomentSpec(
+        events=[("copy_%d" % i, each) for i in range(comb(7, 4))],
+        counts=True))
+    assert seven.verdict is Verdict.REFUTED
+    assert seven.meta["expectation"] == "35/32"
+    assert seven.certificate is None
+
+
+def test_existence_is_refused_when_the_quantity_is_not_a_count():
+    """A mean below one for something that could be 1/2 everywhere puts no
+    outcome at zero, so nothing is claimed to exist."""
+    from certo import MomentSpec
+
+    r = _run_moment(MomentSpec(events=[("a", Fraction(1, 2)),
+                                       ("b", Fraction(1, 4))], counts=False))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["exists"] is False
+    assert r.certificate.payload["concludes"] is False
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("no existence follows" in w for w in rep.warnings)
+
+
+def test_a_distribution_by_tails_has_its_masses_checked():
+    from certo import MomentSpec
+    from certo.moment import masses_from_tails
+
+    tails = [Fraction(1, 2), Fraction(1, 8), Fraction(1, 64)]
+    masses = masses_from_tails(tails)
+    assert sum(masses) == 1 and all(m >= 0 for m in masses)
+
+    r = _run_moment(MomentSpec(tails=tails, counts=True))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["expectation"] == "41/64"          # the sum of the tails
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+    # tails that go back up imply a negative mass, which is not a distribution
+    bad = _run_moment(MomentSpec(tails=[Fraction(1, 4), Fraction(1, 2)],
+                                 counts=True))
+    assert bad.verdict is Verdict.REFUTED
+    assert "not probabilities" in bad.detail
+
+
+def test_the_conclusion_flag_is_re_earned_and_not_believed():
+    """A certificate claiming existence it did not earn must not verify."""
+    from certo import MomentSpec
+    from certo.certificate import Certificate
+
+    r = _run_moment(MomentSpec(events=[("a", Fraction(1, 2))], counts=False))
+    bent = json.loads(json.dumps(r.certificate.to_dict()))
+    bent["payload"]["concludes"] = True
+    rep = verify(Certificate.from_dict(bent), LIM)
+    assert not rep.ok
+    assert any("earned" in n for n, ok, _ in rep.checks if not ok)
+
+
+def test_events_and_tails_are_not_both_and_not_neither():
+    from certo import MomentSpec
+
+    for spec in (MomentSpec(events=[("a", Fraction(1, 2))],
+                            tails=[Fraction(1, 2)]),
+                 MomentSpec()):
+        r = _run_moment(spec)
+        assert r.verdict is Verdict.INCONCLUSIVE
+        assert "not both and not neither" in r.detail
+
+
 # --- ratio: a fraction inequality for every n, with no solver --------------
 
 
