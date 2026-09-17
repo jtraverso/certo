@@ -595,25 +595,41 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
 
 def parametric_bound_certificate(parameters, variables, objective,
                                  constraints, dual, bound, rows,
-                                 title="") -> Certificate:
-    """`opt(p) <= b(p).y` for every p at or above the given floor.
+                                 title="", sense="max",
+                                 dual_poly=None) -> Certificate:
+    """A bound on `opt(p)` for every p at or above the given floor.
 
-    Weak duality holds symbolically: any `y >= 0` with `A(p)^T y >= c(p)`
-    bounds the optimum, for every parameter value at once. So the whole
-    certificate is `y`, the polynomial data, and -- per column -- the residual
-    `A^T y - c` after substituting `p = p0 + u`, whose coefficients are all
+    Weak duality holds symbolically. For a packing -- `max c.x, A x <= b` --
+    any `y >= 0` with `A(p)^T y >= c(p)` bounds the optimum from ABOVE. For a
+    cover -- `min w.z, M z >= 1` -- any `y >= 0` with `M(p)^T y <= w(p)` bounds
+    it from BELOW. Same certificate, one sign apart, and `sense` says which.
+
+    So the whole certificate is `y`, the polynomial data, and -- per column --
+    the residual after substituting `p = p0 + u`, whose coefficients are all
     non-negative. Checking it is reading signs off a list.
+
+    `dual_poly` carries `y` exactly. It is a separate field because a cover's
+    dual is a packing, which GROWS with the instance and so need not be
+    constant; `dual` keeps the readable form, and a certificate written before
+    this existed has only the readable form and is read the same way.
 
     The shift is SUFFICIENT and not necessary. A certificate exists only when
     it succeeds; when it does not, no certificate is emitted, because "this
     route did not work" is not a bound.
     """
+    payload = {"parameters": parameters, "variables": list(variables),
+               "objective": objective, "constraints": constraints,
+               "dual": dual, "bound": bound, "rows": rows, "title": title}
+    # Optional, and only written when they say something: the schema is frozen
+    # and an old reader must still see exactly what it used to see.
+    if sense != "max":
+        payload["sense"] = sense
+    if dual_poly is not None:
+        payload["dual_poly"] = dual_poly
     return Certificate(
-        kind="parametric_bound", solver_free=True,
-        payload={"parameters": parameters, "variables": list(variables),
-                 "objective": objective, "constraints": constraints,
-                 "dual": dual, "bound": bound, "rows": rows, "title": title},
-        note_key="cert.note.parametric_bound",
+        kind="parametric_bound", solver_free=True, payload=payload,
+        note_key=("cert.note.parametric_bound_min" if sense == "min"
+                  else "cert.note.parametric_bound"),
     )
 
 
@@ -1378,28 +1394,46 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
     """Re-derive every residual and re-read the signs. No solver, no search."""
     from fractions import Fraction
 
-    from .parametric import nonneg_on_ray
+    from .parametric import dual_text, nonneg_on_ray
     from .polynomials import Poly
 
     p = cert.payload
     ring = tuple(p["parameters"])
     lows = p["parameters"]
-    y = {n: Fraction(v) for n, v in p["dual"].items()}
+    minimising = p.get("sense", "max") == "min"
+    if "dual_poly" in p:
+        y = {n: Poly.parse(ring, v) for n, v in p["dual_poly"].items()}
+    else:
+        y = {n: Poly.const(ring, Fraction(v)) for n, v in p["dual"].items()}
 
-    nonneg = all(v >= 0 for v in y.values())
+    # `y >= 0`. Constant or not, it is the same shift test; a constant just
+    # shifts to itself.
+    off = sorted(n for n, poly in y.items()
+                 if not nonneg_on_ray(poly, lows)[0])
+    nonneg = not off
     checks = [(t("verify.param.nonneg"), nonneg,
-               t("verify.param.offenders",
-                 names=", ".join(sorted(n for n, v in y.items() if v < 0))
-                 or "-"))]
+               t("verify.param.offenders", names=", ".join(off) or "-"))]
 
-    # A^T y - c, rebuilt from the payload rather than trusted from it.
+    # When the dual is carried twice -- once to be read, once to be recomputed
+    # from -- the readable copy is checked against the other. A field nobody
+    # checks is a field that can say anything.
+    if "dual_poly" in p:
+        drift = sorted(n for n, poly in y.items()
+                       if p["dual"].get(n) != dual_text(poly))
+        checks.append((t("verify.param.dual_text"), not drift,
+                       t("verify.param.differing",
+                         names=", ".join(drift) or "-")))
+        nonneg = nonneg and not drift
+
+    # The residual, rebuilt from the payload rather than trusted from it.
     bad = []
     for var in p["variables"]:
         acc = Poly(ring)
         for name, row, _sense, _rhs in p["constraints"]:
-            if var in row and y.get(name):
-                acc = acc + Poly.parse(ring, row[var]).scaled(y[name])
-        residual = acc - Poly.parse(ring, p["objective"].get(var, {}))
+            if var in row and y.get(name) and y[name].terms:
+                acc = acc + Poly.parse(ring, row[var]) * y[name]
+        obj = Poly.parse(ring, p["objective"].get(var, {}))
+        residual = (obj - acc) if minimising else (acc - obj)
         ok, _shifted = nonneg_on_ray(residual, lows)
         if not ok:
             bad.append(var)
@@ -1411,18 +1445,20 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
     want = Poly.parse(ring, p["bound"])
     got = Poly(ring)
     for name, _row, _sense, rhs in p["constraints"]:
-        if y.get(name):
-            got = got + Poly.parse(ring, rhs).scaled(y[name])
+        if y.get(name) and y[name].terms:
+            got = got + Poly.parse(ring, rhs) * y[name]
     matches = not (got - want)
     checks.append((t("verify.param.bound"), matches, str(want) or "0"))
 
     floor = ", ".join("{} >= {}".format(k, v) for k, v in lows.items())
+    detail_key = "verify.param.detail_min" if minimising \
+        else "verify.param.detail"
     return VerifyReport(
         nonneg and not bad and matches, "parametric_bound", True,
         checks=checks,
         warnings=[t("verify.param.scope", floor=floor)],
         method_key="verify.param.method",
-        detail=t("verify.param.detail", bound=str(want) or "0", floor=floor),
+        detail=t(detail_key, bound=str(want) or "0", floor=floor),
     )
 
 

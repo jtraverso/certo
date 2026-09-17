@@ -381,7 +381,7 @@ and what to expect.
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
-| `parametric` | A bound for EVERY value of a parameter, from a dual you already have | weak duality, symbolic | **y and the shifted residuals**, solver-free |
+| `parametric` | A bound for EVERY value of a parameter, from a dual you already have -- packing from above, cover from below | weak duality, symbolic | **y and the shifted residuals**, solver-free |
 | `cover` | Is this an exact cover? A clique partition is one case | counting | **the universe and the parts**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
@@ -472,7 +472,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `mixed_design` | a construction exists and attains a value; NOT that it is optimal | **yes**, exact arithmetic |
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
 | `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
-| `parametric_bound` | `opt(p) ≤ b(p)·y` for all p | **yes**, expand and read signs |
+| `parametric_bound` | `opt(p) ≤ b(p)·y` for all p, or `≥` for a cover program | **yes**, expand and read signs |
 | `exact_cover` | every element in exactly one part | **yes**, counting |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
@@ -1271,6 +1271,49 @@ route that did not work is not a bound.
 `verify` repeats the rest every time: this bounds the **LP relaxation**, it
 says nothing below the floor, and it says nothing about an integer optimum.
 
+### Covers, not only packings
+
+The above is a **packing**: maximise, `<=` rows, bounded from above.
+Symmetrised **cover** programs are the other half of the same duality and turn
+up at least as often — a write-up that says *"averaging over the automorphism
+group, an optimal fractional cover may be assumed constant on each edge
+orbit"* has just produced one. So `sense="min"` with `>=` rows is the second
+shape, and what it certifies is a bound from **below**, out of a feasible
+packing.
+
+```
+$ certo parametric examples/parametric_cover.py
+PROVED  [unsat]
+  for all p >= 3, s >= 0, the optimum is at least 1/2*p^2 - 1/2*p
+  columns: 2
+  sense: min
+  and that is every value with p >= 3, s >= 0 -- not a sample of them
+```
+
+Two things change with it, and both are forced rather than chosen.
+
+**The dual is not a constant.** In a packing the multipliers are rates, one
+rational each. A cover's dual is itself a packing, and a packing of a growing
+object grows with it — `C(p,2)` triangles, not `1/3`. So a dual entry may be a
+polynomial, and `y >= 0` becomes the same shift test as every other row.
+
+**A threshold in the value function is the dual's feasibility.** The example
+above certifies the branch `q >= p - 1` of a closed form that changes shape at
+`q = p - 1`. Its one non-trivial row is
+
+```
+p q - 2 C(p,2)  =  p (q - p + 1)  =  p s   >=  0
+```
+
+which is non-negative exactly on that branch. The dual stops being feasible
+precisely where the closed form changes branch — which is what a threshold in
+a piecewise-linear value function *is*, seen from underneath. Each branch is
+its own spec and its own certificate, because each is its own claim.
+
+`examples/parametric_orbits.py` is the same thing one size up: four edge
+orbits, five triangle types, three candidate covers, and the branch conditions
+falling out of the dual as one residual row and one non-negativity.
+
 ### Where this came from
 
 A real instance, and the structure is worth seeing. A symmetrised LP solved
@@ -1280,6 +1323,14 @@ across `p = 7, 8, 9`, a third from `p = 10`. On each piece the bound is a
 polynomial in `p` and the dual is fixed, which is exactly the shape this
 command certifies. The thresholds are part of the answer, not something to
 smooth over.
+
+The cover shape came from the other direction: three separate write-ups of the
+same argument, each reducing to a symmetrised cover program over two, three or
+four edge orbits, each stating the value as a minimum of named closed forms,
+and each finishing with *"duality completes the proof"*. What duality completes
+it **with** is one dual per branch and a check that each stays feasible along
+its branch — which is a finite object nobody had written down, and is exactly a
+certificate.
 
 
 ## `eliminate`: remove a variable, keep the condition

@@ -34,6 +34,25 @@ instance with `opt`, read the dual, and hand it over. That division is the
 point: finding a `y` is search and can be as numeric as it likes; checking one
 is arithmetic. It is the same split as `farkas`, one level up -- there the
 multipliers are constants, here they are constants attached to a family.
+
+TWO SHAPES, NOT ONE. The above is the packing shape: maximise, `<=` rows, and
+a bound from above. Symmetrised COVER programs are the other half of the same
+duality and turn up at least as often --
+
+    min w(p).z   subject to   M z >= 1,  z >= 0
+
+-- where the useful certificate is a feasible PACKING `y >= 0` with
+`M^T y <= w(p)`, giving `opt(p) >= 1.y` for every `p` at once. Same three
+checks with the residual's sign flipped, so `sense="min"` with `>=` rows is
+accepted and the claim it certifies is a bound from BELOW.
+
+A COVER PROGRAM'S DUAL IS NOT CONSTANT. In the packing shape the multipliers
+are pure numbers, because they are rates. In the cover shape the dual is a
+packing, and a packing of a growing object grows with it: `d(d-1)/2` triangles
+on a neighbourhood of size `d`. So a dual entry may itself be a polynomial in
+the parameters, and then `y >= 0` stops being a comparison and becomes the
+same shift test as everything else. Both are allowed, and a constant is just
+the degree-zero case.
 """
 from __future__ import annotations
 
@@ -90,15 +109,31 @@ def nonneg_on_ray(poly: Poly, lows: dict):
 # ---------------------------------------------------------------------------
 
 
+def dual_text(poly) -> str:
+    """How a dual entry reads. One function, so the two copies cannot drift.
+
+    `dual` is what somebody opening the file sees and `dual_poly` is what the
+    verifier recomputes from; they are checked against each other, and that
+    check is only meaningful if both sides agree on what the text should be.
+    """
+    if not poly.terms:
+        return "0"
+    if len(poly.terms) == 1 and not any(next(iter(poly.terms))):
+        return str(next(iter(poly.terms.values())))
+    return str(poly)
+
+
 def certify(spec) -> dict:
     """The three checks, and everything the certificate needs to repeat them.
 
-    `spec.constraints` are `(name, {var: coef}, "<=", rhs)` with every
-    coefficient a polynomial in the parameters; `spec.dual` is one rational per
-    constraint name.
+    `spec.constraints` are `(name, {var: coef}, sense, rhs)` with every
+    coefficient a polynomial in the parameters, `sense` being `"<="` for a
+    maximisation and `">="` for a minimisation; `spec.dual` is one rational --
+    or one polynomial -- per constraint name.
     """
     params = tuple(spec.parameters)
     ring = params
+    minimising = getattr(spec, "sense", "max") == "min"
 
     def P(x):
         if isinstance(x, Poly):
@@ -111,7 +146,7 @@ def certify(spec) -> dict:
             return Poly.const(ring, x)
         return Poly.from_z3(x, ring)
 
-    y = {n: Fraction(v) for n, v in spec.dual.items()}
+    y = {n: P(v) for n, v in spec.dual.items()}
     names = [n for n, _, _, _ in spec.constraints]
     missing = [n for n in names if n not in y]
     if missing:
@@ -121,7 +156,16 @@ def certify(spec) -> dict:
     if extra:
         raise NotParametric(_t("param.dual_extra", names=", ".join(extra[:5])))
 
-    negative = sorted(n for n, v in y.items() if v < 0)
+    # `y >= 0`. A constant dual is a comparison; a polynomial one is the same
+    # shift test the residuals get, and "not shown non-negative" is what a
+    # failure means there -- never "negative".
+    negative, dual_rows = [], []
+    for name in sorted(y):
+        ok, shifted = nonneg_on_ray(y[name], spec.parameters)
+        if not ok:
+            negative.append(name)
+        dual_rows.append({"constraint": str(name), "value": y[name].serialize(),
+                          "shifted": shifted.serialize(), "ok": ok})
 
     # A^T y - c, column by column. Every variable that appears anywhere gets a
     # column, including ones the objective never mentions: a variable with no
@@ -132,9 +176,11 @@ def certify(spec) -> dict:
     for var in variables:
         acc = Poly(ring)
         for name, row, _sense, _rhs in spec.constraints:
-            if var in row and y[name]:
-                acc = acc + P(row[var]).scaled(y[name])
-        residual = acc - P(spec.objective.get(var, 0))
+            if var in row and y[name].terms:
+                acc = acc + P(row[var]) * y[name]
+        obj = P(spec.objective.get(var, 0))
+        # Maximise: `A^T y >= c`. Minimise: `M^T y <= w`. One sign.
+        residual = (obj - acc) if minimising else (acc - obj)
         ok, shifted = nonneg_on_ray(residual, spec.parameters)
         rows.append({"variable": var,
                      "residual": residual.serialize(),
@@ -145,13 +191,17 @@ def certify(spec) -> dict:
 
     bound = Poly(ring)
     for name, _row, _sense, rhs in spec.constraints:
-        if y[name]:
-            bound = bound + P(rhs).scaled(y[name])
+        if y[name].terms:
+            bound = bound + P(rhs) * y[name]
 
     return {
         "variables": variables,
         "rows": rows,
         "bound": bound,
+        "sense": "min" if minimising else "max",
+        "dual_rows": dual_rows,
+        "polynomial_dual": any(len(p.terms) > 1 or any(e for e in p.terms)
+                               for p in y.values()),
         "negative_dual": negative,
         "ok": not negative and all(r["ok"] for r in rows),
         "failed": [r["variable"] for r in rows if not r["ok"]],

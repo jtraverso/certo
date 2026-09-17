@@ -57,6 +57,8 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 | ✅ | **`certo order` shipped and nobody found it** *(user feedback P1)* | Not a missing feature: a discovery failure, which is worse, because the work was done and did not reach anyone. `asymptotics` and `decays` as aliases, a help line that leads with "does this DECAY in n", `certo commands` putting the question-to-command table in the terminal, and a `lint` note that names the command when a claim divides by a product of symbols. The last has a narrow trigger — two or more symbols at negative exponent — and fires zero times across the shipped examples. |
 | ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
 | ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
+| ✅ | **`parametric` for cover programs** | `sense="min"` with `>=` rows, bounding from BELOW out of a feasible packing, and dual entries that may be polynomials because a cover's dual grows with the instance. Forced by three separate write-ups of one argument, all of which reduce to a symmetrised cover over edge orbits and all of which state the value as a minimum of named closed forms. Two branches of a two-orbit program and one branch of a four-orbit program are now certificates; each is EXACT against an exact rational simplex on its branch (49 and 343 points). The branch conditions come out as the dual's own feasibility. |
+| ✅ | **A named square is a legitimate hint** | `farkas --nonlinear` searches a fixed square set -- each hypothesis squared, `x²`, `(x-y)²` -- and a margin estimate that completes the square as `(2s-q)²` or `12(u-v/4)²` is outside it, so the heuristic missed and said so. It did not need a feature: a square is a tautology, so assuming one adds a row without adding an assumption. Three comparisons from one write-up now close solver-free, with multipliers `1/16` and `1/48` that are the source's own arithmetic read back. Documented, because the mechanism existed and nobody could have guessed it. |
 | ✅ | **A `>=` load priced at zero** *(user feedback P1)* | Same root cause, other consumer. Now `d(optimum)/d(bound)`, summed over the normalised rows with their signs — negative for a binding `>=`, because raising a floor costs you — with the direction stated and the source rows in the payload. |
 | ✅ | **Minimisation in branch and bound** *(user feedback P1)* | Refusing it left the user negating by hand and their certificate describing a formulation nobody posed. The tree still searches `max -c.x` because that is what happens, and the payload records both what was searched and what was asked. |
 | ✅ | **`--wall-timeout-ms`, and a stopped search that reports** *(user feedback P1)* | `--timeout-ms` bounds a solver call, not the search. On expiry by clock or nodes: best design, best bound, gap, node count, and no certificate of optimality. A search that runs out always knew all four. |
@@ -183,6 +185,26 @@ different size of job.
 
 **4. An exact rational simplex now exists.** Anything that needed an exact dual
 on a degenerate LP at realistic scale is unblocked.
+
+**5. Three independent write-ups of one argument all reduce to a COVER
+program, and `parametric` could express none of them.** Read against the
+manuscripts rather than against a tool: each symmetrises an optimal fractional
+cover over two, three or four edge orbits, each states the value as a minimum
+of named closed forms, and each closes with "duality completes the proof".
+
+`parametric` was built from the one instance that came in first -- a packing,
+`max`, `<=` rows -- and refused a `min` problem or a `>=` row by design. Every
+cover in the corpus is the other shape. And a cover's dual is a packing, which
+GROWS with the instance, so the dual is a polynomial and not the rational
+constant the command accepted.
+
+Both are now in, and a third thing came with them: the branch conditions of the
+closed form turn out to BE the dual's feasibility conditions, one residual row
+and one non-negativity. That is not a coincidence to document, it is what a
+piecewise-linear value function looks like from underneath, and it is the
+reason each branch is its own certificate.
+
+---
 
 ---
 

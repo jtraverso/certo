@@ -247,6 +247,25 @@ def test_parametric_bound():
         dual={"big": Fraction(1, 2), "small": Fraction(1, 3)})
     _report("parametric_bound", probe(algebra.parametric(spec, LIM).certificate))
 
+    # The cover shape, whose dual is a polynomial rather than a rational. Two
+    # payload fields exist only here -- `sense` and `dual_poly` -- and the
+    # second is a second copy of the first field, which is exactly the kind of
+    # thing this suite exists to find unchecked.
+    ring = ("p", "s")
+    P = Poly.var(ring, "p")
+    K = lambda c: Poly.const(ring, c)                       # noqa: E731
+    half = P * (P - K(1)) * Poly.const(ring, Fraction(1, 2))
+    cover = ParametricSpec(
+        parameters={"p": 3, "s": 0}, sense="min",
+        objective={"x": half, "y": P * (P - K(1) + Poly.var(ring, "s"))},
+        constraints=[("clique", {"x": K(3)}, ">=", K(1)),
+                     ("mixed", {"x": K(1), "y": K(2)}, ">=", K(1))],
+        dual={"clique": K(0), "mixed": half})
+    got = algebra.parametric(cover, LIM).certificate
+    assert got.payload["sense"] == "min"
+    assert "dual_poly" in got.payload
+    _report("parametric_bound_min", probe(got))
+
 
 def test_ideal_and_sos():
     import z3

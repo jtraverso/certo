@@ -843,8 +843,16 @@ class ParametricSpec:
     numeric as it likes; checking one is arithmetic, and that split is the
     whole design -- the same one `farkas` makes with its multipliers.
 
-    `max c.x` subject to `A x <= b, x >= 0` only. A min problem or a `>=` row
-    is refused rather than silently reinterpreted.
+    TWO SHAPES. `sense="max"` wants `<=` rows and certifies `opt(p) <= b(p).y`
+    -- a packing, bounded from above. `sense="min"` wants `>=` rows and
+    certifies `opt(p) >= b(p).y` -- a symmetrised COVER program, bounded from
+    below by a feasible packing. Mixing the rows of one shape into the other is
+    refused rather than silently reinterpreted.
+
+    A dual entry may be a `Poly` rather than a rational. It usually has to be
+    in the cover shape: the dual there is a packing, and a packing of a growing
+    object grows with it. `y >= 0` is then the same shift test as everything
+    else.
     """
 
     parameters: dict                 # name -> lower bound (a number)

@@ -144,15 +144,20 @@ def parametric(spec, limits: Limits | None = None,
 
     t0 = time.perf_counter()
 
-    if spec.sense != "max":
+    # Two shapes: a packing (max, `<=`, bounded from above) and a cover (min,
+    # `>=`, bounded from below). Mixing the rows of one into the other is a
+    # modelling mistake, not a harder problem, so it is named rather than run.
+    if spec.sense not in ("max", "min"):
         return Result("parametric", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
                       ENGINE_PARAM, 0.0, None,
                       detail=t("engine.param.max_only", sense=spec.sense))
-    bad_sense = [n for n, _, sense, _ in spec.constraints if sense != "<="]
+    want = "<=" if spec.sense == "max" else ">="
+    bad_sense = [n for n, _, sense, _ in spec.constraints if sense != want]
     if bad_sense:
         return Result("parametric", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
                       ENGINE_PARAM, 0.0, None,
-                      detail=t("engine.param.le_only",
+                      detail=t("engine.param.le_only", sense=spec.sense,
+                               want=want,
                                names=", ".join(map(str, bad_sense[:4]))))
     try:
         out = certify(spec)
@@ -171,7 +176,7 @@ def parametric(spec, limits: Limits | None = None,
         # project exists to avoid.
         if out["negative_dual"]:
             detail = t("engine.param.negative",
-                       names=", ".join(out["negative_dual"][:4]))
+                       names=", ".join(map(str, out["negative_dual"][:4])))
         else:
             detail = t("engine.param.not_shown",
                        names=", ".join(out["failed"][:4]), floor=floor)
@@ -187,18 +192,38 @@ def parametric(spec, limits: Limits | None = None,
         constraints=[[str(n), {v: _ser(spec, c) for v, c in row.items()},
                       sense, _ser(spec, rhs)]
                      for n, row, sense, rhs in spec.constraints],
-        dual={str(n): str(v) for n, v in spec.dual.items()},
+        dual={str(n): _dual_str(spec, v) for n, v in spec.dual.items()},
+        # Only when it says something the readable form cannot: a dual of pure
+        # rationals is exactly what `dual` already holds, and a second copy of
+        # it would be a field nothing checks.
+        dual_poly=({str(n): _ser(spec, v) for n, v in spec.dual.items()}
+                   if out["polynomial_dual"] else None),
+        sense=out["sense"],
         bound=out["bound"].serialize(),
         rows=out["rows"],
         title=spec.title,
     ).stamp(spec_path or None)
 
+    key = "engine.param.proved_min" if out["sense"] == "min" \
+        else "engine.param.proved"
     return Result("parametric", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM,
                   ms, cert,
-                  detail=t("engine.param.proved", bound=str(out["bound"]),
-                           floor=floor),
+                  detail=t(key, bound=str(out["bound"]), floor=floor),
                   meta={"bound": str(out["bound"]), "floor": floor,
+                        "sense": out["sense"],
                         "columns": len(out["variables"])})
+
+
+def _dual_str(spec, v):
+    """The dual entry as a human reads it: a rational, or a polynomial.
+
+    A constant handed over as a bare `Fraction` prints exactly as it always
+    has, so certificates from the packing shape are unchanged.
+    """
+    from ..parametric import dual_text
+    from ..polynomials import Poly
+
+    return dual_text(v) if isinstance(v, Poly) else str(v)
 
 
 def _ser(spec, coef):
