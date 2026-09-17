@@ -6,6 +6,70 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-09-17
+
+**Schema unchanged: `SCHEMA_VERSION` stays 4.** The two features here add
+optional payload fields; nothing moves.
+
+Both remaining P1 items from a user's report, and the thing writing the front
+page exposed.
+
+### An unsat core over linear arithmetic no longer needs a solver
+
+A user's objection, quoted exactly: *`unsat_core` certificates depend on
+trusting Z3 again; useful, but not solver-free like a rational Farkas
+certificate.* Correct, and the machinery was already here.
+
+After a core is found — in `prove`, in `check`, and in
+`check --hypotheses-only` — the Farkas search runs on exactly those rows. When
+it finds multipliers they travel in the payload as **optional fields**, which
+the frozen schema allows, and `solver_free` becomes true: verification expands
+`Σ λᵢ · rowᵢ` and reads off the contradiction in `Fraction`, with nothing to
+trust.
+
+Floating point in the search does not compromise that. The LP **finds** the
+multipliers; `is_contradiction` accepts or rejects them in exact arithmetic,
+independently. A bad guess is rejected rather than believed — the same
+round-and-verify-exactly discipline as `opt` and `sos`. The core stays in the
+payload, because `compose` reads it for the entailment check.
+
+**And the Lean export stops saying `sorry`.** These were reported as two
+separate gaps and they have one fix: a core exported with `sorry` precisely
+because it says which hypotheses suffice and not why, and with the multipliers
+it knows why. A vacuous regime now becomes a compiling Lean proof that it is
+empty. CI compiles both paths against Mathlib v4.28.0 on every push.
+
+Outside linear arithmetic nothing changes: no multipliers, `sorry`, and the
+file says why.
+
+### Exact LP certification stopped depending on CBC's dual
+
+A user certified 56 LPs exactly and **3 needed the rational primal and dual
+injected by hand**, all on symmetric solutions. On a degenerate vertex several
+duals are optimal, CBC returns an arbitrary one, and rounding that particular
+one need not be dual-feasible at all.
+
+Given an exact primal, complementary slackness determines the dual: `yᵢ = 0`
+on every slack row, `Σᵢ Aᵢⱼ yᵢ = cⱼ` for every active `xⱼ`. Solved in
+`Fraction` by Gaussian elimination, with no floats anywhere. Where it
+underdetermines the dual — more tight rows than active variables, which is
+what symmetry produces — the leftover freedom IS the set of optimal duals, and
+each choice is offered in turn.
+
+A derived dual is not trusted for being derived: it is a candidate, like a
+rounded one, and earns the certificate by passing the identical exact
+`check_lp`. Reconstruction still runs first, so every LP that certified before
+certifies the same way, with the same denominator and digest.
+
+**One thing the backlog claimed and measurement refuted.** It said the coupled
+denominator ladder was a second cause — that a primal wanting thirds and a
+dual wanting halves had no rung that worked. `limit_denominator` is monotone
+in accuracy, so a rung high enough for the harder of the two is high enough
+for both, and pass 1 already climbs to it. Checked on three such pairs before
+writing the fix; all were exact at one shared rung. The independent-ladder
+pass was dropped rather than shipped, and a test pins the reason so nobody
+adds it back.
+
 ### A refutation now shows what refuted it
 
 The values were in the certificate and nowhere on screen, so refuting a claim
@@ -39,65 +103,6 @@ overclaiming is a bad place to overclaim.
 Then **Start here**, a router by who the reader is, and **Which command
 answers which question** — keyed on the question in the reader's own words
 rather than on the command name.
-
-
-### Exact LP certification stopped depending on CBC's dual
-
-A user certified 56 LPs exactly and **3 needed the rational primal and dual
-injected by hand**, all on symmetric solutions. On a degenerate vertex several
-duals are optimal, CBC returns an arbitrary one, and rounding that particular
-one need not be dual-feasible at all.
-
-Given an exact primal, complementary slackness determines the dual: `yᵢ = 0`
-on every slack row, `Σᵢ Aᵢⱼ yᵢ = cⱼ` for every active `xⱼ`. Solved in
-`Fraction` by Gaussian elimination, with no floats anywhere. Where it
-underdetermines the dual — more tight rows than active variables, which is
-what symmetry produces — the leftover freedom IS the set of optimal duals, and
-each choice is offered in turn.
-
-A derived dual is not trusted for being derived: it is a candidate, like a
-rounded one, and earns the certificate by passing the identical exact
-`check_lp`. Reconstruction still runs first, so every LP that certified before
-certifies the same way, with the same denominator and digest.
-
-**One thing the backlog claimed and measurement refuted.** It said the coupled
-denominator ladder was a second cause — that a primal wanting thirds and a
-dual wanting halves had no rung that worked. `limit_denominator` is monotone
-in accuracy, so a rung high enough for the harder of the two is high enough
-for both, and pass 1 already climbs to it. Checked on three such pairs before
-writing the fix; all were exact at one shared rung. The independent-ladder
-pass was dropped rather than shipped, and a test pins the reason so nobody
-adds it back.
-
-
-### An unsat core over linear arithmetic no longer needs a solver
-
-A user's objection, quoted exactly: *`unsat_core` certificates depend on
-trusting Z3 again; useful, but not solver-free like a rational Farkas
-certificate.* Correct, and the machinery was already here.
-
-After a core is found — in `prove`, in `check`, and in
-`check --hypotheses-only` — the Farkas search runs on exactly those rows. When
-it finds multipliers they travel in the payload as **optional fields**, which
-the frozen schema allows, and `solver_free` becomes true: verification expands
-`Σ λᵢ · rowᵢ` and reads off the contradiction in `Fraction`, with nothing to
-trust.
-
-Floating point in the search does not compromise that. The LP **finds** the
-multipliers; `is_contradiction` accepts or rejects them in exact arithmetic,
-independently. A bad guess is rejected rather than believed — the same
-round-and-verify-exactly discipline as `opt` and `sos`. The core stays in the
-payload, because `compose` reads it for the entailment check.
-
-**And the Lean export stops saying `sorry`.** These were reported as two
-separate gaps and they have one fix: a core exported with `sorry` precisely
-because it says which hypotheses suffice and not why, and with the multipliers
-it knows why. A vacuous regime now becomes a compiling Lean proof that it is
-empty. CI compiles both paths against Mathlib v4.28.0 on every push.
-
-Outside linear arithmetic nothing changes: no multipliers, `sorry`, and the
-file says why.
-
 
 ## [0.5.1] — 2026-09-16
 
