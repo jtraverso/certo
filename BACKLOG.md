@@ -146,12 +146,12 @@ labelling as input.
 
 | | What | Effort | Why it is down here |
 |---|---|---|---|
-| | Structured ring isomorphisms | **L** | Explicit maps, identity compositions, compatibility with localisation, grading and group actions. Wants the typed transport of P1 #1 first -- without it there is no notion of "the same object" to certify. |
+| | Structured ring isomorphisms | **L** | Explicit maps, identity compositions, compatibility with localisation, grading and group actions. Wants the typed transport (landed) to be extended past `compose` first -- without it there is no notion of "the same object" to certify. |
 | | Finite group actions | **M** | Invariants, stabilisers, fixed loci, quotient rings. Finite and exact, and downstream of the semigroup work. |
 | | Finite homological algebra | **L** | Free complexes, exactness, resolutions, Ext, Tor, dimensions. Mechanical and large; nobody is blocked on it today. |
 | | Jacobian criterion certificates | **S-M** | Smoothness, local dimension, singular locus, transversality via exact Jacobian ideals. `ideal` is the machinery; this is the interface. |
 | | Batyrev engine, canonical form transport | **XL** | Both are geometric theorem application, which by the stated boundary is Lean's job. certo's part is the finite premises those theorems consume. |
-| | Small geometric counterexample generation | **S** | The second user's request, and a special case of P1 #3 applied to fans, cones and semigroups. Follows it. |
+| | Small geometric counterexample generation | **S** | The second user's request, and a special case of P1 #2 applied to fans, cones and semigroups. Follows it. |
 | | CLI / metadata version sync, `export --check` progress | **XS** | Papercuts from the first user. Small, real, and worth doing in the same pass as P0. |
 | | Flag algebras | **L** | Still wants 2-3 real instances to be designed around a problem. |
 | | Lean statements for the sweep kinds | **L** | Graphs and set families are not mechanical. Deliberately parked. |
