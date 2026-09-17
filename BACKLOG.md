@@ -178,10 +178,38 @@ the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
 ### 5. A canonical form that scales past the cap
 
-`SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
-very regular family on more than ~10 points will hit. The fix is individual-
-isation-refinement, the way nauty does it. Only worth building against a real
-instance that hits the cap.
+`SetFamily.canonical()` refuses above 200,000 candidate relabellings.
+
+**Measured, 2026-09-17, and it bites far earlier than this item claimed.** A
+1-factorisation of K6 — 15 points, 5 blocks, which is exactly the matchings
+structure of item 3 — hits the cap. So does K9 as a family, and all triples on
+9 points. Below the cap it is already slow: all triples on 8 points takes 13
+seconds.
+
+**And the proposed fix was tried and does not work.** This item said "the fix
+is individualisation-refinement, the way nauty does it". Implemented and
+verified correct — 400 random families agreed exactly with the exhaustive
+reference, and 120 families relabelled twelve ways each gave one form — and
+then measured:
+
+| | individualisation-refinement | exhaustive |
+|---|---|---|
+| K7 as a family | 157 ms | 89 ms |
+| K8 as a family | 1809 ms | 2041 ms |
+| K6 1-factorisation | still refuses | still refuses |
+
+Refinement splits a cell only when its points differ by an isomorphism
+invariant. A vertex-transitive object has none by definition, so refinement
+does nothing and the search degenerates to the brute force it was meant to
+replace — on precisely the objects that hit the cap.
+
+**What the fix actually is**: automorphism pruning. When two branches of the
+search produce the same form, the permutation between them is an
+automorphism, and every branch related to an explored one by a known
+automorphism can be skipped. That is the content of nauty, and refinement is
+the cheap part around it. Reverted rather than shipped, because a second
+canonical routine that must stay in agreement with the first is a maintenance
+cost, and this one bought nothing where it mattered.
 
 ---
 
