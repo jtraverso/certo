@@ -12,220 +12,30 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 
 ---
 
-## Done
 
-| | What landed | Notes |
+## What is open, in one screen
+
+| | | |
 |---|---|---|
-| ✅ | `certo compose` | Lemmas + their certificates into one proof, with the **link** between each lemma and what its certificate closes checked. Bridges are declared and reported every verification. |
-| ✅ | `certo bounds` | Rigorous enclosures via Arb / `mpmath.iv`; exact-rational intervals; precision as the work budget; Python floats refused. |
-| ✅ | Vacuity detection | `prove`, `core`, `farkas`, `compose`. The verdict stays PROVED; the flag travels in the certificate so `verify` repeats it later. |
-| ✅ | **Sweep levels: certified / reproducible / recorded** *(user feedback P0)* | Banner, counters and warnings say what a sweep established about its **predicate**, on PASS and REFUTED alike. |
-| ✅ | **Verdict vector + replay verification** *(user feedback P0)* | One code per evaluation plus a digest; `verify` re-runs the predicate and names the first item that disagrees. |
-| ✅ | **Honest counters** *(user feedback P0)* | `predicate_uncertified` used to read 0 on every passing sweep however many evaluations went unchecked. |
-| ✅ | **Symmetries for `DomainSpec`** *(user feedback P1)* | `canonicalize=` reports labelled count, orbit count and a representative per orbit — for the **counterexamples**, which is the question. `verify` checks the decomposition adds up. |
-| ✅ | **Standard reducers** *(user feedback P1)* | `reduce="auto" / "sets" / "sequences" / "decrement" / "graphs" / "masks"`. `auto` refuses on a type it does not know rather than inventing a reduction. |
-| ✅ | **`certo doctor`** *(user feedback P1)* | Capabilities present and missing, each with **what happens without it**, plus `--register-mcp` (merges, never replaces) and a real start check. |
-| ✅ | **`g6` → `id` in the payload** *(user feedback P1)* | A `DomainSpec` used to label triples of sets "graph6". Readers still accept `g6`, so earlier certificates verify. |
-| ✅ | `load_spec` runs the bytes it hashed | Was reading stale `__pycache__` bytecode for a spec edited within the same second to the same length — which would have silently defeated replay verification. |
-| ✅ | A spec can import a sibling file *(user feedback)* | `load_spec` puts the spec's directory on `sys.path`, the way Python does for a script. |
-| ✅ | MCP `verify` returns its warnings | It was dropping them entirely — and the warnings are the whole honesty layer. |
-| ✅ | MCP stamps provenance | Certificates produced over MCP carried no spec path, so they could not be replayed or found by `ledger verify`. |
-| ✅ | `Path("")` is `.` | `shrink_graph` and `shrink_domain` verification died with a permission error instead of saying the certificate recorded no spec path. |
-| ✅ | **Native combinatorial types** *(user feedback P2)* | `SetFamily` — hypergraphs, designs, codes, mask systems. Supplies `key()`, `canonical()` and `reductions()` itself, so a `DomainSpec` over one leaves all three at `"auto"`. The canonical form is exact and **raises** rather than falling back to an invariant that could merge two orbits. |
-| ✅ | **`certo induct`** *(P2)* | Base cases + step, with the join checked: no gap in `k0..base_upto`, and the step starting no later than the base ends. Z3 has no induction schema; the principle is applied here and said so on every verification. |
-| ✅ | **Symmetries on graph sweeps** *(P2)* | `SweepSpec(canonicalize=...)`, for a symmetry finer than isomorphism. `"auto"` asks the item for its own canonical form. |
-| ✅ | **`sweep --by-orbit`** *(P1)* | Evaluate one item per orbit. Sound only under an invariance nothing can prove, so it is named in the certificate AND spot-checked against real non-representatives; a predicate that is not invariant stops the run by name. |
-| ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
-| ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
-| ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
-| ✅ | **`certo order`** *(user feedback)* | The exponent of a parameter once magnitudes are substituted. Asks what `prove` cannot: a Θ(1) term is not infeasible, so a solver says "satisfiable" forever while the bound never improves. Found four bugs in a user's session before it existed. |
-| ✅ | **Branch and bound with certified leaves** *(0.4, P1)* | `mixed --prove-optimal`. Every leaf closed by an exact dual, a Farkas ray, or a fully-fixed residual LP; the tree checked to COVER the integer domain. Turned `ν = 7` from a design into the proved optimum on the research instance, in 73 nodes. |
-| ✅ | **`farkas_ray`: LP infeasibility with a certificate** *(0.4)* | `y >= 0`, `A^T y >= 0`, `b.y < 0`. Three dot products, no solver. |
-| ✅ | **`PackingSpec.lists` and `opt --gap`** *(0.4, P1)* | The shape 51 of 131 corpus scripts share, in three lines; and `mu* - nu` as one exact rational with both sides certified and checked to be the same packing. |
-| ✅ | **`--by-orbit` for graph sweeps** *(0.4, P1)* | Both sweep payloads are now symmetric, which is what made it urgent before the freeze. |
-| ✅ | **`examples/WALKTHROUGH.md`** *(0.4)* | One problem, end to end. |
-| ✅ | **MILP levels named, `--freeze`, `opt --target`, per-kind packing integrality** *(user feedback, 2nd round)* | The taxonomy the user asked for — feasible / conditional_optimum / global_optimum — plus taking the skeleton from their own solver, certifying a target rather than an optimum, and whole-or-fractional per item kind. |
-| ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
-| ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
-| ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
-| ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
-| ✅ | **`certo repro`** *(P1)* | Spec, certificates, versions, hashes and ledger in one directory a referee checks with nothing but certo. Nothing invalid goes in, and nothing untied goes in quietly — a bundle that silently shipped a different spec would be the worst failure available. Measured on a real directory: 132 certificates, 5 refused with reasons, 6 named as untied, and the bundle re-verified end to end. |
-| ✅ | **Adversarial verification tests** *(P1)* | Every kind, every payload field mutated, and a mutation that flips no check is the finding. Three real holes: a Pratt tree never tied to the number it claimed (2³¹−1 relabelled as 2³¹ verified), an `lp_dual` accepting a primal one entry short because `zip` truncates in silence, and an `unsat_core` with multipliers never reading its own `core_smt2`. Exclusions are named with reasons, in two categories — descriptive, and weakening, since a smaller true claim is not a forgery. |
-| ✅ | **`verify --spec` and `certo --version`** *(user feedback P1)* | Refuse unless the file is the one the certificate was made from, by hash; and print version, commit and the newest schema this build writes. |
-| ✅ | **`cover --optimize` and `CoverSpec.to_lp`** *(user feedback P1)* | Three numbers with their statuses attached: your cover as a certified upper bound, the relaxation as an exact rational lower bound, and the integer optimum when branch and bound finishes. `candidates` required and refused rather than guessed, because minimal-relative-to-what is a modelling fact. Built for a misreading: a valid cover reported as an optimal one. |
-| ✅ | **An exact rational simplex** | Surfaced by the above. Deriving a degenerate dual by choosing which tight rows carry weight is C(49,7) on a realistic exact cover, about 10^8 — right for a handful of tight rows and hopeless past it. Past that the dual is solved outright, two-phase, Bland's rule, no floats. The motivating instance came back `exact: False` and is certified now. |
-| ✅ | **`certo order` shipped and nobody found it** *(user feedback P1)* | Not a missing feature: a discovery failure, which is worse, because the work was done and did not reach anyone. `asymptotics` and `decays` as aliases, a help line that leads with "does this DECAY in n", `certo commands` putting the question-to-command table in the terminal, and a `lint` note that names the command when a claim divides by a product of symbols. The last has a narrow trigger — two or more symbols at negative exponent — and fires zero times across the shipped examples. |
-| ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
-| ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
-| ✅ | **`parametric` for cover programs** | `sense="min"` with `>=` rows, bounding from BELOW out of a feasible packing, and dual entries that may be polynomials because a cover's dual grows with the instance. Forced by three separate write-ups of one argument, all of which reduce to a symmetrised cover over edge orbits and all of which state the value as a minimum of named closed forms. Two branches of a two-orbit program and one branch of a four-orbit program are now certificates; each is EXACT against an exact rational simplex on its branch (49 and 343 points). The branch conditions come out as the dual's own feasibility. |
-| ✅ | **`certo exists`: non-existence, with a refutation** *(P1)* | certo could exhibit a cover and not say "none exists". A paper in the corpus states two obstructions -- divisible graphs with no triangle decomposition -- and the honest artefact for a finite non-existence is a refutation, not an absence. The CDCL and DRAT machinery was already here with no way to reach it from a combinatorial question; this is the bridge. Two answers, both certificates: a model is a SUGGESTION whose parts go through `cover`'s own counting verifier, and a refutation is a DRAT proof checked by unit propagation. Both obstructions verify, and the encoder is not vacuously unsatisfiable -- K7 and K9 come back with decompositions. `--max-parts` found that pairwise "at most k of n" is C(n, k+1): 6,724,520 clauses at 35 candidates and a cap of 6, now 667 with a sequential counter. |
-| ✅ | **`certo family`: the largest of many LPs** *(P2)* | From a script in the corpus: enumerate every bipartition, solve one LP each in floats, take the largest, re-solve just that one exactly. That confirms the winner and leaves the claim unmade -- "no bipartition does better" is about all 16,384 of them. Two claims and they are not symmetric: the winner is ATTAINED by a primal and dual that meet, every other item is BOUNDED by a feasible dual, and a dual does not have to be optimal to bound. Nothing stores an LP; each is rebuilt from the spec, so a dual for a different item does not fit and `verify` needs the spec and fails loudly without it. |
-| ✅ | **`certo ratio`: a fraction inequality for every n** *(P3)* | `(n-2)/n^2 <= 1/n` for n >= 2 and its cousins, which `prove` settles with an unsat core that re-checks by running a solver again. Clearing the denominators makes it the shift test, and the step that can go wrong -- clearing them -- is the step that gets checked: a denominator not shown positive is a refusal, because a negative one flips the inequality and makes the certificate backwards. `>=` is not offered, being the same claim with the sides swapped. |
-| ✅ | **`certo moment`: the first moment, exactly** *(P3)* | The probabilistic method in one line, and the line is a sum of rationals -- usually done in floating point, where `0.9999999` and `1.0000001` have both been written down as "less than one". Two shapes: by event (linearity, no independence needed) and by tail (masses as successive differences, which is the shape the active corpus work states). The existence conclusion is drawn only when the quantity is declared a COUNT, and `verify` re-earns that rather than believing the flag. |
-| ✅ | **`certo entry`: the first crossing, and its window** *(P3)* | A proof walks a finite path and stops at the first index past a line. The claim that goes wrong is not "it crosses" but "it had not crossed yet". The prefix is the whole evidence -- nothing past the crossing is part of either claim, so the tail never travels. A step bound buys the WINDOW: the step before was on the near side, so the crossing overshoots by at most delta. |
-| ✅ | **A dedup you can check: `labelling=`** *(P2)* | `canonicalize` hands over a FORM and asks to be believed, so "these forty are the same object" was the spec's claim and a certificate could only check that the decomposition's arithmetic held together. `labelling` hands over the PERMUTATION: certo applies it, the result is the canonical form, and the permutation travels so anyone can re-apply it. The claim becomes an arithmetic fact. No cap, because nothing is searched -- the instance that motivated the whole item, a vertex-transitive object certo's own canonical form refuses outright, deduplicates 40 labelled copies to 1 orbit with 40 witnesses, all re-applied on verification. What it still does NOT show -- that two DIFFERENT representatives are different objects -- is a warning rather than an implication. Declaring both is refused: one asks to be believed, the other to be checked. |
-| ✅ | **A `SetFamily` id was ambiguous past ten points** | Found by the above, when the witness decoder refused to round-trip. `key` juxtaposed point numbers, which is unambiguous only while a point is one digit: on fifteen points `{1,2,13}` and `{12,13}` both read as `1213`, so two DIFFERENT families shared an id and `from_key` returned a third family. The id is the dedup key and what lands in a certificate. Ids separate their points above ten now and are byte-identical at or below it, which is every id any stored certificate contains. |
-| ✅ | **A branch-and-bound tree tied to its own problem** *(user feedback P1)* | The item was compression and a `--fully-checkable` mode. Measuring it found something else first: a node's dual was a whole nested certificate checked ON ITS OWN TERMS, and a dual for a node's relaxation is a valid dual for SOME linear program with nothing saying which node. Exchanging two node certificates verified -- so an expensive subtree could be closed by a cheap one's, and "no design does better", the strongest thing certo says, was not established. Each node's program is DERIVED now, from a root system carried once and the node's own fixings, by the same function the producer uses. The compression and the mode came free: node data fell from ~33,654 bytes to 880 on a 98-row instance, ~150-176 bytes per node on branching trees, and `solver_free` is COMPUTED and comes back true -- every node closes by exact rational arithmetic. Certificates written before the root system existed still verify, with a warning naming exactly what they do not establish. `branch_bound` was also missing from the adversarial suite entirely, which is how the hole survived; it is in it now, and nested sub-certificates are mutated in their payload rather than their schema number. |
-| ✅ | **`certo peak`** *(P1)* | The best INTEGER choice for a family of concave quadratics. A write-up completes the square, says the objective is an integer at integer argument, and concludes the maximum is the FLOOR of the continuous peak -- and the floor of a parametric expression is not a polynomial, so there is nothing to expand. Moving the origin to the claimed maximiser makes it polynomial: an integer step changes the objective by `A t^2 + q'(x*) t`, non-positive for every non-zero integer `t` exactly when `A <= q'(x*) <= -A`. Two inequalities, checked by shift, no floor and no residue inside the certificate. The bound is ATTAINED because `x*` is an integer, so a non-integral maximiser is refused rather than assumed integral. Residue classes are separate specs, the way branches are. Matches brute force on three classes for every n < 180. |
-| ✅ | **`parametric` past the box: `region=`** *(P1)* | The shift proves non-negativity on a ray, so a certificate covers a BOX -- and a branch cut out by `q d + d r = d(d-1) + r(r-1)` is not one. Side conditions are now DECLARED: `g(p) >= 0` enters the certificate's scope, nothing proves it, and `verify` warns separately and loudly because a polynomial condition reads like something proved. certo finds the MULTIPLIERS, since that search is a linear program -- polynomial ones, because the multiplier of a condition is `r/2` as often as it is a number. A trichotomy that two boxes covered 68% of now takes five certificates and covers 1170 of 1170 measured points, every bound exact against the simplex. |
-| ✅ | **The exact simplex could return a `y` violating its own constraints** | Found by the above, silently. Dependent rows -- one per monomial of a polynomial identity, so dependent by construction -- end phase 1 with an artificial basic at level zero, and the transition renamed it to variable index 0, which is a real variable. That states a false tableau; the answer came back wrong or as a spurious "unbounded". Artificials are now pivoted out on a real column, and a row with no real column left is dropped as redundant. Not a soundness hole anywhere it was used -- every caller re-checks what the simplex hands back -- but it was losing answers and would have gone on doing it. |
-| ✅ | **A named square is a legitimate hint** | `farkas --nonlinear` searches a fixed square set -- each hypothesis squared, `x²`, `(x-y)²` -- and a margin estimate that completes the square as `(2s-q)²` or `12(u-v/4)²` is outside it, so the heuristic missed and said so. It did not need a feature: a square is a tautology, so assuming one adds a row without adding an assumption. Three comparisons from one write-up now close solver-free, with multipliers `1/16` and `1/48` that are the source's own arithmetic read back. Documented, because the mechanism existed and nobody could have guessed it. |
-| ✅ | **A `>=` load priced at zero** *(user feedback P1)* | Same root cause, other consumer. Now `d(optimum)/d(bound)`, summed over the normalised rows with their signs — negative for a binding `>=`, because raising a floor costs you — with the direction stated and the source rows in the payload. |
-| ✅ | **Minimisation in branch and bound** *(user feedback P1)* | Refusing it left the user negating by hand and their certificate describing a formulation nobody posed. The tree still searches `max -c.x` because that is what happens, and the payload records both what was searched and what was asked. |
-| ✅ | **`--wall-timeout-ms`, and a stopped search that reports** *(user feedback P1)* | `--timeout-ms` bounds a solver call, not the search. On expiry by clock or nodes: best design, best bound, gap, node count, and no certificate of optimality. A search that runs out always knew all four. |
-| ✅ | **A solver's stop reason, in words** *(user feedback)* | z3 says "canceled", which reads as if the user cancelled it. Now named as the limit it was, with the lever to raise and a hint about dividing out a common power — which in the report turned a 10 s timeout into 12 ms. |
-| ✅ | **`certo cover`: exact covers and clique partitions** | Every element of a universe in exactly one part, checked by counting; with `cliques=True` the parts are vertex sets and each is refused unless every pair among them is an edge. Three failures reported as three different things, because a non-clique part is a statement about the graph and a doubled edge is one about the cover. An upper bound with an artefact attached: pair it with `opt`'s exact dual for the lower one. |
-| ✅ | **Local loads in a packing certificate** *(user feedback P1)* | Named regions with bounds, declared apart from resource capacities because a capacity is part of the encoding and a load is part of the argument. They become rows, so the dual prices them: a binding region reports its shadow price, a slack one reports that it is not what constrains the answer. The certificate carries each load's coefficients so `verify` recomputes the achieved value rather than believing it. Built to the shape of the corpus model, `within-A load <= N_A`. |
-| ✅ | **`certo parametric`: a bound for every parameter value** *(P1)* | Weak duality, symbolically: `y >= 0` with `A(p)ᵀy >= c(p)` bounds `opt(p)` for every `p` at once, and each dual-feasibility row is certified on a ray by substituting `p = p0 + u` and reading the coefficient signs. Turns "checked for p = 5..12" into "holds for every p >= 10". Built against the corpus instance whose duals are piecewise constant with thresholds; on a reproduced slice one dual read at p = 10 gives the EXACT optimum at 10, 11, 15 and 30. The shift is sufficient and not necessary, so a failure emits no certificate and says the route failed rather than that the bound is false. |
-| ✅ | **`certo eliminate`: resultants** *(P2)* | Removes a variable from two polynomials and returns the condition on the rest, with the Bezout identity `Res = A*f + B*g` attached — so checking a determinant over a polynomial ring is expanding two products. Bareiss throughout, every division verified exact rather than assumed. A non-zero constant resultant refutes a common root over any field; `Res = 0` is necessary always and sufficient only over an algebraically closed field with a non-vanishing leading coefficient, which `verify` repeats and qualifies. |
-| ✅ | **Derive the LP dual instead of reconstructing it** *(user feedback P1)* | 3 of 56 exact LPs needed the rational pair injected by hand, all on symmetric solutions: on a degenerate vertex CBC returns an arbitrary one of many optimal duals and rounding it need not be dual-feasible. Complementary slackness determines the dual from the primal in exact `Fraction`, and where it underdetermines it the choices ARE the optimal duals. Certifies now with no usable dual from the solver at all. The second cause this item claimed — a coupled denominator ladder — was **measured and refuted**; that pass was dropped rather than shipped. |
-| ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
-| ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
-| ✅ | **`export --lean` for `unsat_core`** *(user feedback)* | The kind the most-used command produces used to be refused. Linear arithmetic gets real binders, hypotheses and a positively stated goal with `sorry`; a vacuous core becomes `h₁ → … → False`, the emptiness of the regime stated in Lean. The sort is read off the formulas. Everything else carries the SMT-LIB2 and says so. |
-| ✅ | **`--check` had never compiled anything** | A relative path against a cwd inside the Lean project; lake reported "no such file or directory" and it surfaced as a compile failure. Found because the lean CI job, fixed in the same round, finally got far enough to run it. |
-| ✅ | **A fractional "integral point" verified as valid** *(user feedback)* | `_verify_lp_dual` checked the declared integral point for feasibility and for matching its objective, and never that the values were integers: `x = 3/2` passed. Now checked per DECLARED KIND, so a mixed problem's continuous weights stay fractional on purpose. `mixed_design` had it right all along; `lp_dual`, which `opt` produces, did not. |
-| ✅ | **`certo status`** *(P1)* | Reads a directory of certificates and reports where the work stands: RESULTS (nothing else builds on them), STILL OWED (every bridge and unclaimed optimality, including ones three levels down), HOLLOW (vacuous proofs with their clash named, sweeps that certified nothing), STALE (the spec moved under the certificate). Emits no certificate of its own: it makes no claim. |
-| ✅ | **`certo lint`** *(P1)* | The dry pass before the compute. Contradictory hypotheses found BEFORE the proof rather than after a valid-and-empty win; an inductive step that starts after the base cases end, caught by comparing two integers instead of discharging six sweeps; a `bool` predicate named as `reproducible` in advance. Counts a domain without materialising it and reads a graph family's size from a table. |
-| ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
+| **P0** | The exported theorem must be the certificate's claim | *the other half of the hollow-export finding* |
+| **P1** | Typed transport: which object does this certificate speak about | *named by two users and load-bearing here* |
+| **P1** | Certified symmetry reduction | |
+| **P1** | Does this hypothesis earn its place | |
+| **P1** | Integer arithmetic to a real Lean theorem, and to `omega` | |
+| **P2** | Exact integer linear algebra: determinant, rank, minors, Smith, Hermite | *the only item two routes share* |
+| **P2** | Affine semigroups and local toric charts | |
+| **P2** | Chow ring and toric intersection | |
+| **P2** | A canonical form that scales, on its own | |
 
----
-
-## Decisions taken
-
-Recorded so they do not get re-litigated, and so the priorities below can be
-read as following from something.
-
-| | Decision | Consequence |
-|---|---|---|
-| **PyPI** | Not yet. Revisit at a stable version. | Installation stays `git clone` + `pip install -e`. No release workflow to maintain, and payload changes stay cheap until then. |
-| **Certificate schema** | **Frozen from 0.4**, once that version closes. | Until 0.4 ships, payload fields may still move (readers keep accepting the old shapes). From 0.4 a payload change needs a schema bump and a migration note. Anything produced for a paper before then should be re-run after 0.4. |
-| **Lean** | Deeper Lean is **not the focus**. certo helps establish the mathematics; a separate tool generates and compiles the Lean. | P1 "Lean statements, not only structure" drops to P3. What stays is the export as it is -- data, `linarith` examples with their hints, and the theorem/bridge boundary -- because those are the *mathematical* content, not a formalisation. Revisit if the handoff turns out to lose something. |
-| **Admin rights** | Not available on this machine, and not coming. | `cadical` / `kissat` moves from Blocked to Closed. The built-in CDCL is the answer: correct, and slow. `certo doctor` says so in one line. |
-| **Real instances** | Supplied: the Erdős 81 working corpus. | See below -- one instance has already been used, and it found a bug. |
-
----
-
-## What the first real instance found
-
-The research corpus is dominated by one computational shape: **51 of 131
-scripts build an LP or ILP over a family of lists with exact rationals.** A
-"list" is a set of colours; the packing puts a pair `{a,b}` from list `j` into
-a solution, each pair usable once globally and each `(list, colour)` once. That
-is a `PackingSpec` exactly, and the quantities computed are the integral
-optimum `ν` and the fractional `μ*` -- the integrality gap.
-
-Rebuilt as a certo packing, the canonical core instance reproduces their
-numbers: `ν = 7`, `μ* = 15/2`. Two differences worth having: `μ*` comes out as
-an **exact rational** rather than the float `7.5`, and the dual verifies
-without a solver, reading as a load per resource.
-
-**And it found a bug.** `opt` on an ILP reported the relaxation's value as
-`meta["objective"]` -- so `ν = 7` came back as `15/2`. The detail text was
-half-honest about it; every programmatic reader was not. Fixed in a way that
-is better than the original intent: an ILP now certifies **both sides** -- a
-feasible integral point, rounded and checked exactly, as the achievable value,
-and the exact dual as the bound. When they coincide the integer optimum is
-certified exactly; when they do not, the gap is reported rather than hidden.
-
-That is the argument for real instances in one paragraph, and it is why the
-items below still say "build against a real problem".
-
-
-### A note on the README
-
-Rewritten twice on 2026-09-17, for two different reasons, and the second one
-is the interesting one.
-
-The first pass replaced an abstract opening with three real sessions. The
-second replaced those, because all three showed the SAME PHASE of the tool:
-catch a false claim, catch a vacuous one, hand over an artefact. The tagline
-said "certo tries to break it", which is a mode and not a summary. Nothing on
-the front page showed it FINDING anything, measuring how much a thing fails
-rather than whether, or collapsing ninety counterexamples into the two objects
-they actually are.
-
-It now leads with **the arc** — find, break, measure, reduce, establish,
-assemble — as a table, and then one session per phase. The through-line is the
-last column of that table rather than the verb in the tagline: every phase
-returns something re-checkable, and that is the claim worth making.
-
-Worth recording as a lesson rather than a changelog entry: a front page
-written by whoever built the tool will over-represent whatever they worked on
-most recently. Three sessions all drawn from the honesty layer looked like
-coverage and were not.
-
-Every block of output on both front pages is copied from a run. Two were wrong
-when first checked, including one claiming a `branch_bound` certificate
-verifies *without* a solver. It does not.
-
-
-## What changed the ranking, again
-
-Reordered 2026-09-17, after reports from two users on two different routes and
-one measurement of my own. They agree in a way none of them could see alone.
-
-**A Lean export that compiles, has no `sorry`, and says nothing.** A user
-exporting an `unsat_core` over a theory certo cannot render in Mathlib got
-
-    theorem from_core : True := by trivial
-
-with the real statement carried verbatim in a comment above it. The comment is
-honest. The artefact is not: it passes a build, it passes a `sorry` audit, it
-passes `#print axioms`. The user declined to put it in their formal chain,
-which was right, and which means the safeguard that worked was a person
-reading carefully -- exactly the safeguard this project exists to replace.
-
-certo already has the word for this. `status` reports HOLLOW for a vacuous
-proof. Not applying it to certo's own output is the same inconsistency as a
-certificate its own verifier rejects, and it is now P0.
-
-**"The biggest risk is not in the calculations."** A second user, on a toric
-geometry route, named it directly: the danger is silently moving from a
-computational object to the paper's object. They asked for a TYPED TRANSPORT
-GRAPH -- every certificate declares which object it speaks about (cone,
-monoid, ring, spectrum, model) and every step between levels carries an
-explicit map.
-
-**And it is already load-bearing here.** Five examples written this week start
-from a symmetrised program -- "averaging over the automorphism group, an
-optimal cover may be assumed constant on each edge orbit" -- and certo
-certifies everything downstream of that sentence and nothing about it. The
-averaging argument has three hypotheses, all of them finite checks given
-generators: the action permutes the variables, the constraint set is
-invariant, the objective is invariant.
-
-Three observations, one item. The calculations were never the weak part.
-
-**What both users want that is the same substrate.** One asked for exact
-determinants, rank, minors, Smith and Hermite normal forms, polytopes and
-fans. The other asked for affine semigroups, toric charts and a Chow ring.
-The second is built on the first. That makes exact integer linear algebra the
-highest-value MATHEMATICAL item, because it is the only one two routes share.
-
-**And the boundary, which one of them stated better than this file did:**
-certo should not become a second Lean. It produces finite, explicit,
-verifiable certificates; Lean proves the structural theorems and does the
-geometric transport. That is now the stated policy rather than an implication.
+Everything below P3 is waiting on something above it, or on somebody asking.
+The history -- what landed, what was decided, what the first real instance
+found -- is at the end, because it is the part that does not change.
 
 ---
 
 ## P0 — a defect that has shipped
 
-### 1. A hollow export must say it is hollow
-
-`theorem from_core : True := by trivial` is emitted whenever the statement
-cannot be rendered in Mathlib. Three changes, and none of them is the hard
-one:
-
-* **emit `sorry`, not `trivial`.** A placeholder that closes itself is
-  invisible to every audit a formalisation project runs. One that does not
-  close shows up in all of them.
-* **name it as a placeholder** -- a theorem called `from_core` reads as a
-  result; one called `from_core_PLACEHOLDER` does not get cited by accident.
-* **`export --check` must report HOLLOW**, not OK. It compiles; that was never
-  the question.
-
-### 2. The exported theorem must be the certificate's claim
+### 1. The exported theorem must be the certificate's claim
 
 A separate check, and the one with teeth: whatever Lean statement comes out
 has to correspond to the hypotheses and goal the certificate actually
@@ -352,6 +162,204 @@ Everything in P2 is chosen to feed that first arrow. Nothing in it is an
 attempt at the last three.
 
 ---
+
+## What changed the ranking, again
+
+Reordered 2026-09-17, after reports from two users on two different routes and
+one measurement of my own. They agree in a way none of them could see alone.
+
+**A Lean export that compiles, has no `sorry`, and says nothing.** A user
+exporting an `unsat_core` over a theory certo cannot render in Mathlib got
+
+    theorem from_core : True := by trivial
+
+with the real statement carried verbatim in a comment above it. The comment is
+honest. The artefact is not: it passes a build, it passes a `sorry` audit, it
+passes `#print axioms`. The user declined to put it in their formal chain,
+which was right, and which means the safeguard that worked was a person
+reading carefully -- exactly the safeguard this project exists to replace.
+
+certo already has the word for this. `status` reports HOLLOW for a vacuous
+proof. Not applying it to certo's own output is the same inconsistency as a
+certificate its own verifier rejects, and it is now P0.
+
+**"The biggest risk is not in the calculations."** A second user, on a toric
+geometry route, named it directly: the danger is silently moving from a
+computational object to the paper's object. They asked for a TYPED TRANSPORT
+GRAPH -- every certificate declares which object it speaks about (cone,
+monoid, ring, spectrum, model) and every step between levels carries an
+explicit map.
+
+**And it is already load-bearing here.** Five examples written this week start
+from a symmetrised program -- "averaging over the automorphism group, an
+optimal cover may be assumed constant on each edge orbit" -- and certo
+certifies everything downstream of that sentence and nothing about it. The
+averaging argument has three hypotheses, all of them finite checks given
+generators: the action permutes the variables, the constraint set is
+invariant, the objective is invariant.
+
+Three observations, one item. The calculations were never the weak part.
+
+**What both users want that is the same substrate.** One asked for exact
+determinants, rank, minors, Smith and Hermite normal forms, polytopes and
+fans. The other asked for affine semigroups, toric charts and a Chow ring.
+The second is built on the first. That makes exact integer linear algebra the
+highest-value MATHEMATICAL item, because it is the only one two routes share.
+
+**And the boundary, which one of them stated better than this file did:**
+certo should not become a second Lean. It produces finite, explicit,
+verifiable certificates; Lean proves the structural theorems and does the
+geometric transport. That is now the stated policy rather than an implication.
+
+---
+
+## Done
+
+| | What landed | Notes |
+|---|---|---|
+| ✅ | `certo compose` | Lemmas + their certificates into one proof, with the **link** between each lemma and what its certificate closes checked. Bridges are declared and reported every verification. |
+| ✅ | `certo bounds` | Rigorous enclosures via Arb / `mpmath.iv`; exact-rational intervals; precision as the work budget; Python floats refused. |
+| ✅ | Vacuity detection | `prove`, `core`, `farkas`, `compose`. The verdict stays PROVED; the flag travels in the certificate so `verify` repeats it later. |
+| ✅ | **Sweep levels: certified / reproducible / recorded** *(user feedback P0)* | Banner, counters and warnings say what a sweep established about its **predicate**, on PASS and REFUTED alike. |
+| ✅ | **Verdict vector + replay verification** *(user feedback P0)* | One code per evaluation plus a digest; `verify` re-runs the predicate and names the first item that disagrees. |
+| ✅ | **Honest counters** *(user feedback P0)* | `predicate_uncertified` used to read 0 on every passing sweep however many evaluations went unchecked. |
+| ✅ | **Symmetries for `DomainSpec`** *(user feedback P1)* | `canonicalize=` reports labelled count, orbit count and a representative per orbit — for the **counterexamples**, which is the question. `verify` checks the decomposition adds up. |
+| ✅ | **Standard reducers** *(user feedback P1)* | `reduce="auto" / "sets" / "sequences" / "decrement" / "graphs" / "masks"`. `auto` refuses on a type it does not know rather than inventing a reduction. |
+| ✅ | **`certo doctor`** *(user feedback P1)* | Capabilities present and missing, each with **what happens without it**, plus `--register-mcp` (merges, never replaces) and a real start check. |
+| ✅ | **`g6` → `id` in the payload** *(user feedback P1)* | A `DomainSpec` used to label triples of sets "graph6". Readers still accept `g6`, so earlier certificates verify. |
+| ✅ | `load_spec` runs the bytes it hashed | Was reading stale `__pycache__` bytecode for a spec edited within the same second to the same length — which would have silently defeated replay verification. |
+| ✅ | A spec can import a sibling file *(user feedback)* | `load_spec` puts the spec's directory on `sys.path`, the way Python does for a script. |
+| ✅ | MCP `verify` returns its warnings | It was dropping them entirely — and the warnings are the whole honesty layer. |
+| ✅ | MCP stamps provenance | Certificates produced over MCP carried no spec path, so they could not be replayed or found by `ledger verify`. |
+| ✅ | `Path("")` is `.` | `shrink_graph` and `shrink_domain` verification died with a permission error instead of saying the certificate recorded no spec path. |
+| ✅ | **Native combinatorial types** *(user feedback P2)* | `SetFamily` — hypergraphs, designs, codes, mask systems. Supplies `key()`, `canonical()` and `reductions()` itself, so a `DomainSpec` over one leaves all three at `"auto"`. The canonical form is exact and **raises** rather than falling back to an invariant that could merge two orbits. |
+| ✅ | **`certo induct`** *(P2)* | Base cases + step, with the join checked: no gap in `k0..base_upto`, and the step starting no later than the base ends. Z3 has no induction schema; the principle is applied here and said so on every verification. |
+| ✅ | **Symmetries on graph sweeps** *(P2)* | `SweepSpec(canonicalize=...)`, for a symmetry finer than isomorphism. `"auto"` asks the item for its own canonical form. |
+| ✅ | **`sweep --by-orbit`** *(P1)* | Evaluate one item per orbit. Sound only under an invariance nothing can prove, so it is named in the certificate AND spot-checked against real non-representatives; a predicate that is not invariant stops the run by name. |
+| ✅ | **`sweep --witnesses`** *(user feedback P1)* | The structural story end to end: N labelled → K orbits → a minimal witness per orbit, in one certificate that verifies they came from the same run. |
+| ✅ | **`certo ideal`** *(0.3.0)* | Gröbner cofactors: `1 = Σ hᵢgᵢ` refutes a polynomial system, `f = Σ hᵢgᵢ` certifies what follows. Buchberger with the transformation tracked, so the cofactors are in the user's own generators. Decides, so a negative answer is conclusive. |
+| ✅ | **`certo sos`** *(0.3.0)* | Sums of squares: numeric search by alternating projections, exact rounding, exact LDLᵀ. Retracts this project's own earlier argument that SDP-based certificates could not be citable — the answer was `opt`'s all along. |
+| ✅ | **`certo order`** *(user feedback)* | The exponent of a parameter once magnitudes are substituted. Asks what `prove` cannot: a Θ(1) term is not infeasible, so a solver says "satisfiable" forever while the bound never improves. Found four bugs in a user's session before it existed. |
+| ✅ | **Branch and bound with certified leaves** *(0.4, P1)* | `mixed --prove-optimal`. Every leaf closed by an exact dual, a Farkas ray, or a fully-fixed residual LP; the tree checked to COVER the integer domain. Turned `ν = 7` from a design into the proved optimum on the research instance, in 73 nodes. |
+| ✅ | **`farkas_ray`: LP infeasibility with a certificate** *(0.4)* | `y >= 0`, `A^T y >= 0`, `b.y < 0`. Three dot products, no solver. |
+| ✅ | **`PackingSpec.lists` and `opt --gap`** *(0.4, P1)* | The shape 51 of 131 corpus scripts share, in three lines; and `mu* - nu` as one exact rational with both sides certified and checked to be the same packing. |
+| ✅ | **`--by-orbit` for graph sweeps** *(0.4, P1)* | Both sweep payloads are now symmetric, which is what made it urgent before the freeze. |
+| ✅ | **`examples/WALKTHROUGH.md`** *(0.4)* | One problem, end to end. |
+| ✅ | **MILP levels named, `--freeze`, `opt --target`, per-kind packing integrality** *(user feedback, 2nd round)* | The taxonomy the user asked for — feasible / conditional_optimum / global_optimum — plus taking the skeleton from their own solver, certifying a target rather than an optimum, and whole-or-fractional per item kind. |
+| ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
+| ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
+| ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **`certo repro`** *(P1)* | Spec, certificates, versions, hashes and ledger in one directory a referee checks with nothing but certo. Nothing invalid goes in, and nothing untied goes in quietly — a bundle that silently shipped a different spec would be the worst failure available. Measured on a real directory: 132 certificates, 5 refused with reasons, 6 named as untied, and the bundle re-verified end to end. |
+| ✅ | **Adversarial verification tests** *(P1)* | Every kind, every payload field mutated, and a mutation that flips no check is the finding. Three real holes: a Pratt tree never tied to the number it claimed (2³¹−1 relabelled as 2³¹ verified), an `lp_dual` accepting a primal one entry short because `zip` truncates in silence, and an `unsat_core` with multipliers never reading its own `core_smt2`. Exclusions are named with reasons, in two categories — descriptive, and weakening, since a smaller true claim is not a forgery. |
+| ✅ | **`verify --spec` and `certo --version`** *(user feedback P1)* | Refuse unless the file is the one the certificate was made from, by hash; and print version, commit and the newest schema this build writes. |
+| ✅ | **`cover --optimize` and `CoverSpec.to_lp`** *(user feedback P1)* | Three numbers with their statuses attached: your cover as a certified upper bound, the relaxation as an exact rational lower bound, and the integer optimum when branch and bound finishes. `candidates` required and refused rather than guessed, because minimal-relative-to-what is a modelling fact. Built for a misreading: a valid cover reported as an optimal one. |
+| ✅ | **An exact rational simplex** | Surfaced by the above. Deriving a degenerate dual by choosing which tight rows carry weight is C(49,7) on a realistic exact cover, about 10^8 — right for a handful of tight rows and hopeless past it. Past that the dual is solved outright, two-phase, Bland's rule, no floats. The motivating instance came back `exact: False` and is certified now. |
+| ✅ | **`certo order` shipped and nobody found it** *(user feedback P1)* | Not a missing feature: a discovery failure, which is worse, because the work was done and did not reach anyone. `asymptotics` and `decays` as aliases, a help line that leads with "does this DECAY in n", `certo commands` putting the question-to-command table in the terminal, and a `lint` note that names the command when a claim divides by a product of symbols. The last has a narrow trigger — two or more symbols at negative exponent — and fires zero times across the shipped examples. |
+| ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
+| ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
+| ✅ | **`parametric` for cover programs** | `sense="min"` with `>=` rows, bounding from BELOW out of a feasible packing, and dual entries that may be polynomials because a cover's dual grows with the instance. Forced by three separate write-ups of one argument, all of which reduce to a symmetrised cover over edge orbits and all of which state the value as a minimum of named closed forms. Two branches of a two-orbit program and one branch of a four-orbit program are now certificates; each is EXACT against an exact rational simplex on its branch (49 and 343 points). The branch conditions come out as the dual's own feasibility. |
+| ✅ | **`certo exists`: non-existence, with a refutation** *(P1)* | certo could exhibit a cover and not say "none exists". A paper in the corpus states two obstructions -- divisible graphs with no triangle decomposition -- and the honest artefact for a finite non-existence is a refutation, not an absence. The CDCL and DRAT machinery was already here with no way to reach it from a combinatorial question; this is the bridge. Two answers, both certificates: a model is a SUGGESTION whose parts go through `cover`'s own counting verifier, and a refutation is a DRAT proof checked by unit propagation. Both obstructions verify, and the encoder is not vacuously unsatisfiable -- K7 and K9 come back with decompositions. `--max-parts` found that pairwise "at most k of n" is C(n, k+1): 6,724,520 clauses at 35 candidates and a cap of 6, now 667 with a sequential counter. |
+| ✅ | **`certo family`: the largest of many LPs** *(P2)* | From a script in the corpus: enumerate every bipartition, solve one LP each in floats, take the largest, re-solve just that one exactly. That confirms the winner and leaves the claim unmade -- "no bipartition does better" is about all 16,384 of them. Two claims and they are not symmetric: the winner is ATTAINED by a primal and dual that meet, every other item is BOUNDED by a feasible dual, and a dual does not have to be optimal to bound. Nothing stores an LP; each is rebuilt from the spec, so a dual for a different item does not fit and `verify` needs the spec and fails loudly without it. |
+| ✅ | **`certo ratio`: a fraction inequality for every n** *(P3)* | `(n-2)/n^2 <= 1/n` for n >= 2 and its cousins, which `prove` settles with an unsat core that re-checks by running a solver again. Clearing the denominators makes it the shift test, and the step that can go wrong -- clearing them -- is the step that gets checked: a denominator not shown positive is a refusal, because a negative one flips the inequality and makes the certificate backwards. `>=` is not offered, being the same claim with the sides swapped. |
+| ✅ | **`certo moment`: the first moment, exactly** *(P3)* | The probabilistic method in one line, and the line is a sum of rationals -- usually done in floating point, where `0.9999999` and `1.0000001` have both been written down as "less than one". Two shapes: by event (linearity, no independence needed) and by tail (masses as successive differences, which is the shape the active corpus work states). The existence conclusion is drawn only when the quantity is declared a COUNT, and `verify` re-earns that rather than believing the flag. |
+| ✅ | **`certo entry`: the first crossing, and its window** *(P3)* | A proof walks a finite path and stops at the first index past a line. The claim that goes wrong is not "it crosses" but "it had not crossed yet". The prefix is the whole evidence -- nothing past the crossing is part of either claim, so the tail never travels. A step bound buys the WINDOW: the step before was on the near side, so the crossing overshoots by at most delta. |
+| ✅ | **A hollow Lean export says it is hollow** *(user feedback P0)* | A user exporting an `unsat_core` over a theory certo cannot render got `theorem from_core : True := by trivial` -- compiles, no `sorry`, passes `#print axioms`, states nothing. They declined to put it in their formal chain, which means the safeguard that worked was a person reading carefully. Three changes: a placeholder closes with **`sorry`** rather than `trivial`, so every audit a formalisation project already runs sees it; its name carries `_HOLLOW`, so it is not cited by accident; and `export --check` reports **HOLLOW** and exits non-zero instead of OK, because compiling was never the question. The manifest records the count per file. The route that WORKS -- linear arithmetic over the reals, with real binders and a positively stated goal -- is unmarked, which is what keeps the signal worth anything. |
+| ✅ | **A dedup you can check: `labelling=`** *(P2)* | `canonicalize` hands over a FORM and asks to be believed, so "these forty are the same object" was the spec's claim and a certificate could only check that the decomposition's arithmetic held together. `labelling` hands over the PERMUTATION: certo applies it, the result is the canonical form, and the permutation travels so anyone can re-apply it. The claim becomes an arithmetic fact. No cap, because nothing is searched -- the instance that motivated the whole item, a vertex-transitive object certo's own canonical form refuses outright, deduplicates 40 labelled copies to 1 orbit with 40 witnesses, all re-applied on verification. What it still does NOT show -- that two DIFFERENT representatives are different objects -- is a warning rather than an implication. Declaring both is refused: one asks to be believed, the other to be checked. |
+| ✅ | **A `SetFamily` id was ambiguous past ten points** | Found by the above, when the witness decoder refused to round-trip. `key` juxtaposed point numbers, which is unambiguous only while a point is one digit: on fifteen points `{1,2,13}` and `{12,13}` both read as `1213`, so two DIFFERENT families shared an id and `from_key` returned a third family. The id is the dedup key and what lands in a certificate. Ids separate their points above ten now and are byte-identical at or below it, which is every id any stored certificate contains. |
+| ✅ | **A branch-and-bound tree tied to its own problem** *(user feedback P1)* | The item was compression and a `--fully-checkable` mode. Measuring it found something else first: a node's dual was a whole nested certificate checked ON ITS OWN TERMS, and a dual for a node's relaxation is a valid dual for SOME linear program with nothing saying which node. Exchanging two node certificates verified -- so an expensive subtree could be closed by a cheap one's, and "no design does better", the strongest thing certo says, was not established. Each node's program is DERIVED now, from a root system carried once and the node's own fixings, by the same function the producer uses. The compression and the mode came free: node data fell from ~33,654 bytes to 880 on a 98-row instance, ~150-176 bytes per node on branching trees, and `solver_free` is COMPUTED and comes back true -- every node closes by exact rational arithmetic. Certificates written before the root system existed still verify, with a warning naming exactly what they do not establish. `branch_bound` was also missing from the adversarial suite entirely, which is how the hole survived; it is in it now, and nested sub-certificates are mutated in their payload rather than their schema number. |
+| ✅ | **`certo peak`** *(P1)* | The best INTEGER choice for a family of concave quadratics. A write-up completes the square, says the objective is an integer at integer argument, and concludes the maximum is the FLOOR of the continuous peak -- and the floor of a parametric expression is not a polynomial, so there is nothing to expand. Moving the origin to the claimed maximiser makes it polynomial: an integer step changes the objective by `A t^2 + q'(x*) t`, non-positive for every non-zero integer `t` exactly when `A <= q'(x*) <= -A`. Two inequalities, checked by shift, no floor and no residue inside the certificate. The bound is ATTAINED because `x*` is an integer, so a non-integral maximiser is refused rather than assumed integral. Residue classes are separate specs, the way branches are. Matches brute force on three classes for every n < 180. |
+| ✅ | **`parametric` past the box: `region=`** *(P1)* | The shift proves non-negativity on a ray, so a certificate covers a BOX -- and a branch cut out by `q d + d r = d(d-1) + r(r-1)` is not one. Side conditions are now DECLARED: `g(p) >= 0` enters the certificate's scope, nothing proves it, and `verify` warns separately and loudly because a polynomial condition reads like something proved. certo finds the MULTIPLIERS, since that search is a linear program -- polynomial ones, because the multiplier of a condition is `r/2` as often as it is a number. A trichotomy that two boxes covered 68% of now takes five certificates and covers 1170 of 1170 measured points, every bound exact against the simplex. |
+| ✅ | **The exact simplex could return a `y` violating its own constraints** | Found by the above, silently. Dependent rows -- one per monomial of a polynomial identity, so dependent by construction -- end phase 1 with an artificial basic at level zero, and the transition renamed it to variable index 0, which is a real variable. That states a false tableau; the answer came back wrong or as a spurious "unbounded". Artificials are now pivoted out on a real column, and a row with no real column left is dropped as redundant. Not a soundness hole anywhere it was used -- every caller re-checks what the simplex hands back -- but it was losing answers and would have gone on doing it. |
+| ✅ | **A named square is a legitimate hint** | `farkas --nonlinear` searches a fixed square set -- each hypothesis squared, `x²`, `(x-y)²` -- and a margin estimate that completes the square as `(2s-q)²` or `12(u-v/4)²` is outside it, so the heuristic missed and said so. It did not need a feature: a square is a tautology, so assuming one adds a row without adding an assumption. Three comparisons from one write-up now close solver-free, with multipliers `1/16` and `1/48` that are the source's own arithmetic read back. Documented, because the mechanism existed and nobody could have guessed it. |
+| ✅ | **A `>=` load priced at zero** *(user feedback P1)* | Same root cause, other consumer. Now `d(optimum)/d(bound)`, summed over the normalised rows with their signs — negative for a binding `>=`, because raising a floor costs you — with the direction stated and the source rows in the payload. |
+| ✅ | **Minimisation in branch and bound** *(user feedback P1)* | Refusing it left the user negating by hand and their certificate describing a formulation nobody posed. The tree still searches `max -c.x` because that is what happens, and the payload records both what was searched and what was asked. |
+| ✅ | **`--wall-timeout-ms`, and a stopped search that reports** *(user feedback P1)* | `--timeout-ms` bounds a solver call, not the search. On expiry by clock or nodes: best design, best bound, gap, node count, and no certificate of optimality. A search that runs out always knew all four. |
+| ✅ | **A solver's stop reason, in words** *(user feedback)* | z3 says "canceled", which reads as if the user cancelled it. Now named as the limit it was, with the lever to raise and a hint about dividing out a common power — which in the report turned a 10 s timeout into 12 ms. |
+| ✅ | **`certo cover`: exact covers and clique partitions** | Every element of a universe in exactly one part, checked by counting; with `cliques=True` the parts are vertex sets and each is refused unless every pair among them is an edge. Three failures reported as three different things, because a non-clique part is a statement about the graph and a doubled edge is one about the cover. An upper bound with an artefact attached: pair it with `opt`'s exact dual for the lower one. |
+| ✅ | **Local loads in a packing certificate** *(user feedback P1)* | Named regions with bounds, declared apart from resource capacities because a capacity is part of the encoding and a load is part of the argument. They become rows, so the dual prices them: a binding region reports its shadow price, a slack one reports that it is not what constrains the answer. The certificate carries each load's coefficients so `verify` recomputes the achieved value rather than believing it. Built to the shape of the corpus model, `within-A load <= N_A`. |
+| ✅ | **`certo parametric`: a bound for every parameter value** *(P1)* | Weak duality, symbolically: `y >= 0` with `A(p)ᵀy >= c(p)` bounds `opt(p)` for every `p` at once, and each dual-feasibility row is certified on a ray by substituting `p = p0 + u` and reading the coefficient signs. Turns "checked for p = 5..12" into "holds for every p >= 10". Built against the corpus instance whose duals are piecewise constant with thresholds; on a reproduced slice one dual read at p = 10 gives the EXACT optimum at 10, 11, 15 and 30. The shift is sufficient and not necessary, so a failure emits no certificate and says the route failed rather than that the bound is false. |
+| ✅ | **`certo eliminate`: resultants** *(P2)* | Removes a variable from two polynomials and returns the condition on the rest, with the Bezout identity `Res = A*f + B*g` attached — so checking a determinant over a polynomial ring is expanding two products. Bareiss throughout, every division verified exact rather than assumed. A non-zero constant resultant refutes a common root over any field; `Res = 0` is necessary always and sufficient only over an algebraically closed field with a non-vanishing leading coefficient, which `verify` repeats and qualifies. |
+| ✅ | **Derive the LP dual instead of reconstructing it** *(user feedback P1)* | 3 of 56 exact LPs needed the rational pair injected by hand, all on symmetric solutions: on a degenerate vertex CBC returns an arbitrary one of many optimal duals and rounding it need not be dual-feasible. Complementary slackness determines the dual from the primal in exact `Fraction`, and where it underdetermines it the choices ARE the optimal duals. Certifies now with no usable dual from the solver at all. The second cause this item claimed — a coupled denominator ladder — was **measured and refuted**; that pass was dropped rather than shipped. |
+| ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
+| ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
+| ✅ | **`export --lean` for `unsat_core`** *(user feedback)* | The kind the most-used command produces used to be refused. Linear arithmetic gets real binders, hypotheses and a positively stated goal with `sorry`; a vacuous core becomes `h₁ → … → False`, the emptiness of the regime stated in Lean. The sort is read off the formulas. Everything else carries the SMT-LIB2 and says so. |
+| ✅ | **`--check` had never compiled anything** | A relative path against a cwd inside the Lean project; lake reported "no such file or directory" and it surfaced as a compile failure. Found because the lean CI job, fixed in the same round, finally got far enough to run it. |
+| ✅ | **A fractional "integral point" verified as valid** *(user feedback)* | `_verify_lp_dual` checked the declared integral point for feasibility and for matching its objective, and never that the values were integers: `x = 3/2` passed. Now checked per DECLARED KIND, so a mixed problem's continuous weights stay fractional on purpose. `mixed_design` had it right all along; `lp_dual`, which `opt` produces, did not. |
+| ✅ | **`certo status`** *(P1)* | Reads a directory of certificates and reports where the work stands: RESULTS (nothing else builds on them), STILL OWED (every bridge and unclaimed optimality, including ones three levels down), HOLLOW (vacuous proofs with their clash named, sweeps that certified nothing), STALE (the spec moved under the certificate). Emits no certificate of its own: it makes no claim. |
+| ✅ | **`certo lint`** *(P1)* | The dry pass before the compute. Contradictory hypotheses found BEFORE the proof rather than after a valid-and-empty win; an inductive step that starts after the base cases end, caught by comparing two integers instead of discharging six sweeps; a `bool` predicate named as `reproducible` in advance. Counts a domain without materialising it and reads a graph family's size from a table. |
+| ✅ | **Deep Lean export** *(user feedback P1)* | A Farkas certificate becomes a runnable `linarith`/`nlinarith` example carrying the `sq_nonneg` hints it used; a `compose` proof becomes a skeleton with `sorry` on exactly the bridges; a sweep becomes a `List` Lean can `decide`. Plus `--manifest` (hashes) and `--check`, which compiles. All three verified against Mathlib v4.28.0. |
+
+---
+
+## Decisions taken
+
+Recorded so they do not get re-litigated, and so the priorities below can be
+read as following from something.
+
+| | Decision | Consequence |
+|---|---|---|
+| **PyPI** | Not yet. Revisit at a stable version. | Installation stays `git clone` + `pip install -e`. No release workflow to maintain, and payload changes stay cheap until then. |
+| **Certificate schema** | **Frozen from 0.4**, once that version closes. | Until 0.4 ships, payload fields may still move (readers keep accepting the old shapes). From 0.4 a payload change needs a schema bump and a migration note. Anything produced for a paper before then should be re-run after 0.4. |
+| **Lean** | Deeper Lean is **not the focus**. certo helps establish the mathematics; a separate tool generates and compiles the Lean. | P1 "Lean statements, not only structure" drops to P3. What stays is the export as it is -- data, `linarith` examples with their hints, and the theorem/bridge boundary -- because those are the *mathematical* content, not a formalisation. Revisit if the handoff turns out to lose something. |
+| **Admin rights** | Not available on this machine, and not coming. | `cadical` / `kissat` moves from Blocked to Closed. The built-in CDCL is the answer: correct, and slow. `certo doctor` says so in one line. |
+| **Real instances** | Supplied: the Erdős 81 working corpus. | See below -- one instance has already been used, and it found a bug. |
+
+---
+
+## What the first real instance found
+
+The research corpus is dominated by one computational shape: **51 of 131
+scripts build an LP or ILP over a family of lists with exact rationals.** A
+"list" is a set of colours; the packing puts a pair `{a,b}` from list `j` into
+a solution, each pair usable once globally and each `(list, colour)` once. That
+is a `PackingSpec` exactly, and the quantities computed are the integral
+optimum `ν` and the fractional `μ*` -- the integrality gap.
+
+Rebuilt as a certo packing, the canonical core instance reproduces their
+numbers: `ν = 7`, `μ* = 15/2`. Two differences worth having: `μ*` comes out as
+an **exact rational** rather than the float `7.5`, and the dual verifies
+without a solver, reading as a load per resource.
+
+**And it found a bug.** `opt` on an ILP reported the relaxation's value as
+`meta["objective"]` -- so `ν = 7` came back as `15/2`. The detail text was
+half-honest about it; every programmatic reader was not. Fixed in a way that
+is better than the original intent: an ILP now certifies **both sides** -- a
+feasible integral point, rounded and checked exactly, as the achievable value,
+and the exact dual as the bound. When they coincide the integer optimum is
+certified exactly; when they do not, the gap is reported rather than hidden.
+
+That is the argument for real instances in one paragraph, and it is why the
+items below still say "build against a real problem".
+
+
+### A note on the README
+
+Rewritten twice on 2026-09-17, for two different reasons, and the second one
+is the interesting one.
+
+The first pass replaced an abstract opening with three real sessions. The
+second replaced those, because all three showed the SAME PHASE of the tool:
+catch a false claim, catch a vacuous one, hand over an artefact. The tagline
+said "certo tries to break it", which is a mode and not a summary. Nothing on
+the front page showed it FINDING anything, measuring how much a thing fails
+rather than whether, or collapsing ninety counterexamples into the two objects
+they actually are.
+
+It now leads with **the arc** — find, break, measure, reduce, establish,
+assemble — as a table, and then one session per phase. The through-line is the
+last column of that table rather than the verb in the tagline: every phase
+returns something re-checkable, and that is the claim worth making.
+
+Worth recording as a lesson rather than a changelog entry: a front page
+written by whoever built the tool will over-represent whatever they worked on
+most recently. Three sessions all drawn from the honesty layer looked like
+coverage and were not.
+
+Every block of output on both front pages is copied from a run. Two were wrong
+when first checked, including one claiming a `branch_bound` certificate
+verifies *without* a solver. It does not.
+
 
 ## Closed
 

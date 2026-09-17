@@ -1326,6 +1326,44 @@ async def doctor() -> dict:
 
 
 @mcp.tool(description=(
+    "ASK: one entry point. Give it a spec file and it runs whatever command "
+    "that spec's TYPE asks for, reporting which one it chose so the answer "
+    "stays traceable to a command you can run directly. Use it when you have "
+    "already written the spec and do not want to pick between thirty-four "
+    "commands -- a RatioSpec is a ratio question, a PeakSpec is a peak "
+    "question, and the choice was never a choice. It refuses rather than "
+    "guessing when the command needs a decision it cannot make for you, such "
+    "as whether you want integer optimality proved. Call `commands` instead "
+    "when you know the QUESTION but have not written a spec yet."))
+@_guard
+async def ask(spec_path: str | None = None, spec_source: str | None = None,
+              timeout_ms: int = 120_000) -> dict:
+    import inspect
+
+    from .i18n import t as _t
+    from .routing import prepared, runner_for
+    from .spec import load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f))
+    command, fn = runner_for(spec)
+    if fn is None:
+        return {"ok": False, "spec": type(spec).__name__, "command": command,
+                "detail": _t("cli.ask.unknown", got=type(spec).__name__)
+                if command is None
+                else _t("cli.ask.needs_flags", command=command,
+                        got=type(spec).__name__)}
+    ready = prepared(spec)
+    if "spec_path" in inspect.signature(fn).parameters:
+        res = await _off(fn, ready, _limits(timeout_ms), str(f))
+    else:
+        res = await _off(fn, ready, _limits(timeout_ms))
+    out = _emit(res, spec_file=f)
+    out["routed_to"] = command
+    return out
+
+
+@mcp.tool(description=(
     "COMMANDS: which command answers which question, as a routing table. "
     "Read the QUESTION, not the name. Call this FIRST when you know what you "
     "want to establish but not which tool establishes it: it maps is this "

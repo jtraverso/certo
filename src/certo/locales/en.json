@@ -1014,5 +1014,6 @@
   "cli.ask.routed": "{got} is a `{command}` question -- running that",
   "cli.ask.unknown": "nothing here runs a {got}. `certo commands` lists which command answers which question",
   "cli.ask.needs_flags": "a {got} goes to `certo {command}`, which needs a decision this cannot make for you -- run it directly and say which mode you want",
-  "commands.q.ask": "I wrote the spec. Just run whatever answers it."
+  "commands.q.ask": "I wrote the spec. Just run whatever answers it.",
+  "cli.lean.hollow": "{n} of the theorems in this file state `True`: they compile, they carry `sorry`, and they say NOTHING. certo could not render those statements in Mathlib and will not guess at an encoding -- transcribe them from the comments above each one before this file is worth anything."
 }

@@ -1576,6 +1576,103 @@ def test_weak_duality_is_what_bounds_the_losers():
     assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
 
 
+# --- a hollow Lean export must say it is hollow ----------------------------
+
+
+def test_a_statement_certo_cannot_render_is_marked_and_does_not_close():
+    """The defect a user reported, as a test.
+
+    Exporting an `unsat_core` over a theory certo cannot render produced
+
+        theorem from_core : True := by trivial
+
+    which compiles, carries no `sorry`, and passes an axiom audit -- so every
+    check a formalisation project runs said fine about a file that states
+    nothing. The user noticed by reading it, which is the safeguard this
+    project exists to replace.
+    """
+    from certo import leanexport
+
+    core = {"digest": "d", "payload": {
+        "names": ["h1"], "dropped": [],
+        "core_smt2": "(declare-fun f (Int) Int)\n(assert (> (f 1) 0))"}}
+    text = leanexport._core_structure_only(core)
+
+    assert "trivial" not in text                 # it must not close itself
+    assert "theorem from_core_HOLLOW : True := by" in text
+    assert "sorry" in text
+    assert leanexport.hollow_count(text) == 1
+
+
+def test_every_placeholder_in_a_proof_export_is_marked():
+    """`compose` exports one theorem per lemma plus the composed one, and all
+    of them were placeholders: only the bridges carried `sorry`, so a derived
+    lemma looked proved and was `True`."""
+    from certo import leanexport
+
+    proof = {"digest": "d", "payload": {"lemmas": [
+        {"name": "derived_one", "derived": True, "engine": "z3",
+         "statement_smt2": "(assert true)"},
+        {"name": "bridge_one", "derived": False, "bridge": "a sweep",
+         "statement_smt2": "(assert true)"}]}}
+    text = leanexport.proof_to_lean(proof)
+
+    assert "trivial" not in text
+    for name in ("derived_one_HOLLOW", "bridge_one_HOLLOW", "main_HOLLOW"):
+        assert "theorem {} : True := by".format(name) in text, name
+    assert leanexport.hollow_count(text) == 3
+    # and the file says what it is, in the part a reader skims to
+    assert "EVERY statement above is HOLLOW" in text
+
+
+def test_a_real_statement_is_not_marked_hollow():
+    """The route that works must stay unmarked, or the signal is worthless.
+
+    Linear arithmetic over the reals renders with real binders, real
+    hypotheses and a positively stated goal. That file has one `sorry` and
+    zero placeholders.
+    """
+    import z3
+
+    from certo import Spec, leanexport
+    from certo.engines import smt
+
+    x, y = z3.Reals("x y")
+    spec = Spec()
+    spec.assume("x_ge_1", x >= 1)
+    spec.assume("y_ge_1", y >= 1)
+    spec.claim(x + y >= 2)
+    cert = smt.prove(spec, LIM).certificate
+    text = leanexport.core_to_lean(cert.to_dict())
+
+    assert leanexport.hollow_count(text) == 0
+    assert "HOLLOW" not in text
+    assert ": True" not in text
+    # the goal is stated positively, not as `True`
+    assert "≥ 0 := by" in text or ">= 0 := by" in text
+
+
+def test_the_manifest_records_how_many_theorems_state_nothing():
+    """A manifest that recorded only a hash would tie a hollow file to its
+    source and let it travel as evidence."""
+    import json
+    import tempfile
+
+    from certo import leanexport
+
+    proof = {"digest": "d", "payload": {"lemmas": [
+        {"name": "a", "derived": True, "engine": "z3",
+         "statement_smt2": "(assert true)"}]}}
+    with tempfile.TemporaryDirectory() as tmp:
+        p = pathlib.Path(tmp) / "out.lean"
+        p.write_text(leanexport.proof_to_lean(proof), encoding="utf-8")
+        man = leanexport.manifest([str(p)])
+    entry = man["files"][0]
+    assert entry["hollow"] == 2                  # the lemma and `main`
+    assert "transcribe them before citing" in entry["note"]
+    assert json.dumps(man)                       # it serialises
+
+
 # --- exists: does one exist at all, and the refutation when it does not ----
 
 
@@ -2370,7 +2467,7 @@ def test_the_square_hint_comes_from_the_polynomial_not_the_name():
     assert "sq_nonneg (a_b - c)" in text
 
 
-def test_a_proof_export_puts_sorry_on_the_bridges_and_nowhere_else():
+def test_a_proof_export_marks_every_statement_it_did_not_transcribe():
     import json
     import tempfile
     from pathlib import Path
@@ -2404,12 +2501,21 @@ def test_a_proof_export_puts_sorry_on_the_bridges_and_nowhere_else():
     data["digest"] = cert.digest()
     text = leanexport.proof_to_lean(data)
 
-    assert text.count("sorry") == 2          # the bridge, and its listing
-    assert "theorem finite" in text and "theorem derived" in text
-    # The sorry belongs to the bridge, not to the derived lemma.
-    bridge_block = text.split("theorem finite")[1].split("theorem")[0]
-    derived_block = text.split("theorem derived")[1].split("/--")[0]
-    assert "sorry" in bridge_block and "sorry" not in derived_block
+    # REWRITTEN. This used to assert `sorry` on the bridge AND NOWHERE ELSE,
+    # which pinned the defect a user reported: a derived lemma read as proved
+    # while its statement was `True`. Both are placeholders -- neither
+    # statement is transcribed -- so both carry `sorry` and both are named
+    # for it. What still distinguishes them is WHY, and the listing at the
+    # bottom, which names only the bridge.
+    assert "trivial" not in text
+    for name in ("finite_HOLLOW", "derived_HOLLOW", "main_HOLLOW"):
+        assert "theorem {} : True := by".format(name) in text, name
+    bridge_block = text.split("theorem finite_HOLLOW")[1].split("theorem")[0]
+    derived_block = text.split("theorem derived_HOLLOW")[1].split("/--")[0]
+    assert "BRIDGE" in bridge_block
+    assert "BRIDGE" not in derived_block
+    # and the file says, once, that every statement in it is hollow
+    assert "EVERY statement above is HOLLOW" in text
 
 
 def test_the_classification_export_states_what_lean_cannot_check():
@@ -4173,8 +4279,14 @@ def test_a_nonlinear_core_carries_the_smt2_rather_than_guessing():
     cert = smt.check(s, LIM, hypotheses_only=True).certificate
     text = leanexport.core_to_lean(cert.to_dict())
     assert "declare-fun" in text            # the SMT-LIB2, verbatim
-    assert "theorem from_core : True" in text
     assert "will not guess" in text
+    # REWRITTEN. This used to assert `theorem from_core : True`, which is the
+    # artefact a user put through a build gate and a `sorry` audit before
+    # noticing by reading it. The statement is still not guessed at -- that
+    # part was right -- but the placeholder is now named and does not close.
+    assert "theorem from_core_HOLLOW : True := by" in text
+    assert "trivial" not in text
+    assert leanexport.hollow_count(text) == 1
 
 
 def test_export_lean_now_accepts_an_unsat_core():

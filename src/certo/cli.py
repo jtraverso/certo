@@ -1524,10 +1524,19 @@ def _write_lean(text, args, sources):
             return 0
         extra = (t("cli.lean.sorries", n=rep["sorries"]) if rep["sorries"]
                  else "")
-        print("  " + t("cli.lean.checked",
-                       state="OK" if rep["ok"] else "FAILED", sorries=extra))
+        hollow = rep.get("hollow") or 0
+        # COMPILING WAS NEVER THE QUESTION. A file whose theorems all state
+        # `True` builds cleanly and says nothing, and a user put one through a
+        # build gate and a `sorry` audit before noticing by reading it. HOLLOW
+        # is the headline when there is one, and the exit code is non-zero.
+        state = "FAILED" if not rep["ok"] else ("HOLLOW" if hollow else "OK")
+        print("  " + t("cli.lean.checked", state=state, sorries=extra))
+        if hollow:
+            print("  " + t("cli.lean.hollow", n=hollow))
         if not rep["ok"]:
             print(rep["output"], file=sys.stderr)
+            return 1
+        if hollow:
             return 1
     return 0
 

@@ -113,6 +113,34 @@ def _rat(c: Fraction) -> str:
         "({}/{} : ℚ)".format(c.numerator, c.denominator)
 
 
+#: The marker a hollow statement carries, in its name and in the file. Grep
+#: for it: that is the point.
+HOLLOW = "HOLLOW"
+
+
+def _placeholder(name, why, indent="") -> list:
+    """A statement certo could not render, emitted so that NOTHING mistakes it.
+
+    `True := by trivial` compiles, carries no `sorry`, and passes an axiom
+    audit -- so a placeholder written that way is invisible to every check a
+    formalisation project runs, and a user found that out the hard way. It
+    closes with `sorry` now, and the name says what it is.
+
+    The goal stays `True` rather than becoming a guess at the real statement:
+    guessing a Mathlib encoding is how a DIFFERENT wrong theorem gets proved,
+    which is worse than an obvious hole.
+    """
+    return [
+        indent + "theorem {}_{} : True := by".format(_safe(name), HOLLOW),
+        indent + "  sorry    -- certo: {}".format(why),
+    ]
+
+
+def hollow_count(text: str) -> int:
+    """How many placeholders a generated file carries."""
+    return text.count(" : True := by")
+
+
 def farkas_to_lean(data: dict, source="") -> str:
     """A Farkas certificate as a runnable `example` with its `linarith` call.
 
@@ -150,7 +178,11 @@ def farkas_to_lean(data: dict, source="") -> str:
     goal = next(((poly, rel) for n, poly, rel, _ in used if n == "__goal__"),
                 None)
     if goal is None:
-        lines.append("    : True := trivial")
+        # No goal row: there is nothing to state, so this is a placeholder and
+        # is marked as one rather than closed with `trivial`.
+        lines.append("    : True := by")
+        lines.append("      sorry    -- certo: {} no goal row in the "
+                     "certificate".format(HOLLOW))
     else:
         # The stored row is the NEGATED goal. Emitting the goal positively
         # rather than as `¬ (row)` is what linarith expects, and it is what
@@ -290,17 +322,20 @@ def proof_to_lean(data: dict, source="") -> str:
         for line in (lem.get("statement_smt2") or "").strip().splitlines()[:12]:
             lines.append("      " + line)
         lines.append("-/")
-        lines.append("theorem {} : True := by".format(name))
         if derived:
-            lines.append("  trivial  -- certo: derived and linked; restate and prove")
+            lines.extend(_placeholder(
+                name, "derived and linked, but the STATEMENT is not "
+                      "transcribed; restate it and prove"))
         else:
             bridges.append(lem["name"])
-            lines.append("  sorry    -- certo: BRIDGE, nothing proved this in Lean")
+            lines.extend(_placeholder(
+                name, "BRIDGE: a finite computation read as a formula, and "
+                      "nothing proved it in Lean"))
         lines.append("")
 
     lines.append("/-- The theorem the lemmas were composed into. -/")
-    lines.append("theorem main : True := by")
-    lines.append("  trivial  -- certo: restate from theorem_smt2 and close")
+    lines.extend(_placeholder("main",
+                              "restate from theorem_smt2 above and close"))
     lines.append("")
     lines.append("/-!")
     lines.append("## What is NOT proved in this file")
@@ -312,11 +347,19 @@ def proof_to_lean(data: dict, source="") -> str:
     else:
         lines.append("* Nothing is a bridge: every lemma was derived and linked.")
     lines.append("")
-    lines.append("Every statement above is a placeholder `True`. certo does "
-                 "not know your")
-    lines.append("Mathlib encoding, so it transcribes the structure and the "
-                 "boundary, not")
-    lines.append("the statements.")
+    lines.append("EVERY statement above is HOLLOW: the goal is `True` and "
+                 "the proof is")
+    lines.append("`sorry`. certo does not know your Mathlib encoding and will "
+                 "not guess at")
+    lines.append("one, so it transcribes the structure and the boundary, not "
+                 "the statements.")
+    lines.append("")
+    lines.append("A hollow theorem compiles. That was never the question: it "
+                 "states nothing,")
+    lines.append("and it is closed with `sorry` precisely so that every audit "
+                 "you already")
+    lines.append("run -- `sorry` counts, axiom queries, a build gate -- sees "
+                 "it too.")
     lines.append("-/")
     lines.append(FOOTER)
     return "\n".join(lines)
@@ -478,8 +521,8 @@ def _core_structure_only(data: dict, source="") -> str:
     for line in (p.get("core_smt2") or "").strip().splitlines()[:40]:
         lines.append("      " + line)
     lines.append("-/")
-    lines.append("theorem from_core : True := by")
-    lines.append("  trivial  -- certo: restate from the SMT-LIB2 above")
+    lines.extend(_placeholder("from_core",
+                              "restate from the SMT-LIB2 above and prove"))
     lines.append(FOOTER)
     return "\n".join(lines)
 
@@ -499,6 +542,16 @@ def manifest(paths) -> dict:
         raw = p.read_bytes()
         entry = {"path": str(p), "sha256": hashlib.sha256(raw).hexdigest(),
                  "bytes": len(raw)}
+        if p.suffix == ".lean":
+            # How many of its theorems state nothing. A manifest that recorded
+            # only a hash would tie the file to its source and still let a
+            # hollow one travel as evidence.
+            n = hollow_count(raw.decode("utf-8", errors="replace"))
+            entry["hollow"] = n
+            if n:
+                entry["note"] = ("{} theorem(s) state `True` and are closed "
+                                 "with `sorry`: transcribe them before "
+                                 "citing this file".format(n))
         if p.suffix == ".json":
             try:
                 d = json.loads(raw.decode("utf-8"))
@@ -552,8 +605,12 @@ def check(path, project=None, timeout=900) -> dict:
         return {"ran": False, "reason": "{}: {}".format(type(e).__name__, e)}
     text = (out.stdout or "") + (out.stderr or "")
     sorries = text.count("declaration uses 'sorry'")
+    # Compiling was never the question. A file whose theorems all state `True`
+    # builds cleanly and says nothing, so the count travels beside `ok` and
+    # the caller is expected to treat it as a failure.
+    hollow = hollow_count(p.read_text(encoding="utf-8", errors="replace"))
     return {"ran": True, "ok": out.returncode == 0, "sorries": sorries,
-            "output": text.strip()[:4000]}
+            "hollow": hollow, "output": text.strip()[:4000]}
 
 
 EXPORTERS = {
