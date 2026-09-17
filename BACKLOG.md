@@ -15,18 +15,52 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 
 ## What is open, in one screen
 
-| | | |
-|---|---|---|
-| **P1** | Certified symmetry reduction | |
-| **P1** | Does this hypothesis earn its place | |
-| **P2** | Exact integer linear algebra: determinant, rank, minors, Smith, Hermite | *the only item two routes share* |
-| **P2** | Affine semigroups and local toric charts | |
-| **P2** | Chow ring and toric intersection | |
-| **P2** | A canonical form that scales, on its own | |
+**Effort** is calibrated against work that actually landed here, not against a
+feeling. **Confidence** is the part worth reading twice: an estimate made from
+a specification rather than from an instance somebody measured has been wrong
+every time this project checked one -- coset pruning, the canonical form, and
+the shape of the corpus LPs all changed the moment they were measured.
+**Radius** is what else moves if this lands.
 
-Everything below P3 is waiting on something above it, or on somebody asking.
-The history -- what landed, what was decided, what the first real instance
-found -- is at the end, because it is the part that does not change.
+| | Item | Effort | Confidence | Radius | Unblocks |
+|---|---|---|---|---|---|
+| **P1** | Certified symmetry reduction | **M** | high | none | the last bridge under five shipped examples |
+| **P1** | Does this hypothesis earn its place | **S** | high | none | debugging a theorem before formalising it |
+| **P2** | Exact integer linear algebra: det, rank, minors, Smith, Hermite | **M** | med-high | none | **both** toric items below; asked for directly |
+| **P2** | Affine semigroups and local toric charts | **L**, or **S-M** taken as input | **low** | none | the toric route's highest-return item |
+| **P2** | Chow ring and toric intersection | **L** | **low** | none | — |
+| **P2** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
+
+### The scale, with its anchors
+
+| | Means | What landed at this size |
+|---|---|---|
+| **XS** | one sitting, reusing machinery that exists | `ratio` (reused the shift test), `omega` export, hollow marking |
+| **S** | one focused pass: module, engine, CLI, MCP, example, tests | `peak`, `exists`, `moment`, `entry`, the Tseitin bridge, typed transport |
+| **M** | a pass plus a design decision, and usually a bug found underneath | `family` (a new verification model), `parametric` regions (found a simplex bug), the correspondence parser |
+| **L** | several passes, or an algorithm that is a project of its own | the branch-and-bound retie (found a soundness hole); everything toric |
+| **XL** | not attempted here | — |
+
+### Two things the table is saying quietly
+
+**The cheapest P2 unblocks the two expensive ones.** Exact integer linear
+algebra is the only mathematical item two different routes both asked for, it
+has no radius, and Bareiss fraction-free elimination already exists in
+`resultants.py` -- so determinant and rank fall out, and Hermite and Smith are
+classical and testable against brute force. Doing it first makes the two below
+it cheaper and better specified.
+
+**The toric items can be made much smaller, by the rule this project already
+follows.** A Hilbert basis is genuinely hard to COMPUTE -- Normaliz exists for
+a reason -- and much easier to CHECK: that each generator lies in the cone,
+that none is a sum of others, and that together they generate. Taken as INPUT
+and verified, the same way `parametric` takes a dual and `labelling` takes a
+permutation, that item drops from L to S-M and stops being a research project.
+Computing it is somebody else's job and always was.
+
+That is also why their confidence is low as written: they are specified from a
+report rather than measured against an instance, and every estimate this
+project made that way changed on contact.
 
 ---
 
@@ -51,6 +85,10 @@ what catches a theorem stated too strongly BEFORE it is formalised. Requested
 by the second user for debugging their T1-T4, and it is the sharpest form of
 "validate or contradict, deterministically" there is.
 
+---
+
+## P2 — the substrate two routes share
+
 ### 1. Exact integer linear algebra
 
 Determinant, rank, minors, Smith and Hermite normal form, in exact integers.
@@ -67,6 +105,26 @@ Saturation, normality, Hilbert bases, the interior of a cone, the Gorenstein
 criterion; unimodular cones of height one, SNC divisors, multiplicity and
 discrepancy. The second user's highest-return item, and finite exact integer
 work throughout. Needs P2 item 1.
+
+**Effort L as written, S-M taken as input** -- and the second is the version
+this project should build. A Hilbert basis is genuinely hard to COMPUTE;
+Normaliz exists for a reason. It is much easier to CHECK: each generator lies
+in the cone, none is a sum of the others, and together they generate. Take it
+as INPUT and verify it, the way `parametric` takes a dual and `labelling`
+takes a permutation, and this stops being a research project.
+
+Saturation, normality and the Gorenstein criterion are the same shape: hard to
+decide from nothing, cheap to check given the witness a dedicated tool already
+produces.
+
+CONFIDENCE IS LOW either way, and that is the part to weigh. This is specified
+from a report rather than measured against an instance, and every estimate
+made that way in this project changed on contact -- coset pruning looked like
+the answer to the canonical form until the number was computed, and the corpus
+LPs turned out to be the opposite shape to the one the command was built for.
+Before building, get one real cone out of the route that wants it and measure
+what actually blocks.
+
 
 ### 3. Chow ring and toric intersection
 
@@ -86,18 +144,18 @@ labelling as input.
 
 ## P3 — later, or waiting on the above
 
-| | What | Why it is down here |
-|---|---|---|
-| | Structured ring isomorphisms | Explicit maps, identity compositions, compatibility with localisation, grading and group actions. Wants the typed transport of P1 #1 first -- without it there is no notion of "the same object" to certify. |
-| | Finite group actions | Invariants, stabilisers, fixed loci, quotient rings. Finite and exact, and downstream of the semigroup work. |
-| | Finite homological algebra | Free complexes, exactness, resolutions, Ext, Tor, dimensions. Mechanical and large; nobody is blocked on it today. |
-| | Jacobian criterion certificates | Smoothness, local dimension, singular locus, transversality via exact Jacobian ideals. `ideal` is the machinery; this is the interface. |
-| | Batyrev engine, canonical form transport | Both are geometric theorem application, which by the stated boundary is Lean's job. certo's part is the finite premises those theorems consume. |
-| | Small geometric counterexample generation | The second user's request, and a special case of P1 #3 applied to fans, cones and semigroups. Follows it. |
-| | CLI / metadata version sync, `export --check` progress | Papercuts from the first user. Small, real, and worth doing in the same pass as P0. |
-| | Flag algebras | Still wants 2-3 real instances to be designed around a problem. |
-| | Lean statements for the sweep kinds | Graphs and set families are not mechanical. Deliberately parked. |
-| | `certo qe`, Gomory-Chvatal cuts | Distinctive, nobody waiting. |
+| | What | Effort | Why it is down here |
+|---|---|---|---|
+| | Structured ring isomorphisms | **L** | Explicit maps, identity compositions, compatibility with localisation, grading and group actions. Wants the typed transport of P1 #1 first -- without it there is no notion of "the same object" to certify. |
+| | Finite group actions | **M** | Invariants, stabilisers, fixed loci, quotient rings. Finite and exact, and downstream of the semigroup work. |
+| | Finite homological algebra | **L** | Free complexes, exactness, resolutions, Ext, Tor, dimensions. Mechanical and large; nobody is blocked on it today. |
+| | Jacobian criterion certificates | **S-M** | Smoothness, local dimension, singular locus, transversality via exact Jacobian ideals. `ideal` is the machinery; this is the interface. |
+| | Batyrev engine, canonical form transport | **XL** | Both are geometric theorem application, which by the stated boundary is Lean's job. certo's part is the finite premises those theorems consume. |
+| | Small geometric counterexample generation | **S** | The second user's request, and a special case of P1 #3 applied to fans, cones and semigroups. Follows it. |
+| | CLI / metadata version sync, `export --check` progress | **XS** | Papercuts from the first user. Small, real, and worth doing in the same pass as P0. |
+| | Flag algebras | **L** | Still wants 2-3 real instances to be designed around a problem. |
+| | Lean statements for the sweep kinds | **L** | Graphs and set families are not mechanical. Deliberately parked. |
+| | `certo qe`, Gomory-Chvatal cuts | **M** each | Distinctive, nobody waiting. |
 
 ---
 
