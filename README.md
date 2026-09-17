@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Twenty-eight commands. Runs in milliseconds where a formalisation
+CLI and MCP. Forty commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -247,7 +247,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The twenty-eight commands](#the-twenty-eight-commands).
+[The forty commands](#the-forty-commands).
 
 ## What it is and what it is not
 
@@ -745,6 +745,98 @@ check it. What `verify` does check is that the decomposition holds together:
 
 A decomposition whose parts do not add up is wrong whatever the group was.
 
+## `reduce`: "by symmetry", as a check rather than a sentence
+
+Five examples in this repository begin with a symmetrised program, and the step
+that gets them there is always some version of
+
+> averaging over the automorphism group, an optimal solution may be assumed
+> constant on each orbit
+
+Everything downstream of that sentence is certified — the reduced program's
+optimum, its dual, its branches. The sentence itself was not, and it is
+load-bearing: **if the group is wrong, the reduced program is a different
+program** and every number after it is about something else.
+
+It does not have to be a bridge. The argument has exactly three hypotheses, and
+given a generating set all three are finite checks:
+
+| Hypothesis | The check | Why it is needed |
+|---|---|---|
+| the action permutes the variables | each generator is a bijection | otherwise there is no group |
+| the constraint set is invariant | σ(row) is a row, same sense, same right-hand side, same bounds | so every image of a feasible point is feasible, and the average stays in the region |
+| the objective is invariant | c[σ(v)] = c[v] | so the average has the same value |
+
+With those: the region is convex and every σ(x) is feasible, so the average of
+an optimum is feasible; the objective is linear and invariant, so the average
+has the same value; and the average is constant on orbits by construction. An
+optimal solution constant on orbits therefore **exists**, and restricting to
+those loses nothing. The quotient is then arithmetic — one variable per orbit,
+coefficients summed.
+
+```
+$ certo reduce examples/symmetry_reduction.py
+PROVED  [unsat]
+  35 variables reduce to 1 orbits, and 21 rows to 1. The averaging argument
+  is checked, not asserted
+  certificate: symmetry_reduction (no solver needed)
+```
+
+A generator that fails any hypothesis is **refused by name**. A wrong group
+does not give a weaker reduction; it gives a wrong one, and a wrong one that
+verified would be worse than no command at all. A *smaller* group is always
+sound and only less useful: the same program under the cyclic shift alone
+gives 5 orbits and 3 rows instead of 1 and 1, same optimum.
+
+Where the group comes from is not this command's problem, and never was. nauty
+computes it, a paper states it, you write it down — the same division as
+`parametric` taking a dual and `labelling` taking a permutation.
+
+The quotient is **rebuilt** during verification rather than believed, for the
+same reason a branch-and-bound node derives its own linear program: a payload
+nobody recomputes is a payload anybody can edit.
+
+## `audit`: does each hypothesis earn its place?
+
+`core` reports which hypotheses an unsat core *needed*, which catches a theorem
+stated with slack. It cannot catch the opposite mistake, and the opposite
+mistake is the expensive one: a theorem stated **too strongly**, formalised,
+and only then found to be about a smaller class than the paper claims.
+
+One satisfiability query per hypothesis — drop it, and go looking for a
+counterexample to what remains:
+
+```
+$ certo audit examples/hypothesis_audit.py
+SATISFIABLE  [sat]
+  2 hypotheses are REDUNDANT (n_large, connected): the claim still follows
+  without them, so the theorem is weaker than it looks. 1 are needed
+  [REDUNDANT]  n_large
+  [needed]     m_bounded   without it: connected=True, m=6, n=5
+  [REDUNDANT]  connected
+```
+
+`connected` was planted as an obvious red herring. `n_large` was not — `n ≥ 5`
+reads like it must matter, and it does not, because `m ≤ n − 2` already gives
+`m ≤ n`. That is the whole point: the hypothesis doing no work is rarely the
+one anybody suspected.
+
+**The witness is the content, not the verdict.** Knowing `m_bounded` is needed
+is worth little; knowing that `n = 5, m = 6` breaks it is what tells you
+whether you wrote the hypothesis you meant. Re-checking substitutes the
+assignment and confirms the kept hypotheses hold while the goal does not — so
+the certificate asks you to take the *statement* on trust, never the search.
+
+**Three answers, and the third is not folded into the others.** `needed`,
+`redundant`, and `unknown` when the budget ran out. Not finding a
+counterexample is not the absence of one, and a report that counted `unknown`
+as `needed` would say the theorem is tight when nobody checked.
+
+It does **not** claim the hypothesis set is minimal, and `verify` repeats that
+every time. Hypotheses are dropped one at a time, and a pair can be jointly
+redundant with neither redundant alone. Claiming otherwise would be the exact
+overstatement this command exists to catch.
+
 ## Standard reducers
 
 `shrink` has to know what "one step smaller" means, and it used to demand a
@@ -1097,10 +1189,10 @@ rounding every variable would turn a K4 weight of 1/6 into zero and report a
 design worth nothing. The achievable value comes from freezing the discrete
 part and re-solving the rest, which is `certo mixed`.
 
-## Three engines that are not a solver
+## Four engines that are not a solver
 
 `prove`, `check`, `core`, `synth` and `compose` are Z3 wearing different hats.
-These three are not, and they exist because the questions they answer are ones
+These four are not, and they exist because the questions they answer are ones
 an SMT solver either grinds on or cannot phrase.
 
 ### `ideal` — polynomial systems, decided algebraically
@@ -1205,6 +1297,54 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+### `matrix` — integer linear algebra, checked by multiplying
+
+A determinant from floating point is a number to be trusted. A determinant
+from exact elimination is a number to be **rerun**. Neither is a certificate.
+So the elimination's own transforms travel, together with their inverses:
+
+```
+U · A = H          U unimodular, H in Hermite normal form
+U · A · V = S      U, V unimodular, S the Smith normal form
+```
+
+and every claim becomes integer matrix multiplication:
+
+| From | Follows |
+|---|---|
+| `U · U_inv = I` | det(U) is +1 or −1, and nothing else |
+| `U · A = H` | A and H span the same row lattice |
+| H echelon with r pivots | rank(A) = r, since U is invertible over ℤ |
+| the diagonal of H | \|det A\|, and with the sign of det(U), det A |
+| S diagonal, sᵢ \| sᵢ₊₁ | the invariant factors, so the torsion of ℤⁿ / A ℤᵐ |
+
+**The sign is the one interesting part.** `U · U_inv = I` pins the magnitude of
+det(U) and says nothing about which sign — and that sign *is* the sign of
+det(A). Recomputing it over ℤ would cost what the elimination costs. It does
+not have to: det(U) was already known to be +1 or −1, and those two are
+distinct modulo any odd prime. One determinant of U mod a word-sized prime,
+where nothing grows, settles it. Not probably — **exactly**, because there were
+only ever two candidates.
+
+```
+$ certo matrix examples/integer_matrix.py
+PROVED  [unsat]
+  Smith normal form of rank 3: invariant factors 2, 6, 12. Z^n modulo the
+  row lattice has exactly this torsion
+  certificate: integer_matrix (no solver needed)
+```
+
+`rows` and `cols` select a submatrix before anything else, so a **minor** is
+the same question with no separate machinery. Entries must be integers: `2.5`
+is refused rather than rounded, because a matrix quietly rounded is a different
+matrix. Rank is decided by counting pivots, not by comparing a singular value
+against an epsilon — over ℤ there is no epsilon to choose and none to defend.
+
+What it does **not** say: that the matrix you wrote down is the matrix your
+paper is about. The right incidence matrix, the right basis, the right
+orientation — that is the spec's claim, and it is exactly where a computation
+stops being about the mathematics.
 
 ## `cover`: is this really a clique partition, and how large?
 
@@ -2376,7 +2516,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Twenty-eight commands and thirty-two certificate kinds, and the shape of a
+Forty commands and forty certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```
@@ -2560,7 +2700,7 @@ Three design decisions:
 
 ## What it does not do
 
-This section matters as much as the list of twelve commands.
+This section matters as much as the list of commands.
 
 **The hard limit is asymptotic statements with quantifiers over `n`.** "There
 exists `N` such that for every `n ≥ N`, every graph…, the loss is `≤ εn²`" is

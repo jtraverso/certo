@@ -1906,21 +1906,32 @@ def test_every_command_is_in_the_readme_table_and_the_count_is_right():
               40: "forty", 41: "forty-one", 42: "forty-two",
               43: "forty-three", 44: "forty-four", 45: "forty-five"}
 
-    readme = (pathlib.Path(__file__).resolve().parent.parent
-              / "README.md").read_text(encoding="utf-8")
-    head = re.search(r"^## The ([a-z-]+) commands$", readme, re.M)
-    assert head, "the commands section was renamed"
-    block = readme.split(head.group(0), 1)[1].split("\nCommon options", 1)[0]
-    listed = re.findall(r"^\| `([a-z]+)`", block, re.M)
+    SPANISH = {28: "veintiocho", 29: "veintinueve", 30: "treinta",
+               39: "treinta y nueve", 40: "cuarenta", 41: "cuarenta y uno",
+               42: "cuarenta y dos"}
 
+    root = pathlib.Path(__file__).resolve().parent.parent
     commands = set(_subcommands())
-    assert set(listed) == commands, {
-        "missing from the README": sorted(commands - set(listed)),
-        "in the README but not a command": sorted(set(listed) - commands)}
-    assert len(listed) == len(set(listed)), "a command is listed twice"
-    assert head.group(1) == NUMBER[len(listed)], (
-        "the heading says {}, the table has {}".format(head.group(1),
-                                                       len(listed)))
+
+    # BOTH READMEs. The Spanish one had drifted two releases behind while the
+    # English one was one behind, which is what a table nobody recomputes does.
+    for name, pattern, numbers in (
+            ("README.md", r"^## The ([a-z-]+) commands$", NUMBER),
+            ("README.es.md", r"^## Los ([a-z ]+) comandos$", SPANISH)):
+        readme = (root / name).read_text(encoding="utf-8")
+        head = re.search(pattern, readme, re.M)
+        assert head, "{}: the commands section was renamed".format(name)
+        block = re.split(r"\n## ", readme.split(head.group(0), 1)[1])[0]
+        listed = re.findall(r"^\| `([a-z]+)`", block, re.M)
+
+        assert set(listed) == commands, {
+            "readme": name,
+            "missing from the README": sorted(commands - set(listed)),
+            "in the README but not a command": sorted(set(listed) - commands)}
+        assert len(listed) == len(set(listed)), name + ": a command twice"
+        assert head.group(1) == numbers[len(listed)], (
+            "{}: the heading says {}, the table has {}".format(
+                name, head.group(1), len(listed)))
 
 
 def test_every_command_answers_a_question_in_the_catalogue():

@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Veintiocho comandos. Corre en milisegundos donde una
+CLI y MCP. Cuarenta comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -229,7 +229,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
-[Los veintiocho comandos](#los-veintiocho-comandos).
+[Los cuarenta comandos](#los-cuarenta-comandos).
 
 ## Qué es y qué no es
 
@@ -351,13 +351,14 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintiocho comandos
+## Los cuarenta comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
 | `prove` | Niega la tesis y busca `unsat` | Z3 | núcleo insatisfacible, o contraejemplo |
 | `check` | Satisfacibilidad; `--hypotheses-only` pregunta si el régimen no es vacío | Z3 | modelo, o núcleo |
 | `core` | MUS: qué hipótesis hacen falta | Z3 | núcleo minimal |
+| `audit` | ¿Cada hipótesis se gana su lugar, o el teorema está sobredicho? | Z3 | **un veredicto por hipótesis, cada uno con la asignación que lo rompe** |
 | `farkas` | `linarith` / `nlinarith`, con los multiplicadores | LP exacto | **certificado de Farkas**, sin solver |
 | `compose` | Ensambla lemas en una demostración, comprobando el empalme | Z3 | **proof**: cada lema, su certificado y el enlace |
 | `induct` | Casos base + un paso, y la comprobación de que la cadena se junta | Z3 | **induction**: las dos mitades y los dos números que importan |
@@ -369,6 +370,14 @@ esperar.
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
 | `eliminate` | Quitar una variable de dos polinomios; quedarse con la condición | Sylvester + Bareiss | **Res = A·f + B·g**, sin solver |
 | `parametric` | Una cota para TODO valor de un parámetro, desde un dual que ya tienes | dualidad débil, simbólica | **y y los residuos desplazados**, sin solver |
+| `peak` | La mejor elección ENTERA para una familia de cuadráticas cóncavas, y el valor ahí | exacto, sin búsqueda | **el maximizador y dos desigualdades de paso**, sin solver |
+| `reduce` | "Por simetría": las tres hipótesis del argumento de promediado, comprobadas | exacto, sin búsqueda | **generadores, órbitas y el cociente**, sin solver |
+| `matrix` | Álgebra lineal entera exacta: rango, determinante, Hermite y Smith | transformaciones unimodulares | **U, V y sus inversas**, comprobadas multiplicando, sin solver |
+| `family` | El mayor de diez mil programas lineales, y por qué nada lo supera | LP exacto | **el ganador y un dual para el resto**, sin solver |
+| `ratio` | Una desigualdad de fracciones para TODO n | polinomios exactos | **el numerador despejado y el signo del denominador**, sin solver |
+| `moment` | ¿El número esperado de sucesos malos es menor que uno, y por tanto existe un objeto bueno? | racionales exactos | **el momento y la masa que sobra**, sin solver |
+| `entry` | Dónde cruza por primera vez una sucesión, y por cuán poco | racionales exactos | **el prefijo y los dos términos que lo encierran**, sin solver |
+| `exists` | ¿Existe alguno, y la refutación cuando no? | CDCL propio | modelo, o prueba DRAT |
 | `cover` | ¿Es esto un recubrimiento exacto? Una partición en cliques es un caso | contar | **el universo y las partes**, sin solver |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
 | `number` | Primalidad, o una factorización | Pratt | **árbol de exponenciación modular** |
@@ -380,6 +389,9 @@ esperar.
 | `lint` | Comprobar un spec antes de gastar el cómputo en él | — | — |
 | `status` | Dónde está una demostración: probado, pendiente, hueco, desfasado | — | — |
 | `doctor` | Qué puede hacer esta instalación y qué cuesta cada hueco | — | — |
+| `ask` | Un único punto de entrada: carga un spec y corre lo que pida (`what` es el mismo comando) | — | lo que produzca el comando |
+| `commands` | Qué comando responde a qué pregunta | — | — |
+| `repro` | Empaqueta spec, certificados, versiones y hashes para un revisor | — | el paquete |
 | `verify` | Re-verifica un certificado guardado | — | — |
 | `export` | Spec a SMT-LIB2/DIMACS, o un contraejemplo a Lean | — | — |
 | `ledger` | Registro auditable de lo ejecutado | — | — |
@@ -2222,7 +2234,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veintiocho comandos y treinta y dos tipos de certificado, y la forma de un
+Cuarenta comandos y cuarenta tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

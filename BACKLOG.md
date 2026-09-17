@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17. Reordered after measuring an adjacent library, the self-check finding, a negative result on the canonical form, and reading three write-ups of one argument against the tool — see "What changed the ranking".
+Last updated: 2026-09-17, after 0.8. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
 
 ---
 
@@ -24,12 +24,16 @@ the shape of the corpus LPs all changed the moment they were measured.
 
 | | Item | Effort | Confidence | Radius | Unblocks |
 |---|---|---|---|---|---|
-| **P1** | Certified symmetry reduction | **M** | high | none | the last bridge under five shipped examples |
-| **P1** | Does this hypothesis earn its place | **S** | high | none | debugging a theorem before formalising it |
-| **P2** | Exact integer linear algebra: det, rank, minors, Smith, Hermite | **M** | med-high | none | **both** toric items below; asked for directly |
 | **P2** | Affine semigroups and local toric charts | **L**, or **S-M** taken as input | **low** | none | the toric route's highest-return item |
 | **P2** | Chow ring and toric intersection | **L** | **low** | none | — |
 | **P2** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
+
+Landed in 0.8, and struck from the table above: **certified symmetry
+reduction** (`certo reduce`), **does this hypothesis earn its place**
+(`certo audit`), and **exact integer linear algebra** (`certo matrix`). The
+estimates held -- M, S and M -- and each of the three found a defect
+underneath, which is now the expected rate rather than a surprise. See
+*What landed in 0.8* below.
 
 ### The scale, with its anchors
 
@@ -64,47 +68,56 @@ project made that way changed on contact.
 
 ---
 
-## P1 — the risk all three reports named
+## What landed in 0.8
 
-### 1. Certified symmetry reduction
+### `certo reduce` — certified symmetry reduction *(was P1 #1)*
 
-The sentence "averaging over the automorphism group, an optimal solution may
-be assumed constant on each orbit" is a bridge under five shipped examples.
-Given a generating set -- computed elsewhere, as always -- the three
-hypotheses are finite checks, and the quotient program plus the orbit-to-
-variable map is a certificate.
+"Averaging over the automorphism group, an optimal solution may be assumed
+constant on each orbit" was a bridge under five shipped examples. Its three
+hypotheses are finite checks given a generating set, and now they are checked:
+the action permutes the variables, the constraint set is invariant, the
+objective is invariant. A generator that fails one is refused BY NAME, because
+a wrong group does not give a weaker reduction, it gives a wrong one. The
+quotient is rebuilt during verification rather than believed.
 
-certo already solves the reduced program exactly and certifies the dual. This
-closes the only step that was taken on trust.
+K7 triangle cover under S7: 35 variables to 1 orbit, 21 rows to 1, optimum 7
+both ways. `examples/symmetry_reduction.py`.
 
-### 2. Does this hypothesis earn its place
+### `certo audit` — does this hypothesis earn its place *(was P1 #2)*
 
-Drop each hypothesis in turn and hunt a counterexample. `core` already reports
-which hypotheses an unsat core NEEDED; this is the other direction, and it is
-what catches a theorem stated too strongly BEFORE it is formalised. Requested
-by the second user for debugging their T1-T4, and it is the sharpest form of
-"validate or contradict, deterministically" there is.
+Drop each hypothesis in turn and hunt a counterexample to what remains. One
+satisfiability query per hypothesis, three verdicts, and `unknown` is never
+folded into the other two. Every `needed` carries the assignment that breaks
+it, so re-checking is evaluation rather than search.
+
+On `examples/amgm.py` it found a hypothesis nobody suspected doing no work.
+It does NOT claim minimality -- hypotheses are dropped one at a time, and a
+pair can be jointly redundant with neither redundant alone -- and `verify`
+says so every time, because claiming it would be the overstatement this
+command exists to catch.
+
+### `certo matrix` — exact integer linear algebra *(was P2 #1)*
+
+rank, determinant, Hermite and Smith over Z, with the unimodular transforms
+carried alongside their INVERSES, so checking is integer multiplication and
+not a second elimination. `rows`/`cols` select a submatrix, which is how a
+minor is asked for. The sign of the determinant is settled by one determinant
+modulo an odd prime -- exact, because `U . U_inv = I` had already narrowed it
+to two candidates.
+
+This was the cheapest P2 and it unblocks the two below: the semigroup and
+Chow-ring items are built on exactly this arithmetic.
 
 ---
 
 ## P2 — the substrate two routes share
 
-### 1. Exact integer linear algebra
-
-Determinant, rank, minors, Smith and Hermite normal form, in exact integers.
-Asked for directly by one user; the foundation the other's semigroups, toric
-charts and Chow ring are built on. The only mathematical item two different
-routes both need, which is why it is first.
-
-`eliminate` already does fraction-free elimination with Bareiss, so the
-arithmetic discipline exists and this is an extension rather than a new idea.
-
-### 2. Affine semigroups and local toric charts
+### 1. Affine semigroups and local toric charts
 
 Saturation, normality, Hilbert bases, the interior of a cone, the Gorenstein
 criterion; unimodular cones of height one, SNC divisors, multiplicity and
 discrepancy. The second user's highest-return item, and finite exact integer
-work throughout. Needs P2 item 1.
+work throughout. The arithmetic it needs landed with `certo matrix`.
 
 **Effort L as written, S-M taken as input** -- and the second is the version
 this project should build. A Hilbert basis is genuinely hard to COMPUTE;
@@ -126,13 +139,13 @@ Before building, get one real cone out of the route that wants it and measure
 what actually blocks.
 
 
-### 3. Chow ring and toric intersection
+### 2. Chow ring and toric intersection
 
 From rays, cones and linear relations: the presentation, Stanley-Reisner
-relations, monomial reduction, intersection numbers, Chern classes. Needs both
-items above.
+relations, monomial reduction, intersection numbers, Chern classes. Needs the item
+above; the integer arithmetic under both landed with `certo matrix`.
 
-### 4. A canonical form that scales, on its own
+### 3. A canonical form that scales, on its own
 
 Unchanged and unasked-for by anyone. The measurement that blocks it stands: a
 1-factorisation of K6 has 15 points and one refinement class, `15!` is

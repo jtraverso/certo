@@ -7,6 +7,112 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.8.0] — 2026-09-17
+
+Three commands, and all three close a step that was being taken on trust. Two
+of them were named by every report this project has received; the third is the
+arithmetic both of the remaining requests are built on.
+
+### `certo reduce`: "by symmetry", as a check rather than a sentence
+
+Five shipped examples begin with a symmetrised program, and the step that gets
+them there is always some version of *"averaging over the automorphism group,
+an optimal solution may be assumed constant on each orbit"*. Everything
+downstream of that sentence was certified — the reduced program's optimum, its
+dual, its branches. The sentence itself was not, and if the group is wrong the
+reduced program is a **different program** and every number after it is about
+something else.
+
+The argument has exactly three hypotheses and, given a generating set, all
+three are finite checks: the action permutes the variables, the constraint set
+is invariant, the objective is invariant. A generator that fails one is
+**refused by name** — a wrong group does not give a weaker reduction, it gives
+a wrong one. Where the group comes from is not this command's problem; nauty
+computes it, a paper states it, certo checks it.
+
+K7 triangle cover under S7: 35 variables to one orbit, 21 rows to one, optimum
+7 both ways. A smaller group is still sound and just less useful — the cyclic
+shift alone gives 5 orbits and 3 rows, same optimum.
+
+The quotient is **rebuilt** during verification rather than believed, for the
+same reason a branch-and-bound node derives its own linear program.
+
+### `certo audit`: does each hypothesis earn its place?
+
+`core` says which hypotheses an unsat core needed, which catches a theorem
+stated with slack. It cannot catch the opposite mistake, and the opposite
+mistake is the expensive one: a theorem stated **too strongly**, formalised,
+and only then found to be about a smaller class than the paper claims. A month
+goes into that.
+
+One satisfiability query per hypothesis: drop it, and go looking for a
+counterexample to what remains. Three verdicts — `needed`, `redundant`,
+`unknown` — and the third is **never folded into the other two**, because a
+report that quietly counted an exhausted budget as `needed` would say the
+theorem is tight when nobody checked.
+
+Every `needed` carries the assignment that breaks it, so re-checking is
+evaluation and not search. On `examples/amgm.py` two hypotheses came back
+redundant and only one of them was the planted red herring.
+
+It does **not** claim the hypothesis set is minimal, and `verify` says so every
+time. Hypotheses are dropped one at a time, and a pair can be jointly redundant
+with neither redundant alone. Claiming otherwise would be the exact
+overstatement this command exists to catch.
+
+### `certo matrix`: exact integer linear algebra, checked by multiplying
+
+rank, determinant, Hermite and Smith normal form over ℤ. A determinant from
+floating point is a number to be trusted and a determinant from exact
+elimination is a number to be **rerun**; neither is a certificate. So the
+elimination's own transforms travel, together with their inverses:
+
+    U · A = H          U · U_inv = I          U · A · V = S
+
+and every claim becomes integer matrix multiplication. `U · U_inv = I` proves U
+unimodular, so A and H span the same row lattice; H's pivots give the rank,
+its diagonal gives the determinant, and Smith's checked divisibility chain
+gives the invariant factors — so the torsion of ℤⁿ / A ℤᵐ is a finite checkable
+fact rather than a line nobody verifies.
+
+**The sign is the one interesting part.** `U · U_inv = I` pins |det(U)| and
+says nothing about which sign, and that sign *is* the sign of det(A).
+Recomputing it over ℤ would cost what the elimination costs — but det(U) was
+already known to be +1 or −1, and those two are distinct modulo any odd prime.
+One determinant mod a word-sized prime settles it. Not probably: exactly,
+because there were only ever two candidates.
+
+`rows` and `cols` select a submatrix first, so a **minor** is the same question
+with no separate machinery. Entries must be integers: `2.5` is refused rather
+than rounded, because a matrix quietly rounded is a different matrix.
+
+### Three defects the work found
+
+**`verify.matrix.detail` never existed.** `t()` returns the key when a message
+is missing, so `core_matrix` certificates have been printing the literal string
+`verify.matrix.detail` as their detail line since the command shipped. It only
+became visible when `certo matrix` wanted the same name. Three tests now pin
+the general case: every key the code asks for exists, the languages carry the
+same keys with the same placeholders, and no message is called with arguments
+it does not declare.
+
+**`enum` was missing from `certo commands`.** The catalogue is how somebody who
+does not know the names finds one; a command absent from it ships invisible.
+
+**The README command table said twenty-eight, listed twenty-nine, and the CLI
+had thirty-nine.** A reader looking for `audit` would have concluded it did not
+exist. Both are now checked by tests, because a number nobody recomputes is a
+number that is wrong.
+
+### Compatibility
+
+Three new certificate kinds — `symmetry_reduction`, `hypothesis_audit`,
+`integer_matrix` — and one new spec type, `MatrixSpec`. Schema stays at 4 and
+no existing payload changed shape; certificates written by 0.7 verify
+unchanged. The `verify.matrix.*` message keys that belong to `certo matrix`
+are named `verify.lattice.*`; `core_matrix` keeps the ones it already used.
+
+
 ## [0.7.0] — 2026-09-17
 
 Read against three separate write-ups of one argument rather than against a
