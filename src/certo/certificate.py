@@ -32,6 +32,21 @@ from .i18n import t
 SCHEMA_VERSION = 4
 
 
+def _without_provenance(value):
+    """The same structure with every `provenance` block dropped, recursively.
+
+    Used only by `digest`. Provenance is how a certificate is tied to its spec
+    and its run; it is not what the certificate SAYS, and two runs of the same
+    question say the same thing.
+    """
+    if isinstance(value, dict):
+        return {k: _without_provenance(v) for k, v in value.items()
+                if k != "provenance"}
+    if isinstance(value, list):
+        return [_without_provenance(v) for v in value]
+    return value
+
+
 @dataclass
 class Certificate:
     kind: str
@@ -98,13 +113,20 @@ class Certificate:
         )
 
     def digest(self) -> str:
-        """Content addressing: kind and payload only.
+        """Content addressing: kind and payload, with every timestamp removed.
 
         Provenance carries a timestamp, so including it would give two
         identical runs different digests. The digest identifies the
         MATHEMATICAL CONTENT, not the run.
+
+        AT EVERY LEVEL, which is the part that was wrong. A certificate that
+        embeds sub-certificates -- a branch-and-bound tree, an `opt --gap`, a
+        composed proof -- carries THEIR provenance inside its own payload, so
+        its digest moved between two identical runs. That defeats exactly what
+        a digest is for: comparing, deduplicating, and citing a result by id.
         """
-        blob = json.dumps({"kind": self.kind, "payload": self.payload},
+        blob = json.dumps({"kind": self.kind,
+                           "payload": _without_provenance(self.payload)},
                           sort_keys=True).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 

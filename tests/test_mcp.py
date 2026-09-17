@@ -509,6 +509,106 @@ def spec():
     assert bad["verdict"] == "refuted"
 
 
+def LINES(rows) -> str:
+    """A spec file as source, joined. Keeps the escaping out of the test."""
+    return "\n".join(rows) + "\n"
+
+
+def test_every_command_is_reachable_over_mcp():
+    """A command that is not an MCP tool does not exist to a model.
+
+    Five commands shipped in one day and were unreachable the whole time --
+    the `certo order` failure again: the work was done and did not reach
+    anyone. This is the check that stops it silently recurring.
+    """
+    import re
+
+    root = Path(__file__).resolve().parent.parent / "src" / "certo"
+    cli = set(re.findall(r'^    sp = add[(]"([a-z_-]+)"',
+                         (root / "cli.py").read_text(encoding="utf-8"), re.M))
+    tools = set(re.findall(r"^async def ([a-z_]+)",
+                           (root / "mcp_server.py").read_text(encoding="utf-8"),
+                           re.M))
+    missing = sorted(cli - tools)
+    assert not missing, (
+        "these commands cannot be called by a model: " + ", ".join(missing))
+
+
+def test_the_routing_table_reaches_a_model_and_carries_the_cost():
+    """`commands` is what a model calls when it knows the question and not the
+    tool. Every row must name a real command and say what re-checking costs,
+    which is the part invisible from the name."""
+    from certo.routing import SOLVER_FREE
+
+    got = run(call("commands", {}))
+    rows = [r for g in got["groups"] for r in g["rows"]]
+    assert len(rows) > 25
+    for row in rows:
+        assert row["question"] and row["command"]
+        base = row["command"].split()[0]
+        assert row["certificate_rechecks_without_a_solver"] is (
+            base in SOLVER_FREE), row["command"]
+
+
+def test_the_five_newest_tools_answer_over_mcp():
+    """Reachability is not enough: they have to work through the transport."""
+    ratio_src = LINES([
+        "from certo import RatioSpec",
+        "from certo.polynomials import Poly",
+        "R = ('n',)",
+        "n = Poly.var(R, 'n')",
+        "K = lambda c: Poly.const(R, c)",
+        "def spec():",
+        "    return RatioSpec(parameters={'n': 2}, left=(n - K(2), n * n),"
+        " right=(K(1), n))",
+    ])
+    assert run(call("ratio", {"spec_source": ratio_src}))["verdict"] == "proved"
+
+    moment_src = LINES([
+        "from fractions import Fraction",
+        "from certo import MomentSpec",
+        "def spec():",
+        "    return MomentSpec(events=[('a', Fraction(1, 4))], counts=True)",
+    ])
+    assert run(call("moment", {"spec_source": moment_src}))["verdict"] == "proved"
+
+    entry_src = LINES([
+        "from fractions import Fraction",
+        "from certo import EntrySpec",
+        "def spec():",
+        "    return EntrySpec(values=[Fraction(i, 4) for i in range(8)],"
+        " threshold=Fraction(1))",
+    ])
+    assert run(call("entry", {"spec_source": entry_src}))["verdict"] == "proved"
+
+    exists_src = LINES([
+        "from itertools import combinations",
+        "from certo import CoverSpec",
+        "from certo.existence import triangles_of",
+        "def spec():",
+        "    gone = {(0,1),(0,2),(1,2),(3,4),(3,5),(4,5)}",
+        "    E = [e for e in combinations(range(7), 2) if e not in gone]",
+        "    return CoverSpec(universe=[list(e) for e in E], parts=[],",
+        "        candidates=[[list(x) for x in t] for t in triangles_of(7, E)],",
+        "        exact=True)",
+    ])
+    assert run(call("exists", {"spec_source": exists_src}))["verdict"] == "proved"
+
+    family_src = LINES([
+        "from certo import FamilySpec, LPSpec",
+        "def one(k):",
+        "    lp = LPSpec(sense='max')",
+        "    lp.variable('x', 0, None)",
+        "    lp.objective({'x': 1})",
+        "    lp.constraint({'x': 1}, '<=', k, name='cap')",
+        "    return lp",
+        "def spec():",
+        "    return FamilySpec(items=[1, 2, 3], lp=one, key=lambda k: str(k))",
+    ])
+    got = run(call("family", {"spec_source": family_src}))
+    assert got["verdict"] == "satisfiable" and got["meta"]["value"] == "3"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

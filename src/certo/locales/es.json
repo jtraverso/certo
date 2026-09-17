@@ -1010,5 +1010,9 @@
   "verify.entry.detail": "cruza por primera vez en el índice {index}, donde el valor es {value}",
   "verify.entry.detail_window": "cruza por primera vez en el índice {index}, valor {value}, dentro de [{threshold}, {window})",
   "verify.entry.scope": "el prefijo lleva {n} valores y nada más allá del cruce, porque nada más allá es parte de la afirmación. Que la sucesión sea la que querías es afirmación del spec.",
-  "commands.q.entry": "¿Dónde cruza esto la línea por primera vez --y por cuán poco?"
+  "commands.q.entry": "¿Dónde cruza esto la línea por primera vez --y por cuán poco?",
+  "cli.ask.routed": "{got} es una pregunta de `{command}` -- ejecutando eso",
+  "cli.ask.unknown": "aquí nada ejecuta un {got}. `certo commands` lista qué comando responde qué pregunta",
+  "cli.ask.needs_flags": "un {got} va a `certo {command}`, que necesita una decisión que esto no puede tomar por ti -- ejecútalo directamente y di qué modo quieres",
+  "commands.q.ask": "Escribí el spec. Ejecuta lo que sea que lo responda."
 }

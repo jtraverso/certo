@@ -1010,5 +1010,9 @@
   "verify.entry.detail": "first crosses at index {index}, where the value is {value}",
   "verify.entry.detail_window": "first crosses at index {index}, value {value}, inside [{threshold}, {window})",
   "verify.entry.scope": "the prefix carries {n} values and nothing past the crossing, because nothing past it is part of the claim. That the sequence is the one you meant is the spec's claim.",
-  "commands.q.entry": "Where does this first cross the line -- and by how little?"
+  "commands.q.entry": "Where does this first cross the line -- and by how little?",
+  "cli.ask.routed": "{got} is a `{command}` question -- running that",
+  "cli.ask.unknown": "nothing here runs a {got}. `certo commands` lists which command answers which question",
+  "cli.ask.needs_flags": "a {got} goes to `certo {command}`, which needs a decision this cannot make for you -- run it directly and say which mode you want",
+  "commands.q.ask": "I wrote the spec. Just run whatever answers it."
 }

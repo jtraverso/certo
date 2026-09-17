@@ -159,118 +159,197 @@ when first checked, including one claiming a `branch_bound` certificate
 verifies *without* a solver. It does not.
 
 
-## What changed the ranking
+## What changed the ranking, again
 
-Reordered 2026-09-17. Four things were measured in the last few days, and each
-one moves something. The evidence is kept next to the item it moves.
+Reordered 2026-09-17, after reports from two users on two different routes and
+one measurement of my own. They agree in a way none of them could see alone.
 
-**1. An adjacent library has 1175 modules and certo has 28 commands.** Read
-against `jacobian` v0.20: exact rationals throughout, and in the overlap it
-already does what we do — `_optimality.py` is "exact checking of supplied
-rational primal-dual pairs, without search", and `clique_partition` prioritises
-non-clique part, uncovered edge, overcovered edge, which is the same three
-classes `cover` reports.
+**A Lean export that compiles, has no `sorry`, and says nothing.** A user
+exporting an `unsat_core` over a theory certo cannot render in Mathlib got
 
-What it does NOT do is the artefact. Its caps are 32 LP variables, 64
-constraints, 256 graph vertices; the corpus here runs ~1000-column LPs and
-20,000-node searches. And its only writes are `json.dump` to a worker's
-stdout: no ledger, no spec hash, no re-verifying a file months later without
-the tool installed.
+    theorem from_core : True := by trivial
 
-So the differentiator is **the artefact that outlives the tool**, and
-everything that strengthens it is worth more than anything that adds a
-computation. That moves three items up and two down.
+with the real statement carried verbatim in a comment above it. The comment is
+honest. The artefact is not: it passes a build, it passes a `sorry` audit, it
+passes `#print axioms`. The user declined to put it in their formal chain,
+which was right, and which means the safeguard that worked was a person
+reading carefully -- exactly the safeguard this project exists to replace.
 
-**2. A certificate shipped that its own verifier rejected — twice.** 339 tests
-missed both, because every one of them fed verification a certificate the
-producer had built. Producer and verifier agreed by being wrong in the same
-place. `--self-check` fixes the instances; the METHOD gap is new and is now P1.
+certo already has the word for this. `status` reports HOLLOW for a vacuous
+proof. Not applying it to certo's own output is the same inconsistency as a
+certificate its own verifier rejects, and it is now P0.
 
-**3. Individualisation-refinement does not fix the canonical form.** Measured:
-correct against the exhaustive reference on 400 families, and no faster where
-it matters, because a vertex-transitive object has no invariant for refinement
-to split on. The real content of nauty is automorphism pruning — and that
-library computes **full automorphism groups** as of 0.21. The item moves from
-"reimplement nauty" to "consume a group somebody else computed", which is a
-different size of job.
+**"The biggest risk is not in the calculations."** A second user, on a toric
+geometry route, named it directly: the danger is silently moving from a
+computational object to the paper's object. They asked for a TYPED TRANSPORT
+GRAPH -- every certificate declares which object it speaks about (cone,
+monoid, ring, spectrum, model) and every step between levels carries an
+explicit map.
 
-**4. An exact rational simplex now exists.** Anything that needed an exact dual
-on a degenerate LP at realistic scale is unblocked.
+**And it is already load-bearing here.** Five examples written this week start
+from a symmetrised program -- "averaging over the automorphism group, an
+optimal cover may be assumed constant on each edge orbit" -- and certo
+certifies everything downstream of that sentence and nothing about it. The
+averaging argument has three hypotheses, all of them finite checks given
+generators: the action permutes the variables, the constraint set is
+invariant, the objective is invariant.
 
-**5. Three independent write-ups of one argument all reduce to a COVER
-program, and `parametric` could express none of them.** Read against the
-manuscripts rather than against a tool: each symmetrises an optimal fractional
-cover over two, three or four edge orbits, each states the value as a minimum
-of named closed forms, and each closes with "duality completes the proof".
+Three observations, one item. The calculations were never the weak part.
 
-`parametric` was built from the one instance that came in first -- a packing,
-`max`, `<=` rows -- and refused a `min` problem or a `>=` row by design. Every
-cover in the corpus is the other shape. And a cover's dual is a packing, which
-GROWS with the instance, so the dual is a polynomial and not the rational
-constant the command accepted.
+**What both users want that is the same substrate.** One asked for exact
+determinants, rank, minors, Smith and Hermite normal forms, polytopes and
+fans. The other asked for affine semigroups, toric charts and a Chow ring.
+The second is built on the first. That makes exact integer linear algebra the
+highest-value MATHEMATICAL item, because it is the only one two routes share.
 
-Both are now in, and a third thing came with them: the branch conditions of the
-closed form turn out to BE the dual's feasibility conditions, one residual row
-and one non-negativity. That is not a coincidence to document, it is what a
-piecewise-linear value function looks like from underneath, and it is the
-reason each branch is its own certificate.
+**And the boundary, which one of them stated better than this file did:**
+certo should not become a second Lean. It produces finite, explicit,
+verifiable certificates; Lean proves the structural theorems and does the
+geometric transport. That is now the stated policy rather than an implication.
 
 ---
 
-## P1 — next
+## P0 — a defect that has shipped
 
-Empty. The three items that were here landed; what was P2 is next.
+### 1. A hollow export must say it is hollow
 
----
+`theorem from_core : True := by trivial` is emitted whenever the statement
+cannot be rendered in Mathlib. Three changes, and none of them is the hard
+one:
 
-## P2 — high value, more work
+* **emit `sorry`, not `trivial`.** A placeholder that closes itself is
+  invisible to every audit a formalisation project runs. One that does not
+  close shows up in all of them.
+* **name it as a placeholder** -- a theorem called `from_core` reads as a
+  result; one called `from_core_PLACEHOLDER` does not get cited by accident.
+* **`export --check` must report HOLLOW**, not OK. It compiles; that was never
+  the question.
 
-### 1. A canonical form that scales, on its own
+### 2. The exported theorem must be the certificate's claim
 
-**(b) landed; (a) is what is left, and it needs a decision.** The measurement
-that split them: a 1-factorisation of K6 has 15 points and ONE refinement
-class, `15!` is 1,307,674,368,000, and `|Aut|` is 120 — so quotienting by the
-whole automorphism group still leaves 10,897,286,400 cosets, fifty-four
-thousand times over the cap. Coset pruning was never the missing ingredient,
-because `|Aut|` is small and `n!` is not.
-
-What would make `certo canonical` scale by itself is pruning INSIDE the search
-tree, and that needs a prefix-comparable form: the bipartite incidence matrix
-of points and blocks, read row-major, which is what nauty canonicalises. The
-current form — lex-smallest sorted tuple of blocks — is not prefix-comparable,
-because fixing labels `0..k` determines no prefix of the sorted block list.
-
-The cost is a **blast radius**: every canonical value certo computes changes.
-Orbit DECOMPOSITIONS are unaffected (both forms are complete invariants, so
-the partition is identical), but stored representatives and ids move.
-
-Not started, because it is a decision rather than a task, and because `(b)`
-removed the pressure: the instance that motivated it is now handled.
-
-### 2. Flag algebras
-
-`sos` established the pattern: numeric search, rational reconstruction, exact
-re-verification. Still wants 2–3 real packing instances so the interface is
-designed around a problem rather than a method — and now also wants checking
-against what an adjacent library already does, before anything is built.
-
-### 3. Combinatorial types beyond set families
-
-`SetFamily` covers hypergraphs, designs, codes and mask systems because they
-are one shape. Ordered structures — sequences, words, permutation patterns —
-and edge-coloured or directed objects are not. Worth adding when a real
-problem asks: the value of a native type is the boilerplate it removes, and
-boilerplate nobody is writing is not a cost.
+A separate check, and the one with teeth: whatever Lean statement comes out
+has to correspond to the hypotheses and goal the certificate actually
+establishes. Today nothing compares them. Where the statement is rendered
+structurally -- linear arithmetic over the reals, which already emits real
+binders, hypotheses and a positively stated goal -- the comparison is
+mechanical. Where it is not, that is case 1 and the answer is HOLLOW.
 
 ---
 
-## P3 — keep, nobody waiting
+## P1 — the risk all three reports named
+
+### 1. Typed transport: what object does this certificate speak about
+
+Every certificate declares its object -- a cone, a monoid, a ring, a graph, a
+linear program -- and every step to another level carries an explicit map that
+certo checks or names as a bridge. `compose` already has bridges: declared,
+named, and reported on every verification. This is that, generalised to the
+whole artefact rather than to one command.
+
+It subsumes P0 item 2, the second user's request, and the symmetry-reduction
+gap below. It is the item that stops a result about a computation being read
+as a result about the mathematics.
+
+### 2. Certified symmetry reduction
+
+The sentence "averaging over the automorphism group, an optimal solution may
+be assumed constant on each orbit" is a bridge under five shipped examples.
+Given a generating set -- computed elsewhere, as always -- the three
+hypotheses are finite checks, and the quotient program plus the orbit-to-
+variable map is a certificate.
+
+certo already solves the reduced program exactly and certifies the dual. This
+closes the only step that was taken on trust.
+
+### 3. Does this hypothesis earn its place
+
+Drop each hypothesis in turn and hunt a counterexample. `core` already reports
+which hypotheses an unsat core NEEDED; this is the other direction, and it is
+what catches a theorem stated too strongly BEFORE it is formalised. Requested
+by the second user for debugging their T1-T4, and it is the sharpest form of
+"validate or contradict, deterministically" there is.
+
+### 4. Integer arithmetic to a real Lean theorem, and to `omega`
+
+The smallest export that is not hollow. `farkas --nonlinear` already emits
+`nlinarith [corner_square, tail_square]` -- a tactic call that compiles and
+closes the goal -- so the pattern is proved; integer linear arithmetic maps
+onto `omega` the same way.
+
+Pairs with the same user's request for PRESBURGER CERTIFICATES INDEPENDENT OF
+Z3: a certificate an external checker can re-run without trusting the solver
+that found it, which is the discipline everywhere else here and is missing
+exactly where the answer gets handed to Lean.
+
+---
+
+## P2 — the substrate two routes share
+
+### 1. Exact integer linear algebra
+
+Determinant, rank, minors, Smith and Hermite normal form, in exact integers.
+Asked for directly by one user; the foundation the other's semigroups, toric
+charts and Chow ring are built on. The only mathematical item two different
+routes both need, which is why it is first.
+
+`eliminate` already does fraction-free elimination with Bareiss, so the
+arithmetic discipline exists and this is an extension rather than a new idea.
+
+### 2. Affine semigroups and local toric charts
+
+Saturation, normality, Hilbert bases, the interior of a cone, the Gorenstein
+criterion; unimodular cones of height one, SNC divisors, multiplicity and
+discrepancy. The second user's highest-return item, and finite exact integer
+work throughout. Needs P2 item 1.
+
+### 3. Chow ring and toric intersection
+
+From rays, cones and linear relations: the presentation, Stanley-Reisner
+relations, monomial reduction, intersection numbers, Chern classes. Needs both
+items above.
+
+### 4. A canonical form that scales, on its own
+
+Unchanged and unasked-for by anyone. The measurement that blocks it stands: a
+1-factorisation of K6 has 15 points and one refinement class, `15!` is
+1,307,674,368,000, `|Aut|` is 120, so quotienting by the whole group leaves
+10,897,286,400 cosets. `labelling=` removed the pressure by taking the
+labelling as input.
+
+---
+
+## P3 — later, or waiting on the above
 
 | | What | Why it is down here |
 |---|---|---|
-| | Lean statements for `proof` and the sweep kinds | Half done since 0.5.1: `unsat_core` emits real binders, hypotheses and a positively stated goal, which shows the linear-arithmetic case IS mechanical. `proof_to_lean` still emits `theorem name : True` with the statement in a comment, and graphs and set families are not mechanical at all. **Deliberately parked**: Lean generation is another tool's job. |
-| | `certo qe` | Quantifier elimination to **derive** the optimal constant instead of bracketing it with `bisect`. Genuinely distinctive; no demand yet. |
-| | Cutting-plane certificates | Gomory–Chvátal for **integer** infeasibility, not just the LP relaxation. Relevant to packing bounds. |
+| | Structured ring isomorphisms | Explicit maps, identity compositions, compatibility with localisation, grading and group actions. Wants the typed transport of P1 #1 first -- without it there is no notion of "the same object" to certify. |
+| | Finite group actions | Invariants, stabilisers, fixed loci, quotient rings. Finite and exact, and downstream of the semigroup work. |
+| | Finite homological algebra | Free complexes, exactness, resolutions, Ext, Tor, dimensions. Mechanical and large; nobody is blocked on it today. |
+| | Jacobian criterion certificates | Smoothness, local dimension, singular locus, transversality via exact Jacobian ideals. `ideal` is the machinery; this is the interface. |
+| | Batyrev engine, canonical form transport | Both are geometric theorem application, which by the stated boundary is Lean's job. certo's part is the finite premises those theorems consume. |
+| | Small geometric counterexample generation | The second user's request, and a special case of P1 #3 applied to fans, cones and semigroups. Follows it. |
+| | CLI / metadata version sync, `export --check` progress | Papercuts from the first user. Small, real, and worth doing in the same pass as P0. |
+| | Flag algebras | Still wants 2-3 real instances to be designed around a problem. |
+| | Lean statements for the sweep kinds | Graphs and set families are not mechanical. Deliberately parked. |
+| | `certo qe`, Gomory-Chvatal cuts | Distinctive, nobody waiting. |
+
+---
+
+## The boundary, stated
+
+**certo is not a second Lean**, and should not try to become one. Its part is
+to find and certify finite, explicit, checkable data; Lean's part is to verify
+that data, apply the structural theorem, and carry the geometry. A user on the
+toric route put it as a pipeline and it is the clearest statement of the
+division this project has:
+
+    certo finds and certifies the data
+      -> Lean verifies the certificate
+      -> Lean applies the geometric theorem
+      -> Lean identifies the model
+
+Everything in P2 is chosen to feed that first arrow. Nothing in it is an
+attempt at the last three.
 
 ---
 

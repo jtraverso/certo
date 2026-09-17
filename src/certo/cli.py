@@ -229,54 +229,44 @@ def limits_from(args) -> Limits:
 #: The question people arrive with, and the command that answers it. Keyed on
 #: the QUESTION because that is what somebody has when they are stuck: a
 #: person who needs `order` is thinking "does this decay", not "order".
-BY_QUESTION = (
-    ("commands.group.true", (
-        ("commands.q.prove", "prove"),
-        ("commands.q.core", "core"),
-        ("commands.q.farkas", "farkas"),
-        ("commands.q.induct", "induct"),
-    )),
-    ("commands.group.sane", (
-        ("commands.q.regime", "check --hypotheses-only"),
-        ("commands.q.lint", "lint"),
-        ("commands.q.status", "status"),
-        ("commands.q.doctor", "doctor"),
-    )),
-    ("commands.group.size", (
-        ("commands.q.opt", "opt"),
-        ("commands.q.optimal", "mixed --prove-optimal"),
-        ("commands.q.bisect", "bisect"),
-        ("commands.q.bounds", "bounds"),
-        ("commands.q.order", "order"),
-        ("commands.q.parametric", "parametric"),
-        ("commands.q.peak", "peak"),
-        ("commands.q.entry", "entry"),
-        ("commands.q.moment", "moment"),
-        ("commands.q.ratio", "ratio"),
-        ("commands.q.family", "family"),
-        ("commands.q.exists", "exists"),
-    )),
-    ("commands.group.every", (
-        ("commands.q.sweep", "sweep"),
-        ("commands.q.cases", "cases"),
-        ("commands.q.shrink", "shrink"),
-        ("commands.q.witnesses", "sweep --witnesses"),
-    )),
-    ("commands.group.algebra", (
-        ("commands.q.ideal", "ideal"),
-        ("commands.q.eliminate", "eliminate"),
-        ("commands.q.sos", "sos"),
-        ("commands.q.number", "number"),
-        ("commands.q.cover", "cover"),
-    )),
-    ("commands.group.keep", (
-        ("commands.q.synth", "synth"),
-        ("commands.q.compose", "compose"),
-        ("commands.q.verify", "verify"),
-        ("commands.q.export", "export --lean"),
-        ("commands.q.ledger", "ledger"),
-    )),
-)
+from .routing import BY_QUESTION  # noqa: E402  (the table moved)
+
+
+def cmd_ask(args):
+    """One entry point: load the spec, and let its type pick the command.
+
+    The friction was never the routing, it was having to know the routing. A
+    spec already says what kind of question it is; this reads that and runs
+    the command that answers it, printing WHICH one it chose so the answer
+    stays traceable to a command somebody can run directly.
+    """
+    from .routing import runner_for
+    from .spec import load_spec
+
+    spec = load_spec(args.spec)
+    command, fn = runner_for(spec)
+    if command is None:
+        print(t("cli.ask.unknown", got=type(spec).__name__))
+        return 2
+    if fn is None:
+        print(t("cli.ask.needs_flags", command=command,
+                got=type(spec).__name__))
+        return 2
+    if not args.json:
+        print(t("cli.ask.routed", command=command, got=type(spec).__name__))
+    # Not every engine takes a spec path; the ones that do use it to stamp
+    # provenance, and passing it where it is not accepted would turn a routing
+    # convenience into an error the user did not cause.
+    import inspect
+
+    from .routing import prepared
+
+    ready = prepared(spec)
+    if "spec_path" in inspect.signature(fn).parameters:
+        res = fn(ready, limits_from(args), spec_path=args.spec)
+    else:
+        res = fn(ready, limits_from(args))
+    return emit(res, args)
 
 
 def cmd_commands(args):
@@ -1673,6 +1663,11 @@ def build_parser():
                     help="add products and squares of the hypotheses first "
                          "(this is exactly what nlinarith does)")
     sp.set_defaults(func=cmd_farkas)
+
+    sp = add("ask", "one entry point: load a spec and run whatever command "
+                    "its type asks for")
+    sp.add_argument("spec", help=".py file returning any spec")
+    sp.set_defaults(func=cmd_ask)
 
     sp = add("commands", "which command answers which question",
              aliases=("what",))

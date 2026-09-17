@@ -1169,6 +1169,179 @@ async def ledger(action: str = "list", file: str | None = None,
 
 
 @mcp.tool(description=(
+    "EXISTS: does a cover exist at all -- and when it does not, the "
+    "refutation that says so. The other half of `cover`, which certifies a "
+    "cover you already have. Use it for a finite NON-EXISTENCE: no triangle "
+    "decomposition of this graph, no partition into at most k parts. Two "
+    "answers and both are certificates -- when one exists the solver model "
+    "is a SUGGESTION whose parts go through the counting verifier of `cover`, "
+    "and when none does you get a DRAT refutation checked by unit "
+    "propagation with no solver. `max_parts` caps how many parts may be used. "
+    "WHAT IT DOES NOT SAY: that no cover exists AT ALL. It says none exists "
+    "using these candidates, which is the same statement only when the "
+    "candidates are every part that could have been used."))
+@_guard
+async def exists(spec_path: str | None = None, spec_source: str | None = None,
+                max_parts: int | None = None,
+                 timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import CoverSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), CoverSpec)
+    res = await _off(algebra.exists, spec, _limits(timeout_ms), str(f), "internal", max_parts)
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "FAMILY: the largest of a finite family of linear programs, with every "
+    "other one bounded below it. Use it when the answer is a maximum over "
+    "many cases -- every bipartition, every profile -- and solving the best "
+    "one is not the claim. Two claims and they are NOT symmetric: the winner "
+    "ATTAINS the value with an exact primal and dual that meet, and every "
+    "other item is BOUNDED by a feasible dual, which is weak duality and "
+    "much cheaper than solving. Nothing stores a linear program: each is "
+    "rebuilt from the spec at verification, so a dual belonging to a "
+    "different item does not fit -- and verification NEEDS the spec file and "
+    "fails loudly without it. Every item program must be a maximisation. "
+    "Budget roughly a fifth of a second per item."))
+@_guard
+async def family(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 600_000) -> dict:
+    from .engines import algebra
+    from .spec import FamilySpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), FamilySpec)
+    res = await _off(algebra.family_max, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "RATIO: a rational-function inequality, for every parameter value at "
+    "once, with no solver. `(n-2)/n^2 <= 1/n for every n >= 2` and its "
+    "cousins -- a step bound, a window width, an error term. `prove` settles "
+    "these too and its certificate re-checks by running a solver again; this "
+    "one re-checks by cross-multiplying and reading signs. The step that can "
+    "go wrong is clearing the denominators, so it is the step that gets "
+    "checked: both must be shown POSITIVE on the ray, and one that cannot be "
+    "is refused rather than assumed, because a negative denominator flips "
+    "the inequality. Relation is `<=` or `<`; `>=` is refused, being the "
+    "same claim with the sides swapped. A failure means the route did not "
+    "work, NEVER that the inequality is false."))
+@_guard
+async def ratio(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import RatioSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), RatioSpec)
+    res = await _off(algebra.ratio, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "MOMENT: the expected number of bad events, in exact rationals, and the "
+    "existence a mean below one buys. The probabilistic method -- if "
+    "E[X] < 1 some outcome has none of them, so an object avoiding all of "
+    "them exists. Two ways to supply it: `events`, a list of probabilities "
+    "summed by linearity of expectation which needs NO independence, or "
+    "`tails`, a distribution as P(X>=1), P(X>=2), ... whose masses are the "
+    "successive differences. In floating point, 0.9999999 and 1.0000001 have "
+    "both been written down as less than one; here the sum is exact and "
+    "re-added on verification. The existence conclusion is drawn ONLY when "
+    "the quantity is declared a count -- non-negative and integer-valued -- "
+    "because a mean below one for something that could be one half "
+    "everywhere puts no outcome at zero."))
+@_guard
+async def moment(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import MomentSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), MomentSpec)
+    res = await _off(algebra.moment, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "ENTRY: where a finite sequence first crosses a threshold, and how far "
+    "past it lands. Two claims and the SECOND carries the weight: it crosses "
+    "at k, and it had NOT crossed at any earlier index. An off-by-one, or a "
+    "`<=` where the argument needed `<`, and the first index is not first "
+    "while every later step rests on it. With a `step_bound` you also get "
+    "the WINDOW: the step before the crossing was on the near side, so the "
+    "crossing overshoots by at most delta. The certificate carries only the "
+    "prefix up to the crossing, because nothing past it is part of either "
+    "claim. A sequence that never crosses comes back REFUTED with no "
+    "certificate -- there is no first index when there is no crossing."))
+@_guard
+async def entry(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import EntrySpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), EntrySpec)
+    res = await _off(algebra.entry, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "REPRO: bundle specs, certificates, versions and hashes into one "
+    "directory somebody can check with nothing installed but certo. Two "
+    "rules make it worth having. NOTHING INVALID GOES IN: every certificate "
+    "is verified on the way and one that fails is left out and NAMED, "
+    "because a bundle containing a certificate that does not check is worse "
+    "than no bundle -- it looks like evidence. NOTHING UNTIED GOES IN "
+    "QUIETLY: a certificate names its spec by hash, and when the file has "
+    "moved on the manifest says so rather than shipping a different file in "
+    "silence."))
+@_guard
+async def repro(directory: str | None = None, out: str | None = None,
+                include_ledger: bool = True,
+                timeout_ms: int = 120_000) -> dict:
+    from . import repro as _repro
+
+    where = _resolve(directory) if directory else _workspace()
+    dest = _resolve(out) if out else (_workspace() / "repro")
+    return await _off(_repro.bundle, str(where), str(dest),
+                      _limits(timeout_ms), include_ledger)
+
+
+@mcp.tool(description=(
+    "DOCTOR: what this install can and cannot do, with what happens without "
+    "each missing piece. Run it when something came back inconclusive and "
+    "you want to know whether that was the mathematics or the machine -- a "
+    "missing exact LP backend, no external SAT solver, no arbitrary-"
+    "precision library. It answers whether the problem is the spec or the "
+    "environment, which is otherwise expensive to answer by guessing."))
+@_guard
+async def doctor() -> dict:
+    from . import doctor as _doctor
+
+    return await _off(_doctor.report)
+
+
+@mcp.tool(description=(
+    "COMMANDS: which command answers which question, as a routing table. "
+    "Read the QUESTION, not the name. Call this FIRST when you know what you "
+    "want to establish but not which tool establishes it: it maps is this "
+    "true, how big, does it hold for every case, does one exist at all, and "
+    "is my setup even sane onto the tool that answers each. Every row "
+    "carries the spec type it takes and whether its certificate re-checks "
+    "WITHOUT a solver, which for two routes to the same fact is usually the "
+    "deciding difference and is invisible from the name."))
+@_guard
+async def commands() -> dict:
+    from .routing import table
+
+    return table()
+
+
+@mcp.tool(description=(
     "Re-verify a stored certificate. Those marked solver_free are checked "
     "without any solver: arithmetic, evaluation or unit propagation. ALWAYS "
     "use this before taking a result as settled."))
