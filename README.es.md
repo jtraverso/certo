@@ -1,24 +1,55 @@
 # certo
 
-**Tienes una afirmación matemática. certo intenta romperla, y si no puede, te
-entrega un certificado que cualquiera puede re-comprobar sin fiarse de certo.**
+**Entre tener una idea matemática y tener una demostración de ella hay mucho
+trabajo que no es demostrar.** certo hace ese trabajo —encontrar el objeto,
+romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
+realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
+que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Veinticinco comandos. Se ejecuta antes de gastar las horas que
-cuesta una formalización.
+CLI y MCP. Veinticinco comandos. Corre en milisegundos donde una
+formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
 
 ---
 
-### Caza afirmaciones que son simplemente falsas
+## El arco
 
-Un usuario escribió que una restricción de densidad «obliga a `G` casi
-completo, luego el caso es trivial». No lo hace, y esta la puedes correr tú:
+| Fase | Qué preguntas | Qué vuelve |
+|---|---|---|
+| **Encontrar** | ¿Existe un objeto así? ¿Cuál es el mejor? | el objeto —y con `mixed --prove-optimal`, una demostración de que *es* el mejor |
+| **Romper** | ¿Es cierta esta afirmación? | un contraejemplo **con valores concretos**, en milisegundos |
+| **Medir** | No *si* falla: **cuánto**, y ¿dónde es peor? | mínimo, máximo y media exactos, y las instancias extremas por nombre |
+| **Reducir** | Noventa contraejemplos. ¿Cuántos objetos son en realidad? | órbitas bajo tu simetría, y un testigo minimal por órbita |
+| **Establecer** | ¿Vale para todos los casos, para todo `n`, exactamente? | pruebas DRAT, inducción con la cadena comprobada, multiplicadores de Farkas, cofactores de Gröbner, sumas de cuadrados, encierros rigurosos |
+| **Ensamblar** | ¿Sobre qué descansa todo mi proyecto, y qué sigo debiendo? | la demostración con cada **puente nombrado**, y un informe de lo que sigue supuesto |
+
+El hilo conductor es la última columna. Un veredicto que no puedes
+re-comprobar es un rumor; todo aquí produce un artefacto, y la mayoría se
+comprueban sin solver alguno.
+
+---
+
+### Encuentra el objeto — y demuestra que es el mejor
+
+```
+$ certo mixed examples/walkthrough.py --prove-optimal
+DEMOSTRADO  [unsat]
+  ÓPTIMO 7, DEMOSTRADO: 73 nodos, 37 de ellos cerrados con certificado
+  73 nodos: 19 cerrados por cota, 18 infactibles, 0 totalmente fijados
+```
+
+No «el solver dijo 7». Branch and bound donde **cada hoja lleva su propio
+certificado** —un dual exacto, un rayo de Farkas, o un LP residual totalmente
+fijado— y se comprueba que el árbol cubre el dominio entero. `certo synth`
+hace el mismo trabajo por CEGIS cuando el objeto es una fórmula y no un
+diseño, y dice sin rodeos que su búsqueda fue acotada.
+
+### Rompe las que son falsas, y te enseña qué las rompió
 
 ```
 $ certo prove examples/refute_density.py
 REFUTADO  [sat]
-  REFUTADO: hay un contraejemplo que cumple las hipótesis y viola la tesis
   el contraejemplo:
     dens = 7/8
     kappa = 4
@@ -27,16 +58,35 @@ REFUTADO  [sat]
 ```
 
 **Cuatro milisegundos**, y la respuesta no es «no» —es `dens = 7/8`, que pasa
-todas las hipótesis y no está ni cerca de ser completo—. Su siguiente
-afirmación, que con `|κ| ≥ 4` bastaba para toda densidad, cayó igual con
-`dens = 127/128, |κ| = 7`, fallando por `0.3351` frente a `0.3333`. La cota
-correcta era 8. Las dos habrían ido a una pasada de formalización, a dos horas
-y media cada una.
+todas las hipótesis y no está ni cerca del «casi completo» que la afirmación
+suponía—. Ese número te dice por dónde arreglar el enunciado.
 
-El certificado es un **modelo**: re-comprobarlo es sustituir los valores y
-evaluar. Nadie tiene que fiarse de z3, ni de certo.
+### Mide cuánto, no solo si
 
-### Caza afirmaciones que son ciertas y no van de nada
+```
+$ certo sweep examples/calibrate_density.py
+SATISFACIBLE  [sat]
+  CALIBRACIÓN sobre 156 grafos: mín=0 (E???)  máx=1 (E~~w)  media=1/2
+```
+
+Racionales exactos, y los extremos nombrados. Que una conjetura falle es un
+dato; *cuánto falla y sobre qué objeto* es lo que te dice si debilitarla o
+abandonarla.
+
+### Convierte noventa fallos en los dos objetos que son
+
+```
+$ certo sweep examples/setfamily_sweep.py --witnesses
+REFUTADO  [sat]
+  REFUTADO: 90 contraejemplos de 120 examinados -- 90 etiquetados, 2 salvo simetría
+  orbit_count: 2
+```
+
+Noventa contraejemplos no son noventa problemas. Declaras la simetría y certo
+cuocienta por ella, se queda con un testigo **minimal** por órbita, y
+certifica que la descomposición cuadra.
+
+### Y te dice cuándo una demostración no iba de nada
 
 ```
 $ certo prove examples/lint_vacuous_regime.py
@@ -44,32 +94,15 @@ DEMOSTRADO -- simbólico y universal bajo las hipótesis  [unsat]
   VACUA: estas hipótesis se contradicen entre sí, así que este objetivo --y
   cualquier otro-- se sigue. La demostración es válida y no dice nada.
   El choque es: kappa_large, density_high, sparse
-  !! las hipótesis son contradictorias: esta demostración es vacua
 ```
 
 Lean demostrará ese teorema, no reportará ningún `sorry`, y `#print axioms`
-saldrá limpio. Nada de eso te dice que las hipótesis fueran satisfacibles. Ese
-mismo usuario tenía **cuatro** módulos Lean así. Preguntado al revés:
+saldrá limpio. Nada de eso te dice que las hipótesis fueran satisfacibles. Un
+usuario tenía **cuatro** módulos Lean así.
+
+### Y cada una deja algo que puedes re-comprobar después
 
 ```
-$ certo check examples/regime_nonempty.py --hypotheses-only
-SATISFACIBLE  [sat]
-  el régimen NO ES VACÍO: las 4 hipótesis se sostienen a la vez, y aquí hay
-  un punto donde lo hacen
-  un punto que satisface todo:
-    dens = 1/2
-    kappa = 4
-    n = 100
-```
-
-### Y te deja algo que un referee puede comprobar
-
-```
-$ certo mixed examples/walkthrough.py --prove-optimal
-DEMOSTRADO  [unsat]
-  ÓPTIMO 7, DEMOSTRADO: 73 nodos, 37 de ellos cerrados con certificado
-  73 nodos: 19 cerrados por cota, 18 infactibles, 0 totalmente fijados
-
 $ certo verify out/optimal.json
 VÁLIDO  certificado branch_bound (verificado con solver)
   [ok] ningún nodo aparece dos veces  (0 duplicados)
@@ -78,9 +111,11 @@ VÁLIDO  certificado branch_bound (verificado con solver)
   [ok] todo nodo hoja está cerrado con un certificado  (0 sin cerrar: -)
 ```
 
-No «el solver dijo 7». Cada hoja de la búsqueda lleva su propio certificado y
-se comprueba que el árbol cubre el dominio entero —meses después, solo con el
-artefacto—.
+Meses después, solo con el artefacto, y con los avisos repetidos —una
+demostración vacua sigue diciendo que es vacua, un barrido sigue diciendo qué
+no certificó—. `certo status` hace esto con un directorio entero, y te dice
+qué sigue debiendo el proyecto.
+
 
 ---
 

@@ -104,18 +104,30 @@ items below still say "build against a real problem".
 
 ### A note on the README
 
-Restructured 2026-09-17 after the observation that the opening was abstract.
-It now leads with three real sessions — a false claim refuted in 4 ms with its
-counterexample, a vacuous proof caught, an optimum proved with every leaf
-certified — each one runnable from `examples/`, and every block of output
-copied from an actual run rather than written from memory. Two blocks were
-wrong when checked, including one that claimed a `branch_bound` certificate
-verified *without* a solver. It does not.
+Rewritten twice on 2026-09-17, for two different reasons, and the second one
+is the interesting one.
 
-After that: **Start here**, a five-row router by who you are, and **Which
-command answers which question**, a table keyed on the question in the
-reader's own words rather than on the command name. That second table is the
-one an LLM needs, and it turns out a newcomer needs the same thing.
+The first pass replaced an abstract opening with three real sessions. The
+second replaced those, because all three showed the SAME PHASE of the tool:
+catch a false claim, catch a vacuous one, hand over an artefact. The tagline
+said "certo tries to break it", which is a mode and not a summary. Nothing on
+the front page showed it FINDING anything, measuring how much a thing fails
+rather than whether, or collapsing ninety counterexamples into the two objects
+they actually are.
+
+It now leads with **the arc** — find, break, measure, reduce, establish,
+assemble — as a table, and then one session per phase. The through-line is the
+last column of that table rather than the verb in the tagline: every phase
+returns something re-checkable, and that is the claim worth making.
+
+Worth recording as a lesson rather than a changelog entry: a front page
+written by whoever built the tool will over-represent whatever they worked on
+most recently. Three sessions all drawn from the honesty layer looked like
+coverage and were not.
+
+Every block of output on both front pages is copied from a run. Two were wrong
+when first checked, including one claiming a `branch_bound` certificate
+verifies *without* a solver. It does not.
 
 
 ## P1 — next

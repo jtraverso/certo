@@ -1,24 +1,55 @@
 # certo
 
-**You have a mathematical claim. certo tries to break it, and if it cannot,
-hands you a certificate that anybody can re-check without trusting certo.**
+**Between having a mathematical idea and having a proof of it there is a lot
+of work that is not proving.** certo does that work — find the object, break
+the claims that are false, measure what survives, reduce it to what it really
+is, and assemble the rest — and every step comes back with a **certificate
+anyone can re-check without trusting certo.**
 
-CLI and MCP. Twenty-five commands. Runs before you spend the hours a
-formalisation costs.
+CLI and MCP. Twenty-five commands. Runs in milliseconds where a formalisation
+costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
 
 ---
 
-### It catches claims that are simply false
+## The arc
 
-A user wrote that a density constraint "forces `G` almost complete, hence the
-case is trivial". It does not, and you can run this one yourself:
+| Phase | What you ask | What comes back |
+|---|---|---|
+| **Find** | Is there an object like this? What is the best one? | the object itself — and with `mixed --prove-optimal`, a proof that it *is* the best |
+| **Break** | Is this claim actually true? | a counterexample **with concrete values**, in milliseconds |
+| **Measure** | Not *whether* it fails — **how much**, and where is it worst? | exact min, max and mean, and the extreme instances by name |
+| **Reduce** | Ninety counterexamples. How many objects is that really? | orbits under your symmetry, and one minimal witness per orbit |
+| **Establish** | Is it true for every case, every `n`, exactly? | DRAT proofs, induction with the chain checked, Farkas multipliers, Gröbner cofactors, sums of squares, rigorous enclosures |
+| **Assemble** | What does my whole project rest on, and what do I still owe? | the proof with every **bridge named**, and a report of what is still assumed |
+
+The through-line is the last column. A verdict you cannot re-check is a
+rumour; everything here produces an artefact, and most of them check without a
+solver at all.
+
+---
+
+### It finds the object — and proves it is the best one
+
+```
+$ certo mixed examples/walkthrough.py --prove-optimal
+PROVED  [unsat]
+  OPTIMUM 7, PROVED: 73 nodes, 37 of them closed by a certificate
+  73 nodes: 19 closed by bound, 18 infeasible, 0 fully fixed
+```
+
+Not "the solver said 7". Branch and bound where **every leaf carries its own
+certificate** — an exact dual, a Farkas ray, or a fully-fixed residual LP —
+and the tree is checked to cover the integer domain. `certo synth` does the
+same job by CEGIS when the object is a formula rather than a design, and says
+plainly that its search was bounded.
+
+### It breaks the ones that are false, and shows you what broke them
 
 ```
 $ certo prove examples/refute_density.py
 REFUTED  [sat]
-  REFUTED: there is a counterexample that satisfies the hypotheses and violates the claim
   the counterexample:
     dens = 7/8
     kappa = 4
@@ -27,16 +58,35 @@ REFUTED  [sat]
 ```
 
 **Four milliseconds**, and the answer is not "no" — it is `dens = 7/8`, which
-clears every hypothesis and is nowhere near complete. Their next claim, that
-`|κ| ≥ 4` sufficed for every density, fell the same way with
-`dens = 127/128, |κ| = 7`, failing by `0.3351` against `0.3333`. The right
-bound was 8. Both would otherwise have gone to a formalisation pass, at two
-and a half hours each.
+clears every hypothesis and is nowhere near the "almost complete" the claim
+assumed. That number tells you which way to fix the statement.
 
-The certificate is a **model**: re-checking it means substituting the values
-and evaluating. Nobody has to trust z3, or certo.
+### It measures how much, not just whether
 
-### It catches claims that are true and about nothing
+```
+$ certo sweep examples/calibrate_density.py
+SATISFIABLE  [sat]
+  CALIBRATION over 156 graphs: min=0 (E???)  max=1 (E~~w)  mean=1/2
+```
+
+Exact rationals, and the extremes named. A conjecture that fails is one fact;
+*how badly it fails and on which object* is what tells you whether to weaken
+it or abandon it.
+
+### It turns ninety failures into the two objects they are
+
+```
+$ certo sweep examples/setfamily_sweep.py --witnesses
+REFUTED  [sat]
+  REFUTED: 90 counterexamples out of 120 examined -- 90 labelled, 2 up to symmetry
+  orbit_count: 2
+```
+
+Ninety counterexamples is not ninety problems. Declare the symmetry and certo
+quotients by it, keeps one **minimal** witness per orbit, and certifies that
+the decomposition adds up.
+
+### And it tells you when a proof was about nothing
 
 ```
 $ certo prove examples/lint_vacuous_regime.py
@@ -44,31 +94,15 @@ PROVED -- symbolic and universal under the hypotheses  [unsat]
   VACUOUS: these hypotheses contradict each other, so this goal -- and every
   other goal -- follows. The proof is valid and says nothing.
   The clash is: kappa_large, density_high, sparse
-  !! the hypotheses are contradictory: this proof is vacuous
 ```
 
 Lean will prove that theorem, report no `sorry`, and audit clean on
-`#print axioms`. None of that tells you the hypotheses were satisfiable. The
-same user had **four** Lean modules like it. Asked the other way round:
+`#print axioms`. None of that tells you the hypotheses were satisfiable. One
+user had **four** Lean modules like it.
+
+### Every one of those leaves something you can re-check later
 
 ```
-$ certo check examples/regime_nonempty.py --hypotheses-only
-SATISFIABLE  [sat]
-  the regime is NON-EMPTY: all 4 hypotheses hold together, and here is a point where they do
-  a point that satisfies everything:
-    dens = 1/2
-    kappa = 4
-    n = 100
-```
-
-### And it hands you something a referee can check
-
-```
-$ certo mixed examples/walkthrough.py --prove-optimal
-PROVED  [unsat]
-  OPTIMUM 7, PROVED: 73 nodes, 37 of them closed by a certificate
-  73 nodes: 19 closed by bound, 18 infeasible, 0 fully fixed
-
 $ certo verify out/optimal.json
 VALID  branch_bound certificate (verified with a solver)
   [ok] no node appears twice  (0 duplicates)
@@ -77,9 +111,11 @@ VALID  branch_bound certificate (verified with a solver)
   [ok] every leaf is closed by a certificate  (0 not closed: -)
 ```
 
-Not "the solver said 7". Every leaf of the search carries its own certificate
-and the tree is checked to cover the integer domain — months later, on the
-artefact alone.
+Months later, on the artefact alone, with the warnings repeated — a vacuous
+proof keeps saying it is vacuous, a sweep keeps saying what it did not
+certify. `certo status` does this for a whole directory, and tells you what
+the project still owes.
+
 
 ---
 

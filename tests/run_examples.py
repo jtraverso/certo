@@ -26,6 +26,7 @@ CASES = [
     ("lint_vacuous_regime.py", "lint", [], 1),
     ("regime_nonempty.py", "check", ["--hypotheses-only"]),
     ("refute_density.py", "prove", []),
+    ("calibrate_density.py", "sweep", []),
     ("amgm.py", "prove", []),
     ("pigeonhole.py", "cases", []),
     ("core_matrix.py", "core", []),
