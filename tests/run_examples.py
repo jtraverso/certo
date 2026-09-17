@@ -61,6 +61,7 @@ CASES = [
     ("synth_constant.py", "synth", []),
     ("synth_prove_identity.py", "synth", ["--prove-candidate"]),
     ("ramsey.py", "cases", []),
+    ("propositional.py", "cases", []),
     ("ramsey_k5.py", "cases", []),
     ("mus_ramsey.py", "shrink", []),
     ("sweep_simplicial.py", "sweep", []),

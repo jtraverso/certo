@@ -1025,5 +1025,11 @@
   "leancheck.no_rows": "a {kind} certificate carries no linear rows to compare against",
   "cli.lean.corresponds": "the exported statement CORRESPONDS to the certificate: {n} hypotheses and the goal, re-parsed from the file and compared",
   "cli.lean.mismatch": "the exported statement does NOT correspond to the certificate -- missing: {missing}; unexpected: {extra}; altered: {changed}; goal matches: {goal}",
-  "cli.lean.not_compared": "statement correspondence NOT checked: {reason}"
+  "cli.lean.not_compared": "statement correspondence NOT checked: {reason}",
+  "prop.not_bool": "`{got}` has sort {sort}, not Bool. Encoding an arithmetic comparison as a boolean variable gives a CNF whose refutation says nothing about the arithmetic -- that is a wrong answer, not a missing feature. Mixed problems go to `prove`",
+  "prop.not_atom": "`{got}` is not a propositional atom and not a connective this understands",
+  "prop.quantifier": "quantifiers are not propositional logic; `prove` decides them and `cases` cannot",
+  "prop.means_valid": "the formula is VALID: its negation was encoded, and the refutation of that negation is the proof",
+  "prop.means_sat": "the formula is SATISFIABLE exactly when this CNF is, and a model restricted to the original variables is a model of the formula",
+  "cli.prop.auxiliaries": "{atoms} variables of yours, {n} added by the encoding and dropped from the answer"
 }

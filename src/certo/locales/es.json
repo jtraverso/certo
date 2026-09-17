@@ -1025,5 +1025,11 @@
   "leancheck.no_rows": "un certificado {kind} no lleva filas lineales contra las que comparar",
   "cli.lean.corresponds": "el enunciado exportado CORRESPONDE al certificado: {n} hipótesis y el objetivo, re-parseados del fichero y comparados",
   "cli.lean.mismatch": "el enunciado exportado NO corresponde al certificado -- faltan: {missing}; sobran: {extra}; alteradas: {changed}; objetivo coincide: {goal}",
-  "cli.lean.not_compared": "correspondencia del enunciado NO comprobada: {reason}"
+  "cli.lean.not_compared": "correspondencia del enunciado NO comprobada: {reason}",
+  "prop.not_bool": "`{got}` tiene sort {sort}, no Bool. Codificar una comparación aritmética como variable booleana da un CNF cuya refutación no dice nada sobre la aritmética -- eso es una respuesta equivocada, no una carencia. Los problemas mixtos van a `prove`",
+  "prop.not_atom": "`{got}` no es un átomo proposicional ni un conectivo que esto entienda",
+  "prop.quantifier": "los cuantificadores no son lógica proposicional; `prove` los decide y `cases` no puede",
+  "prop.means_valid": "la fórmula es VÁLIDA: se codificó su negación, y la refutación de esa negación es la demostración",
+  "prop.means_sat": "la fórmula es SATISFACIBLE exactamente cuando lo es este CNF, y un modelo restringido a las variables originales es un modelo de la fórmula",
+  "cli.prop.auxiliaries": "{atoms} variables tuyas, {n} añadidas por la codificación y quitadas de la respuesta"
 }

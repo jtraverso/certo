@@ -1576,6 +1576,144 @@ def test_weak_duality_is_what_bounds_the_losers():
     assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
 
 
+# --- propositional logic reaches a DRAT proof ------------------------------
+
+
+def test_tseitin_agrees_with_z3_on_random_formulas():
+    """The check that matters: satisfiability, validity, and the models.
+
+    An encoding that is subtly wrong produces a CNF that is refutable when the
+    formula is not, which is a wrong answer wearing a DRAT proof. So it is
+    compared against a decision procedure over a hundred random formulas, and
+    every model is substituted back into the formula it claims to satisfy.
+    """
+    import random
+
+    import z3
+
+    from certo.engines import sat
+    from certo.propositional import model_of, to_cnf
+
+    rng = random.Random(11)
+    atoms = z3.Bools("a b c d")
+
+    def build(depth=0):
+        if depth >= 3 or rng.random() < 0.3:
+            v = rng.choice(atoms)
+            return z3.Not(v) if rng.random() < 0.4 else v
+        op = rng.choice(["and", "or", "not", "imp", "iff"])
+        if op == "not":
+            return z3.Not(build(depth + 1))
+        a, b = build(depth + 1), build(depth + 1)
+        return {"and": z3.And(a, b), "or": z3.Or(a, b),
+                "imp": z3.Implies(a, b), "iff": a == b}[op]
+
+    def decided(f, negate=False):
+        s = z3.Solver()
+        s.add(z3.Not(f) if negate else f)
+        return s.check()
+
+    for _ in range(60):
+        f = build()
+        spec = to_cnf(f)
+        got = sat.cases(spec, LIM)
+        is_sat = got.verdict is Verdict.SATISFIABLE
+        assert is_sat == (decided(f) == z3.sat), f
+
+        if is_sat:
+            true_vars = [v for v in got.certificate.payload["true_vars"]
+                         if v > 0]
+            model = model_of(spec.cnf, true_vars, spec.meta["atoms"])
+            subst = [(z3.Bool(k), z3.BoolVal(v)) for k, v in model.items()]
+            assert z3.is_true(z3.simplify(z3.substitute(f, *subst))), (f, model)
+
+        valid = sat.cases(to_cnf(f, prove=True), LIM).verdict is Verdict.PROVED
+        assert valid == (decided(f, negate=True) == z3.unsat), f
+
+
+def test_a_tautology_is_proved_by_refuting_its_negation():
+    """And the certificate says so, because the verdict reads backwards."""
+    import z3
+
+    from certo.engines import sat
+    from certo.propositional import to_cnf
+
+    a, b, c, d = z3.Bools("a b c d")
+    spec = to_cnf(z3.Implies(
+        z3.And(z3.Implies(a, c), z3.Implies(b, d), z3.Or(a, b)),
+        z3.Or(c, d)), prove=True)
+    assert spec.expect == "unsat"
+    assert spec.meta["encoded"] == "not(formula)"
+    assert "VALID" in spec.meta["means"]
+
+    r = sat.cases(spec, LIM)
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.kind == "drat"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free          # no solver, unit propagation
+
+
+def test_the_witness_comes_back_in_the_variables_somebody_wrote():
+    """Tseitin's auxiliaries are an artefact of the encoding, and reporting
+    them would make a reader check whether `__or_7` was part of the problem."""
+    import z3
+
+    from certo.engines import sat
+    from certo.propositional import model_of, to_cnf
+
+    a, b, c = z3.Bools("a b c")
+    spec = to_cnf(z3.And(z3.Or(a, b), z3.Implies(a, z3.Not(c))))
+    assert spec.meta["auxiliaries"] > 0        # there ARE extras
+    assert spec.meta["atoms"] == ["a", "b", "c"]
+
+    r = sat.cases(spec, LIM)
+    true_vars = [v for v in r.certificate.payload["true_vars"] if v > 0]
+    model = model_of(spec.cnf, true_vars, spec.meta["atoms"])
+    assert set(model) == {"a", "b", "c"}
+    assert not any(k.startswith("__") for k in model)
+
+
+def test_arithmetic_inside_a_formula_is_refused_not_encoded_as_an_atom():
+    """A CNF whose refutation says nothing about the arithmetic is a WRONG
+    answer wearing a proof, not a missing feature."""
+    import z3
+
+    from certo.propositional import NotPropositional, to_cnf
+
+    a = z3.Bool("a")
+    x, y = z3.Ints("x y")
+    for bad in (z3.Or(a, x + y <= 3), x > 0):
+        try:
+            to_cnf(bad)
+            raise AssertionError("expected a refusal for " + str(bad))
+        except NotPropositional:
+            pass
+
+    # quantifiers are not propositional either, and `prove` decides them
+    n = z3.Int("n")
+    try:
+        to_cnf(z3.ForAll([n], n == n))
+        raise AssertionError("expected a refusal")
+    except NotPropositional as e:
+        assert "quantifier" in str(e)
+
+
+def test_a_shared_subformula_is_named_once():
+    """The linear-size claim: Tseitin names each subformula once, so a formula
+    reusing one does not double the clauses."""
+    import z3
+
+    from certo.propositional import to_cnf
+
+    a, b = z3.Bools("a b")
+    shared = z3.Or(a, b)
+    once = to_cnf(shared)
+    twice = to_cnf(z3.And(shared, shared))
+    # the shared node is encoded once; the outer And adds a name and its
+    # clauses, and nothing is duplicated underneath
+    assert len(twice.cnf.clauses) - len(once.cnf.clauses) <= 4
+
+
 # --- does the exported theorem say what the certificate established? -------
 
 

@@ -1062,12 +1062,26 @@ def cmd_cases(args):
 
     rc = emit(res, args)
     if not args.json:
+        # A formula encoded by Tseitin is refuted in its NEGATION, so the
+        # verdict reads backwards unless what it means is printed beside it.
+        # And its auxiliary variables are an artefact of the encoding, so the
+        # witness is reported in the variables somebody wrote.
+        meaning = (spec.meta or {}).get("means")
+        if meaning:
+            print("  " + meaning)
+            extra = (spec.meta or {}).get("auxiliaries")
+            if extra:
+                print("  " + t("cli.prop.auxiliaries", n=extra,
+                               atoms=len(spec.meta.get("atoms") or [])))
         pc = res.meta.get("proof_check", {})
         for checker, rep in pc.items():
             print("  " + t("cli.checker", name=checker,
                             verdict="OK" if rep.get("ok") else "FAIL",
                             detail=rep.get("detail", "")))
         w = res.meta.get("witness")
+        atoms = (spec.meta or {}).get("atoms")
+        if w and atoms:
+            w = {k: v for k, v in w.items() if k in set(atoms)}
         if w:
             true_ = [k for k, v in sorted(w.items()) if v]
             print("  " + t("cli.witness", n=len(true_),
