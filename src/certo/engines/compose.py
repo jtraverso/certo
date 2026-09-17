@@ -111,9 +111,14 @@ def compose(spec, limits: Limits | None = None, spec_path: str = "",
             derived, bridge = False, lem.bridge
 
         statements.append((lem.name, phi))
-        entries.append({"name": lem.name, "statement_smt2": z3util.smt2(phi),
-                        "derived": derived, "bridge": bridge,
-                        "engine": engine, "cert": sub})
+        entry = {"name": lem.name, "statement_smt2": z3util.smt2(phi),
+                 "derived": derived, "bridge": bridge,
+                 "engine": engine, "cert": sub}
+        if lem.subject:
+            entry["subject"] = list(lem.subject)
+        if lem.transport:
+            entry["transport"] = lem.transport
+        entries.append(entry)
 
     # The final step is an ordinary `prove`: the lemmas and the theorem's own
     # hypotheses as named premises, the theorem as the goal. Because it is
@@ -137,6 +142,27 @@ def compose(spec, limits: Limits | None = None, spec_path: str = "",
                       meta={"lemmas": [e["name"] for e in entries]})
 
     used = [n for n in step.meta.get("hypotheses_used", [])]
+    # A LEVEL CANNOT BE CROSSED SILENTLY. A lemma whose subject differs from
+    # the theorem's has moved between objects, and the map has to be named.
+    # certo does not check the map -- that is Lean's part, and the boundary
+    # this project keeps -- but an unnamed crossing is refused, because it is
+    # the step where a fact about a computation becomes a fact about the
+    # mathematics without anybody deciding that it should.
+    theorem_subject = list(spec.subject) if spec.subject else None
+    unnamed = [e["name"] for e in entries
+               if e.get("subject") and theorem_subject
+               and e["subject"] != theorem_subject and not e.get("transport")]
+    if unnamed:
+        return _fail(t("engine.compose.silent_transport",
+                       names=", ".join(unnamed[:4]), n=len(unnamed)), t0,
+                     meta={"silent_transport": unnamed})
+
+    crossings = [{"lemma": e["name"], "from": e["subject"],
+                  "to": theorem_subject, "map": e["transport"]}
+                 for e in entries
+                 if e.get("subject") and theorem_subject
+                 and e["subject"] != theorem_subject]
+
     unused = [e["name"] for e in entries if e["name"] not in used]
     ambient = [f for _, f in spec.assumptions]
     cert = proof_certificate(
@@ -146,6 +172,7 @@ def compose(spec, limits: Limits | None = None, spec_path: str = "",
         lemmas=entries, step=step.certificate.to_dict(),
         used=used, unused=unused,
         vacuous=bool(step.meta.get("vacuous")), title=spec.title,
+        subject=theorem_subject, crossings=crossings,
     ).stamp(spec_path or None)
 
     bridges = [e["name"] for e in entries if not e["derived"]]

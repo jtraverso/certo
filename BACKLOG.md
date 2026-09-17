@@ -17,10 +17,8 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 
 | | | |
 |---|---|---|
-| **P1** | Typed transport: which object does this certificate speak about | *named by two users and load-bearing here* |
 | **P1** | Certified symmetry reduction | |
 | **P1** | Does this hypothesis earn its place | |
-| **P1** | Integer arithmetic to a real Lean theorem, and to `omega` | |
 | **P2** | Exact integer linear algebra: determinant, rank, minors, Smith, Hermite | *the only item two routes share* |
 | **P2** | Affine semigroups and local toric charts | |
 | **P2** | Chow ring and toric intersection | |
@@ -34,19 +32,7 @@ found -- is at the end, because it is the part that does not change.
 
 ## P1 — the risk all three reports named
 
-### 1. Typed transport: what object does this certificate speak about
-
-Every certificate declares its object -- a cone, a monoid, a ring, a graph, a
-linear program -- and every step to another level carries an explicit map that
-certo checks or names as a bridge. `compose` already has bridges: declared,
-named, and reported on every verification. This is that, generalised to the
-whole artefact rather than to one command.
-
-It subsumes P0 item 2, the second user's request, and the symmetry-reduction
-gap below. It is the item that stops a result about a computation being read
-as a result about the mathematics.
-
-### 2. Certified symmetry reduction
+### 1. Certified symmetry reduction
 
 The sentence "averaging over the automorphism group, an optimal solution may
 be assumed constant on each orbit" is a bridge under five shipped examples.
@@ -57,29 +43,13 @@ variable map is a certificate.
 certo already solves the reduced program exactly and certifies the dual. This
 closes the only step that was taken on trust.
 
-### 3. Does this hypothesis earn its place
+### 2. Does this hypothesis earn its place
 
 Drop each hypothesis in turn and hunt a counterexample. `core` already reports
 which hypotheses an unsat core NEEDED; this is the other direction, and it is
 what catches a theorem stated too strongly BEFORE it is formalised. Requested
 by the second user for debugging their T1-T4, and it is the sharpest form of
 "validate or contradict, deterministically" there is.
-
-### 4. Integer arithmetic to a real Lean theorem, and to `omega`
-
-The smallest export that is not hollow. `farkas --nonlinear` already emits
-`nlinarith [corner_square, tail_square]` -- a tactic call that compiles and
-closes the goal -- so the pattern is proved; integer linear arithmetic maps
-onto `omega` the same way.
-
-Pairs with the same user's request for PRESBURGER CERTIFICATES INDEPENDENT OF
-Z3: a certificate an external checker can re-run without trusting the solver
-that found it, which is the discipline everywhere else here and is missing
-exactly where the answer gets handed to Lean.
-
----
-
-## P2 — the substrate two routes share
 
 ### 1. Exact integer linear algebra
 
@@ -250,6 +220,8 @@ geometric transport. That is now the stated policy rather than an implication.
 | ✅ | **`certo ratio`: a fraction inequality for every n** *(P3)* | `(n-2)/n^2 <= 1/n` for n >= 2 and its cousins, which `prove` settles with an unsat core that re-checks by running a solver again. Clearing the denominators makes it the shift test, and the step that can go wrong -- clearing them -- is the step that gets checked: a denominator not shown positive is a refusal, because a negative one flips the inequality and makes the certificate backwards. `>=` is not offered, being the same claim with the sides swapped. |
 | ✅ | **`certo moment`: the first moment, exactly** *(P3)* | The probabilistic method in one line, and the line is a sum of rationals -- usually done in floating point, where `0.9999999` and `1.0000001` have both been written down as "less than one". Two shapes: by event (linearity, no independence needed) and by tail (masses as successive differences, which is the shape the active corpus work states). The existence conclusion is drawn only when the quantity is declared a COUNT, and `verify` re-earns that rather than believing the flag. |
 | ✅ | **`certo entry`: the first crossing, and its window** *(P3)* | A proof walks a finite path and stops at the first index past a line. The claim that goes wrong is not "it crosses" but "it had not crossed yet". The prefix is the whole evidence -- nothing past the crossing is part of either claim, so the tail never travels. A step bound buys the WINDOW: the step before was on the near side, so the crossing overshoots by at most delta. |
+| ✅ | **Typed transport: a level cannot be crossed silently** *(user feedback P1)* | Two users on two different routes reported the same risk from opposite ends, and one named it exactly: silently passing from a computational object to the paper's object. `compose` already checked the LINK between a lemma and what its certificate closes; what was missing was the OBJECT. A lemma now declares `subject=(kind, id)` and, when that differs from the theorem's, must name a `transport`. An unnamed crossing is REFUSED. certo does not check the map -- that is Lean's part and the boundary this project keeps -- but every crossing is recorded and repeated on each verification, the way bridges are. Declaring no subjects keeps the old behaviour exactly, because a proof that never mentions objects has no levels to cross. |
+| ✅ | **Integer arithmetic exports to a theorem `omega` closes** *(user feedback P1)* | The exporter emitted ℤ binders and then handed the goal to `linarith` -- which reasons over ordered FIELDS, so `2x >= 1 implies x >= 1` is beyond it -- or, with no Farkas multipliers, to `sorry`. The second is the common case in combinatorics: a core over the integers exported as a hole even when the statement was DECIDABLE. Linear integer arithmetic is Presburger without quantifiers, `omega` decides it, and it needs no multipliers because it is not searching for a combination. Non-linear integer rows keep the old route, because `omega` does not do variable times variable and a tactic call that fails looks the same to a reader as a gap. And the footer no longer claims a `sorry` the file does not have -- the same lie as a hollow theorem, in the other direction. |
 | ✅ | **Propositional logic reaches a DRAT proof** *(user question)* | An asymmetry, once it was named: `prove` DECIDES logic -- disjunctions, implications, quantifiers, booleans mixed with arithmetic -- and its `unsat_core` re-checks by running a solver again. `cases` refutes a CNF with a DRAT proof that re-checks by unit propagation and nothing else, and was reachable only by writing clauses by hand. So anything with an `Or` in it fell back to trusting z3 twice. `to_cnf` is the standard bridge, Tseitin, with the honest parts said out loud: EQUISATISFIABLE and not equivalent, `prove=True` encodes the NEGATION so the verdict reads backwards and the meaning is printed beside it, and the auxiliaries are dropped from the reported witness. Arithmetic inside a formula is REFUSED rather than encoded as an atom -- a CNF whose refutation says nothing about the arithmetic is a wrong answer wearing a proof. Checked against z3 on 60 random formulas for satisfiability, validity, and every model substituted back. |
 | ✅ | **The exported theorem is compared against the certificate** *(user feedback P0)* | Nothing compared them. The exporter reads a certificate and writes Lean, and a bug anywhere in that path -- a dropped hypothesis, a sign, a coefficient, a goal rendered from the wrong row -- produces a theorem that COMPILES, looks right, and is not the one the certificate supports. It is the failure this project has already had twice in the other direction: producer and verifier wrong in the same place, agreeing with each other. So the check does not ask the exporter what it meant: it PARSES THE EMITTED TEXT BACK and compares, by a different route. Comparison is semantic, because `-a < 0` and `a > 0` are one row and the exporter writes hypotheses one way and the goal the other on purpose. Four mangles caught, each naming what changed rather than pooling into one boolean. The parser covers only the grammar certo emits and REFUSES the rest, because one that guessed would quietly approve a statement it misread. |
 | ✅ | **A hollow Lean export says it is hollow** *(user feedback P0)* | A user exporting an `unsat_core` over a theory certo cannot render got `theorem from_core : True := by trivial` -- compiles, no `sorry`, passes `#print axioms`, states nothing. They declined to put it in their formal chain, which means the safeguard that worked was a person reading carefully. Three changes: a placeholder closes with **`sorry`** rather than `trivial`, so every audit a formalisation project already runs sees it; its name carries `_HOLLOW`, so it is not cited by accident; and `export --check` reports **HOLLOW** and exits non-zero instead of OK, because compiling was never the question. The manifest records the count per file. The route that WORKS -- linear arithmetic over the reals, with real binders and a positively stated goal -- is unmarked, which is what keeps the signal worth anything. |

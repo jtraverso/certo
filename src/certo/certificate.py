@@ -479,7 +479,8 @@ def farkas_certificate(rows, multipliers, constant, strict, nonlinear,
 
 
 def proof_certificate(theorem_smt2, assumptions, assumptions_smt2, lemmas,
-                      step, used, unused, vacuous=False, title="") -> Certificate:
+                      step, used, unused, vacuous=False, title="",
+                      subject=None, crossings=None) -> Certificate:
     """A proof assembled from lemmas, each with its own certificate.
 
     What this adds over a pile of certificates in a directory is the LINK: for
@@ -493,16 +494,29 @@ def proof_certificate(theorem_smt2, assumptions, assumptions_smt2, lemmas,
     own, but the step from "these 156 graphs all satisfy P" to a first-order
     formula is a modelling decision no checker can make. They are listed by
     name and reported on every verification.
+
+    And a lemma may be about a DIFFERENT OBJECT from the theorem -- a cone
+    where the theorem is about a ring, a graph where it is about a monoid.
+    That crossing is where a fact about a computation becomes a fact about the
+    mathematics, and it is the step two users independently reported as the
+    real risk. certo does not check the map: it requires that one be NAMED,
+    records every crossing, and repeats them on each verification. Declaring
+    no subjects keeps the old behaviour, because a proof that never mentions
+    objects has no levels to cross.
     """
     bridges = [l["name"] for l in lemmas if not l.get("derived")]
+    payload = {"title": title, "theorem_smt2": theorem_smt2,
+               "assumptions": assumptions,
+               "assumptions_smt2": assumptions_smt2,
+               "lemmas": lemmas, "step": step,
+               "used": used, "unused": unused, "bridges": bridges,
+               "vacuous": bool(vacuous)}
+    if subject:
+        payload["subject"] = list(subject)
+    if crossings:
+        payload["crossings"] = crossings
     return Certificate(
-        kind="proof", solver_free=False,
-        payload={"title": title, "theorem_smt2": theorem_smt2,
-                 "assumptions": assumptions,
-                 "assumptions_smt2": assumptions_smt2,
-                 "lemmas": lemmas, "step": step,
-                 "used": used, "unused": unused, "bridges": bridges,
-                 "vacuous": bool(vacuous)},
+        kind="proof", solver_free=False, payload=payload,
         note_key="cert.note.proof",
     )
 
@@ -1385,6 +1399,23 @@ def _verify_proof(cert, limits) -> VerifyReport:
         linked = bool(obl) and entails(z3.Not(phi), obl, limits)
         checks.append((t("verify.proof.link", name=name), linked,
                        t("verify.proof.link_detail", n=len(obl or []))))
+
+    # EVERY CROSSING, REPEATED. A lemma about a different object reached the
+    # theorem by a map certo did not check and could not -- what it checked is
+    # that the map was NAMED. A reader has to be told that on every
+    # verification, the way bridges are, or the crossing is visible only to
+    # whoever wrote the spec.
+    crossings = p.get("crossings") or []
+    if p.get("subject"):
+        warnings.append(t("verify.proof.subject", kind=p["subject"][0],
+                          id=p["subject"][1]))
+    if crossings:
+        warnings.append(t("verify.proof.crossings", n=len(crossings),
+                          names="; ".join(
+                              "{} ({}: {} -> {})".format(
+                                  c["lemma"], c["map"], c["from"][0],
+                                  (c["to"] or ["?"])[0])
+                              for c in crossings[:4])))
 
     # The final step: the lemmas and the theorem's own hypotheses close it.
     ambient = list(z3.parse_smt2_string(p["assumptions_smt2"])) \

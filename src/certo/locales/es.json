@@ -1031,5 +1031,9 @@
   "prop.quantifier": "los cuantificadores no son lógica proposicional; `prove` los decide y `cases` no puede",
   "prop.means_valid": "la fórmula es VÁLIDA: se codificó su negación, y la refutación de esa negación es la demostración",
   "prop.means_sat": "la fórmula es SATISFACIBLE exactamente cuando lo es este CNF, y un modelo restringido a las variables originales es un modelo de la fórmula",
-  "cli.prop.auxiliaries": "{atoms} variables tuyas, {n} añadidas por la codificación y quitadas de la respuesta"
+  "cli.prop.auxiliaries": "{atoms} variables tuyas, {n} añadidas por la codificación y quitadas de la respuesta",
+  "spec.bad_subject": "lema `{name}`: un sujeto es (tipo, id), como (\"cone\", \"sigma_1\")",
+  "engine.compose.silent_transport": "{n} lema(s) hablan de un objeto DISTINTO del teorema y no nombran mapa: {names}. Ese cruce es donde un hecho sobre un cálculo se vuelve un hecho sobre la matemática, y se rechaza en vez de hacerse en silencio -- dale `transport=\"<nombre del mapa>\"`. certo no comprueba el mapa; exige que exista y esté nombrado",
+  "verify.proof.crossings": "{n} lema(s) cruzan desde otro objeto al del teorema, por un mapa NOMBRADO que certo NO comprobó: {names}. Lo que hace cada mapa le toca verificarlo a Lean; lo que certo establece es que el cruce es explícito y no silencioso.",
+  "verify.proof.subject": "el teorema habla de {kind} `{id}`"
 }

@@ -420,7 +420,11 @@ def core_to_lean(data: dict, source="") -> str:
     binder = " ".join(variables) or "_x"
     types = "ℤ" if any(sorts.get(v) == "Int" for v in variables) else "ℝ"
 
-    lines = [_header("unsat_core", data.get("digest", "?"), source), ""]
+    imports = (["Mathlib.Tactic.Omega"]
+               if _integer(variables, sorts) and _is_linear(rows)
+               else None)
+    lines = [_header("unsat_core", data.get("digest", "?"), source,
+                     imports=imports), ""]
     if p.get("vacuous"):
         lines.append("/-- These hypotheses cannot hold together: the regime is")
         lines.append("EMPTY. Anything proved under them is vacuously true, "
@@ -438,16 +442,22 @@ def core_to_lean(data: dict, source="") -> str:
         lines.append("    ({} : {} {} 0)".format(
             _safe(name), _poly_to_lean(poly), _op(rel)))
 
+    # `omega` decides linear integer arithmetic outright, so the file closes
+    # with no `sorry` and no multipliers. It does not do variable times
+    # variable, and offering it a non-linear goal would emit a tactic call
+    # that fails on a statement that is true.
+    use_omega = _integer(variables, sorts) and _is_linear(rows)
+
     if goal is None:
         # No goal in the core means the hypotheses alone are unsatisfiable,
         # so what they entail is False -- and that IS the statement.
         lines.append("    : False := by")
-        lines.extend(_core_tactic(p, hyps))
+        lines.extend(_core_tactic(p, hyps, omega=use_omega))
     else:
         poly, rel = goal
         lines.append("    : {} {} 0 := by".format(
             _poly_to_lean(poly), _positive(rel)))
-        lines.extend(_core_tactic(p, hyps))
+        lines.extend(_core_tactic(p, hyps, omega=use_omega))
 
     lines.append("")
     lines.append("/-!")
@@ -467,6 +477,21 @@ def core_to_lean(data: dict, source="") -> str:
                      "hypotheses is")
         lines.append("true, `sorry`-free, clean on `#print axioms`, and about "
                      "nothing.")
+    elif use_omega:
+        # There is no `sorry` in this file, and saying there is one would be
+        # the same lie as a hollow theorem, in the other direction: a reader
+        # who trusts the footer looks for a hole that is not there, and one
+        # who checks stops trusting the footer.
+        lines.append("There is NO `sorry` here. Linear integer arithmetic is "
+                     "decidable and")
+        lines.append("`omega` decides it, so Lean proves this statement "
+                     "itself. What the")
+        lines.append("certificate contributed is WHICH hypotheses it rests on "
+                     "-- the ones")
+        lines.append("listed above, with the rest dropped.")
+        lines.append("")
+        lines.append("What is still yours to check: that these hypotheses say "
+                     "what you meant.")
     else:
         lines.append("The single `sorry` is the proof. certo established this "
                      "with a solver,")
@@ -478,14 +503,42 @@ def core_to_lean(data: dict, source="") -> str:
     return "\n".join(lines)
 
 
-def _core_tactic(payload, hyps) -> list:
-    """`linarith` when the certificate knows why, `sorry` when it does not.
+def _is_linear(rows) -> bool:
+    """Every monomial of degree at most one: no variable times a variable."""
+    return all(len(mono) <= 1 for _n, poly, _rel in rows for mono in poly)
 
-    A bare core says WHICH hypotheses suffice and nothing licenses a tactic
-    call. With Farkas multipliers attached it says why, and `linarith`
-    rediscovers them in milliseconds once handed the right hypotheses --
-    which is precisely what the core found out.
+
+def _integer(variables, sorts) -> bool:
+    """Every variable an integer. A mixed problem is not `omega`'s."""
+    return bool(variables) and all(sorts.get(v) == "Int" for v in variables)
+
+
+def _core_tactic(payload, hyps, omega=False) -> list:
+    """The tactic that closes the goal, or `sorry` when nothing licenses one.
+
+    Three cases, and the first is the one that was missing.
+
+    LINEAR INTEGER ARITHMETIC gets `omega`, and it needs no multipliers,
+    because `omega` is not searching for a combination -- it DECIDES. Linear
+    integer arithmetic is Presburger without quantifiers, and a core over the
+    integers used to export as a `sorry` even when the statement was
+    decidable, which is the common case in combinatorics.
+
+    WITH FARKAS MULTIPLIERS the certificate says why, and `linarith`
+    rediscovers them in milliseconds once handed the right hypotheses -- which
+    is precisely what the core found out.
+
+    WITHOUT EITHER, `sorry`. A bare core says WHICH hypotheses suffice and
+    nothing licenses a tactic call, and emitting one that fails would be worse
+    than an honest hole.
     """
+    if omega:
+        return ["  omega",
+                "  -- certo: linear integer arithmetic is decidable, and",
+                "  -- `omega` decides it. No multipliers are needed: this is",
+                "  -- not a search for a combination, it is a decision",
+                "  -- procedure, and the certificate's job was to say WHICH",
+                "  -- hypotheses the statement rests on."]
     if not payload.get("multipliers"):
         return ["  sorry    -- certo: a core says WHICH hypotheses suffice, "
                 "not why.",

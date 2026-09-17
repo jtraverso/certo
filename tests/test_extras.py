@@ -1576,6 +1576,202 @@ def test_weak_duality_is_what_bounds_the_losers():
     assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
 
 
+# --- a level cannot be crossed silently ------------------------------------
+
+
+def _bridged_proof(theorem_subject=None, lemma_subject=None, transport=""):
+    """A proof with one bridge, optionally about a different object."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    import z3
+
+    from certo import ProofSpec, Spec
+    from certo.engines import smt
+
+    x = z3.Real("x")
+    src = Spec()
+    src.assume("h", x >= 1)
+    src.claim(x >= 1)
+    sub = smt.prove(src, LIM).certificate
+    d = Path(tempfile.mkdtemp(prefix="certo_transport_"))
+    (d / "c.json").write_text(json.dumps(sub.to_dict()), encoding="utf-8")
+
+    k = z3.Int("k")
+    p = ProofSpec(title="a crossing", subject=theorem_subject)
+    p.assume("k_ge_6", k >= 6)
+    p.lemma("finite", certificate=str(d / "c.json"), states=(k <= 10),
+            bridge="checked exhaustively", subject=lemma_subject,
+            transport=transport)
+    p.conclude(z3.And(k >= 6, k <= 10))
+    return p
+
+
+def test_a_lemma_about_another_object_must_name_the_map():
+    """Where a fact about a computation becomes a fact about the mathematics.
+
+    Two users on two different routes reported this as the real risk, and one
+    of them named it exactly: silently passing from a computational object to
+    the paper's object. certo cannot check the map -- that is Lean's part --
+    but it can refuse to let the change be invisible.
+    """
+    from certo.engines import compose
+
+    silent = compose.compose(
+        _bridged_proof(("monoid", "M"), ("graph", "K7")), LIM)
+    assert silent.verdict is Verdict.INCONCLUSIVE
+    assert silent.certificate is None
+    assert silent.meta["silent_transport"] == ["finite"]
+    assert "DIFFERENT object" in silent.detail
+
+    named = compose.compose(
+        _bridged_proof(("monoid", "M"), ("graph", "K7"), "incidence_monoid"),
+        LIM)
+    assert named.verdict is Verdict.PROVED
+    assert named.certificate.payload["crossings"] == [
+        {"lemma": "finite", "from": ["graph", "K7"], "to": ["monoid", "M"],
+         "map": "incidence_monoid"}]
+
+
+def test_every_crossing_is_repeated_on_every_verification():
+    """Like a bridge. A crossing visible only to whoever wrote the spec is
+    not a crossing anybody else can weigh."""
+    from certo.engines import compose
+
+    r = compose.compose(
+        _bridged_proof(("monoid", "M"), ("graph", "K7"), "incidence_monoid"),
+        LIM)
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("the theorem is about monoid" in w for w in rep.warnings)
+    crossing = [w for w in rep.warnings if "cross from another object" in w]
+    assert len(crossing) == 1
+    assert "incidence_monoid: graph -> monoid" in crossing[0]
+    assert "certo did NOT check" in crossing[0]
+
+
+def test_declaring_no_objects_keeps_the_old_behaviour_exactly():
+    """A proof that never mentions objects has no levels to cross, and must
+    not acquire a new way to fail."""
+    from certo.engines import compose
+
+    r = compose.compose(_bridged_proof(), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert "crossings" not in r.certificate.payload
+    assert "subject" not in r.certificate.payload
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert not any("cross from another object" in w for w in rep.warnings)
+    # the bridge is still reported, which was the old behaviour
+    assert any("finite" in w for w in rep.warnings)
+
+
+def test_the_same_object_is_not_a_crossing():
+    """A lemma about the theorem's own object needs no map."""
+    from certo.engines import compose
+
+    r = compose.compose(
+        _bridged_proof(("monoid", "M"), ("monoid", "M")), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert not r.certificate.payload.get("crossings")
+
+
+def test_a_subject_must_be_a_kind_and_an_id():
+    from certo import ProofSpec
+
+    p = ProofSpec()
+    for bad in ("cone", ("cone",), ("a", "b", "c")):
+        try:
+            p.lemma("x", states=None, certificate="c.json", subject=bad)
+            raise AssertionError("expected a refusal for " + repr(bad))
+        except ValueError:
+            pass
+
+
+# --- integer arithmetic exports to a theorem `omega` closes ----------------
+
+
+def _core_for(build):
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    spec = Spec()
+    build(spec, z3)
+    return smt.prove(spec, LIM).certificate
+
+
+def test_linear_integer_arithmetic_exports_with_omega_and_no_hole():
+    """It used to export as a `sorry` even when the statement was decidable,
+    which is the common case in combinatorics: a core over the integers with
+    no Farkas multipliers attached."""
+    from certo import leancheck, leanexport
+
+    def build(spec, z3):
+        x, y = z3.Ints("x y")
+        spec.assume("cap", 2 * x + 3 * y <= 12)
+        spec.assume("y_pos", y >= 1)
+        spec.claim(x <= 4)
+
+    cert = _core_for(build)
+    assert not cert.payload.get("multipliers")      # nothing licensed linarith
+    text = leanexport.core_to_lean(cert.to_dict())
+
+    assert "(x y : \u2124)" in text                     # integer binders
+    assert "import Mathlib.Tactic.Omega" in text
+    body = text.split(":= by")[1].split("/-!")[0]
+    assert "omega" in body and "sorry" not in body
+    # and the footer must not claim a hole the file does not have
+    assert "There is NO `sorry` here" in text
+    assert "The single `sorry` is the proof" not in text
+
+    assert leanexport.hollow_count(text) == 0
+    assert leancheck.correspondence(cert.to_dict(), text)["ok"]
+
+
+def test_reals_keep_linarith_and_non_linear_integers_keep_their_hole():
+    """`omega` does not do variable times variable, and offering it one would
+    emit a tactic call that fails on a statement that is true."""
+    from certo import leanexport
+
+    def reals(spec, z3):
+        a, b = z3.Reals("a b")
+        spec.assume("a1", a >= 1)
+        spec.assume("b1", b >= 1)
+        spec.claim(a + b >= 2)
+
+    text = leanexport.core_to_lean(_core_for(reals).to_dict())
+    assert "\u211d)" in text and "omega" not in text
+    assert "Omega" not in text                      # nor the import
+
+    def nonlinear(spec, z3):
+        n, m = z3.Ints("n m")
+        spec.assume("np", n >= 2)
+        spec.assume("mp", m >= 2)
+        spec.claim(n * m >= 4)
+
+    text = leanexport.core_to_lean(_core_for(nonlinear).to_dict())
+    body = text.split(":= by")[1].split("/-!")[0]
+    assert "omega" not in body                      # it cannot decide this
+    assert "sorry" in body                          # so it says so
+
+
+def test_omega_is_offered_only_when_every_variable_is_an_integer():
+    """A mixed problem is not `omega`'s, and a tactic that fails looks the
+    same to a reader as a gap."""
+    from certo.leanexport import _integer, _is_linear
+
+    assert _integer(["x", "y"], {"x": "Int", "y": "Int"})
+    assert not _integer(["x", "y"], {"x": "Int", "y": "Real"})
+    assert not _integer([], {})
+
+    linear = [("h", {("x",): 1, (): -3}, "<=")]
+    assert _is_linear(linear)
+    assert not _is_linear([("h", {("x", "y"): 1}, "<=")])
+
+
 # --- propositional logic reaches a DRAT proof ------------------------------
 
 
@@ -4481,12 +4677,18 @@ def test_a_linear_core_exports_real_lean_hypotheses():
     assert "(a b : \u2124)" in text
     assert "a_big" in text and "b_small" in text
     assert "unused" not in text.split("## What this file does")[0]
-    # It used to be `sorry` here: a core said WHICH hypotheses suffice and
-    # never why. With the Farkas multipliers in the certificate it says why,
-    # so the file carries a real tactic and no `sorry` at all.
+    # REWRITTEN. This used to assert `linarith [a_big, b_small]`, which was
+    # the old behaviour and pinned a real defect: `linarith` reasons over
+    # ordered FIELDS, so on the integers it is incomplete -- `2x >= 1` implies
+    # `x >= 1` over the integers and not over the rationals. Linear integer
+    # arithmetic is decidable and `omega` decides it, without multipliers,
+    # because it is not searching for a combination.
     body = text.split(":= by")[1].split("/-!")[0]
     assert "sorry" not in body
-    assert "linarith [a_big, b_small]" in body
+    assert "omega" in body and "linarith" not in body
+    assert "import Mathlib.Tactic.Omega" in text
+    # and the footer must not claim a hole the file does not have
+    assert "There is NO `sorry` here" in text
 
 
 def test_a_vacuous_core_states_the_regime_is_empty():

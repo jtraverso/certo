@@ -615,6 +615,13 @@ class Lemma:
     certificate: str = ""            # a certificate already on disk
     states: object = None            # the formula this lemma contributes
     bridge: str = ""                 # prose: why that certificate says that
+    # WHAT THIS LEMMA IS ABOUT, as (kind, id): ("cone", "sigma_1"), ("graph",
+    # "K7"), ("lp", "residual"). Free text, declared and never inferred --
+    # guessing the object is the mistake this exists to catch.
+    subject: object = None
+    # The named map, when this lemma's subject is not the theorem's. certo
+    # does not check the map; it refuses to let the change be silent.
+    transport: str = ""
 
     @property
     def is_bridge(self) -> bool:
@@ -650,18 +657,26 @@ class ProofSpec:
     assumptions: list = field(default_factory=list)   # [(name, expr)]
     goal: object = None
     title: str = ""
+    # What the THEOREM is about, as (kind, id). A lemma whose subject differs
+    # from this one has crossed a level, and must say by which map.
+    subject: object = None
 
     def lemma(self, name, proves=None, via="prove", certificate="",
-              states=None, bridge=""):
+              states=None, bridge="", subject=None, transport=""):
         if any(l.name == name for l in self.lemmas):
             raise ValueError(t("spec.duplicate_lemma", name=name))
         if proves is None and not certificate:
             raise ValueError(t("spec.lemma_no_source", name=name))
         if proves is None and states is None:
             raise ValueError(t("spec.lemma_no_statement", name=name))
+        if subject is not None and (not isinstance(subject, (tuple, list))
+                                    or len(subject) != 2):
+            raise ValueError(t("spec.bad_subject", name=name))
         self.lemmas.append(Lemma(name=name, proves=proves, via=via,
                                  certificate=certificate, states=states,
-                                 bridge=bridge))
+                                 bridge=bridge,
+                                 subject=tuple(subject) if subject else None,
+                                 transport=transport))
         return self
 
     def assume(self, name: str, expr):

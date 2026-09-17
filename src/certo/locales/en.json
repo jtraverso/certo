@@ -1031,5 +1031,9 @@
   "prop.quantifier": "quantifiers are not propositional logic; `prove` decides them and `cases` cannot",
   "prop.means_valid": "the formula is VALID: its negation was encoded, and the refutation of that negation is the proof",
   "prop.means_sat": "the formula is SATISFIABLE exactly when this CNF is, and a model restricted to the original variables is a model of the formula",
-  "cli.prop.auxiliaries": "{atoms} variables of yours, {n} added by the encoding and dropped from the answer"
+  "cli.prop.auxiliaries": "{atoms} variables of yours, {n} added by the encoding and dropped from the answer",
+  "spec.bad_subject": "lemma `{name}`: a subject is (kind, id), like (\"cone\", \"sigma_1\")",
+  "engine.compose.silent_transport": "{n} lemma(s) are about a DIFFERENT object from the theorem and name no map: {names}. That crossing is where a fact about a computation becomes a fact about the mathematics, and it is refused rather than made silently -- give it `transport=\"<name of the map>\"`. certo does not check the map; it requires that one exist and be named",
+  "verify.proof.crossings": "{n} lemma(s) cross from another object into the theorem's, by a NAMED map that certo did NOT check: {names}. What each map does is Lean's to verify; what certo establishes is that the crossing is explicit and not silent.",
+  "verify.proof.subject": "the theorem is about {kind} `{id}`"
 }
