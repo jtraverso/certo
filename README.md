@@ -1161,6 +1161,42 @@ The example is K7 partitioned into 7 triangles — the Fano plane — because it
 is tight (21 edges, 7 parts, 3 each, nothing to spare) and anyone can check a
 line of it by hand.
 
+### ...and how far it is from the minimum
+
+A cover certificate is an **upper bound**. A user read one as an optimum —
+reporting a construction of 780 parts where the obvious one uses about 41, and
+calling the difference a property of the graph rather than a fact about their
+construction. Nothing in the certificate was wrong; the missing half was the
+lower bound, and it lived in an LP they had to rebuild by hand.
+
+```
+$ certo cover examples/cover_optimize.py --optimize --prove-optimal
+PROVED  [unsat]
+  an EXACT COVER: 21 parts, every one of the 21 elements in exactly one
+
+  and how close that is to the minimum:
+    your cover      21 parts   (an UPPER bound, certified above)
+    relaxation      7   (a LOWER bound, exact rational dual -- fractional,
+                         so not a cover you can build)
+    integer optimum 7   (PROVED by branch and bound)
+  your cover uses 21; the minimum is 7.
+```
+
+Three numbers, three statuses, and the labels travel with them. The optimum
+appears only when the search finishes; when it does not, what comes back is
+the incumbent, the bound and the gap, labelled inconclusive.
+
+`CoverSpec(candidates=...)` is **required** for this and refused rather than
+guessed: a cover is only minimal relative to what you were willing to use, and
+the set of all cliques of a graph is usually enormous and almost never what
+anyone meant.
+
+`CoverSpec.to_lp(integral=False)` gives the relaxation and `to_lp(integral=True)`
+the physical minimum, if you want the LP itself. The rows are **equalities**
+for an exact cover, which is the one thing a relaxation written by hand gets
+wrong.
+
+
 ### Three ways it goes wrong, reported as three different things
 
 | What is wrong | What comes back |
@@ -1906,6 +1942,29 @@ certo opt examples/packing_mixed.py --by-type
 
 Whether mixing buys anything is the gap between the mixed optimum and the best
 single kind. Here, on K6, it buys nothing over pure K4.
+
+## When rounding a float dual stops working
+
+`opt` reconstructs a rational primal and dual from a float solver and checks
+them exactly. There is a regime where that cannot work: a **degenerate**
+optimum, where many dual solutions are optimal and the one CBC returns need
+not round onto any of them.
+
+0.6.0 answered that by deriving the dual from complementary slackness and
+enumerating which tight rows carry the weight. Measured on a realistic exact
+cover — 98 rows, **49 of them tight, 7 active variables** — that is C(49, 7)
+candidate bases, about 10⁸. The approach is right for a handful of tight rows
+and hopeless past it.
+
+So past that, certo solves the dual outright with a **two-phase simplex in
+exact rationals**: no floats anywhere, Bland's rule throughout, which is
+slower than steepest-edge and cannot cycle. Termination matters more than
+speed in a fallback that only runs when the cheap route has already failed.
+
+Nothing it produces is trusted for being produced there. The result goes
+through the same `check_lp` as a rounded guess, so a bug in it shows up as a
+certificate that does not verify — never as a wrong one that does.
+
 
 ## Exact mode stopped depending on CBC's dual
 

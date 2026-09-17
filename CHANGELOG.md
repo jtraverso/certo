@@ -6,6 +6,47 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### `cover --optimize`: a cover, and how far it is from the minimum
+
+A cover certificate is an upper bound, and a user read one as an optimum —
+reporting a construction of 780 parts where the obvious one uses about 41, and
+calling the difference a property of the graph rather than a fact about their
+construction. Nothing in the certificate was wrong; the missing half lived in
+an LP they had to rebuild by hand.
+
+```
+  and how close that is to the minimum:
+    your cover      21 parts   (an UPPER bound, certified above)
+    relaxation      7   (a LOWER bound, exact rational dual -- fractional)
+    integer optimum 7   (PROVED by branch and bound)
+  your cover uses 21; the minimum is 7.
+```
+
+`CoverSpec.to_lp(integral=...)` is the canonical conversion, with **equality**
+rows for an exact cover — the thing a hand-written relaxation gets wrong.
+`candidates` is required and refused rather than guessed: minimal relative to
+what is a modelling fact, and the set of all cliques is almost never what
+anyone meant.
+
+### An exact simplex, for when rounding a float dual cannot work
+
+Building the above surfaced the limit of the 0.6.0 fix. On a degenerate
+optimum, deriving the dual from complementary slackness means choosing which
+tight rows carry weight — and on a realistic exact cover that is 49 tight rows
+against 7 active variables, about **10⁸ candidate bases**. Right for a handful,
+hopeless past it.
+
+Past that, certo now solves the dual outright with a two-phase simplex in
+exact rationals: no floats, Bland's rule throughout, which cannot cycle.
+Termination matters more than speed in a fallback that only runs when the
+cheap route has already failed.
+
+The instance that motivated this came back `exact: False` before and is
+certified now, with all six exact checks passing and no tolerances. Nothing
+the simplex produces is trusted for being produced there — it goes through the
+same `check_lp` as a rounded guess.
+
+
 ### `certo commands`, and aliases for the words people actually type
 
 `certo order` shipped in 0.5.0 with its own README section, its own example,

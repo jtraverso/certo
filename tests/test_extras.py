@@ -4242,6 +4242,108 @@ def test_lint_names_order_when_the_claim_divides_by_a_product():
     assert _magnitude_shaped(x / (y * z)) == ["y", "z"]
 
 
+
+# --- the minimum a cover is measured against ------------------------------
+
+
+def _k7_cover(parts, candidates):
+    from certo import CoverSpec
+
+    import itertools
+    return CoverSpec(universe=list(itertools.combinations(range(7), 2)),
+                     parts=parts, candidates=candidates, cliques=True,
+                     title="t")
+
+
+def test_a_valid_cover_gets_measured_against_the_minimum():
+    """The misreading this exists to prevent: valid read as optimal."""
+    import itertools
+
+    from certo.engines import algebra
+
+    edges = [list(e) for e in itertools.combinations(range(7), 2)]
+    tri = [list(c) for c in itertools.combinations(range(7), 3)]
+    spec = _k7_cover(edges, edges + tri)          # 21 parts: valid, and bad
+
+    assert algebra.cover(spec, LIM).verdict is Verdict.PROVED
+    out = algebra.cover_bounds(spec, LIM, prove_optimal=True)
+    assert out["relaxation"] == "7"               # exact rational dual
+    assert out["optimum"] == "7"                  # and proved integral
+    assert verify(_roundtrip(out["relaxation_cert"]), LIM).ok
+
+
+def test_optimising_needs_a_candidate_pool_and_refuses_to_invent_one():
+    """Minimal relative to WHAT is a modelling fact, not a default."""
+    import itertools
+
+    edges = [list(e) for e in itertools.combinations(range(7), 2)]
+    spec = _k7_cover(edges, None)
+    try:
+        spec.to_lp()
+    except ValueError as e:
+        assert "candidates" in str(e)
+    else:
+        raise AssertionError("a candidate pool was invented")
+
+
+def test_to_lp_writes_equalities_for_an_exact_cover():
+    """The one thing a relaxation written by hand gets wrong."""
+    import itertools
+
+    edges = [list(e) for e in itertools.combinations(range(4), 2)]
+    from certo import CoverSpec
+
+    spec = CoverSpec(universe=edges, parts=edges, candidates=edges,
+                     cliques=True, exact=True, title="t")
+    assert {row[2] for row in spec.to_lp().cons} == {"=="}
+
+    loose = CoverSpec(universe=edges, parts=edges, candidates=edges,
+                      cliques=True, exact=False, title="t")
+    assert {row[2] for row in loose.to_lp().cons} == {">="}
+
+    # and integral vs fractional is the variable kind, nothing else
+    assert set(spec.to_lp(integral=True).kinds.values()) == {"binary"}
+    assert set(spec.to_lp(integral=False).kinds.values()) == {"continuous"}
+
+
+# --- the exact simplex, for when reconstruction runs out ------------------
+
+
+def test_the_exact_simplex_finds_known_duals():
+    from certo.simplex import minimise
+
+    for A, b, c, want in (([[1, 1]], [1], [1, 1], Fraction(1)),
+                          ([[1, 1], [1, 2]], [1, 1], [2, 3], Fraction(2)),
+                          ([[1, 1], [1, 1], [3, 0]], [1, 1, 2], [1, 1],
+                           Fraction(1))):
+        y = minimise(A, b, c)
+        assert all(v >= 0 for v in y)
+        # dual feasible, and attaining the primal optimum
+        for j in range(len(c)):
+            assert sum(A[i][j] * y[i] for i in range(len(A))) >= c[j]
+        assert sum(bi * yi for bi, yi in zip(b, y)) == want
+
+
+def test_certify_falls_through_to_the_simplex_when_rounding_cannot_work():
+    """49 tight rows and 7 active variables is C(49,7) bases: enumeration is
+    the wrong algorithm, and saying so beat raising the cap."""
+    import itertools
+
+    from certo import exact
+    from certo.engines import lp
+
+    edges = [list(e) for e in itertools.combinations(range(7), 2)]
+    tri = [list(c) for c in itertools.combinations(range(7), 3)]
+    spec = _k7_cover(edges, edges + tri).to_lp(integral=False)
+
+    r = lp.opt(spec, LIM)
+    assert r.meta["exact"] is True            # it used to come back False
+    assert r.meta["objective"] == "7"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    _ = exact
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

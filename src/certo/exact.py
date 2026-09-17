@@ -284,6 +284,23 @@ def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER):
                 return x, y, rep, dx
             last = rep
 
+    # 3. Solve the dual outright. Enumerating bases is right for a handful of
+    # tight rows and hopeless past it -- a realistic exact cover reaches
+    # C(49, 7), about 10^8 -- so past that the answer is an exact simplex
+    # rather than a longer search. Still not trusted: `check_lp` decides.
+    from .simplex import SimplexLimit, minimise
+
+    for dx, x in primals:
+        try:
+            y = minimise(A, b, c)
+        except (SimplexLimit, ZeroDivisionError):
+            break
+        rep = check_lp(A, b, c, x, y)
+        if rep["ok"]:
+            return x, y, rep, dx
+        last = rep
+        break                       # the dual does not depend on which primal
+
     return None, None, last, None
 
 

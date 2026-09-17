@@ -105,6 +105,37 @@ def cover(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
                   meta=meta)
 
 
+def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
+                 wall_ms=None) -> dict:
+    """The relaxation's exact lower bound, and the integer optimum if asked.
+
+    Returned as data rather than folded into the cover's verdict: the cover is
+    one claim and the bound is another, and a single verdict covering both is
+    how "valid" gets read as "optimal".
+    """
+    from . import bb, lp
+
+    out = {"relaxation": None, "optimum": None, "stopped": None}
+    relaxed = lp.opt(spec.to_lp(integral=False), limits)
+    if relaxed.verdict is Verdict.SATISFIABLE and relaxed.meta.get("exact"):
+        out["relaxation"] = relaxed.meta["objective"]
+        out["relaxation_cert"] = relaxed.certificate
+    else:
+        out["relaxation_failed"] = relaxed.detail
+
+    if prove_optimal:
+        got = bb.prove_optimal(spec.to_lp(integral=True), limits,
+                               max_nodes=max_nodes, wall_ms=wall_ms)
+        if got.verdict is Verdict.PROVED:
+            out["optimum"] = got.meta["optimum"]
+            out["optimum_cert"] = got.certificate
+        else:
+            # Not a failure: a partial result, and it says which.
+            out["stopped"] = got.meta
+            out["stopped_detail"] = got.detail
+    return out
+
+
 def parametric(spec, limits: Limits | None = None,
                spec_path: str = "") -> Result:
     """`opt(p) <= b(p).y` for every p at or above the floor, or why not."""

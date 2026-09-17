@@ -770,6 +770,46 @@ class CoverSpec:
     exact: bool = True               # exactly once, rather than at least once
     max_size: object = None          # optional cap on a part's vertex count
     title: str = ""
+    # The pool `parts` was chosen from: every part you would ALLOW. Needed by
+    # `--optimize` and by nothing else, because "minimum" only means anything
+    # relative to what was available. There is no sensible default -- the set
+    # of all cliques is usually enormous and rarely what anyone meant -- so it
+    # is refused rather than guessed.
+    candidates: object = None
+
+    def to_lp(self, integral: bool = False):
+        """The exact-cover LP: choose the fewest candidates covering everything.
+
+        One variable per candidate, one row per universe element, and the row
+        is an EQUALITY when `exact` -- which is the whole difference between a
+        partition and a cover, and the thing a relaxation written by hand gets
+        wrong.
+        """
+        from .cover import _key, edges_of
+        from .spec import LPSpec
+
+        if not self.candidates:
+            raise ValueError(t("cover.no_candidates"))
+
+        pool = list(self.candidates)
+        if self.cliques:
+            pool = [edges_of(vs) for vs in pool]
+
+        lp = LPSpec(sense="min", title=self.title or "minimum exact cover")
+        for i, _ in enumerate(pool):
+            lp.variable("part{}".format(i), 0, 1,
+                        kind="binary" if integral else "continuous")
+        lp.objective({"part{}".format(i): 1 for i in range(len(pool))})
+
+        covers: dict = {}
+        for i, part in enumerate(pool):
+            for elem in part:
+                covers.setdefault(_key(elem), []).append(i)
+        for elem in self.universe:
+            k = _key(elem)
+            lp.constraint({"part{}".format(i): 1 for i in covers.get(k, ())},
+                          "==" if self.exact else ">=", 1, name=str(k))
+        return lp
 
 
 @dataclass

@@ -543,8 +543,53 @@ def cmd_cover(args):
     spec = load_spec(args.spec, CoverSpec)
     res = algebra.cover(spec, limits_from(args), spec_path=args.spec)
     rc = emit(res, args)
-    if not args.json and res.certificate is not None:
-        print("  " + t("cli.cover.pair"))
+    if res.certificate is None:
+        return rc
+
+    if not args.optimize:
+        if not args.json:
+            print("  " + t("cli.cover.pair"))
+        return rc
+
+    try:
+        bounds = algebra.cover_bounds(
+            spec, limits_from(args), prove_optimal=args.prove_optimal,
+            max_nodes=args.max_nodes, wall_ms=args.wall_timeout_ms)
+    except ValueError as e:
+        print("  !! " + str(e), file=sys.stderr)
+        return 3
+
+    yours = res.meta["parts"]
+    if args.json:
+        print(json.dumps({"parts": yours,
+                          "relaxation": bounds.get("relaxation"),
+                          "optimum": bounds.get("optimum"),
+                          "stopped": bounds.get("stopped")},
+                         indent=2, ensure_ascii=False))
+        return rc
+
+    # Three numbers, each with what it IS. The report that asked for this
+    # showed a valid cover read as an optimal one and a fractional optimum
+    # read as an integral cost; running them together is the fix only if the
+    # labels travel with them.
+    print()
+    print("  " + t("cli.cover.bounds"))
+    print("    " + t("cli.cover.yours", n=yours))
+    if bounds.get("relaxation") is not None:
+        print("    " + t("cli.cover.relaxed", value=bounds["relaxation"]))
+    else:
+        print("    " + t("cli.cover.relax_failed",
+                         detail=bounds.get("relaxation_failed", "?")))
+    if bounds.get("optimum") is not None:
+        opt = bounds["optimum"]
+        print("    " + t("cli.cover.optimum", value=opt))
+        print("  " + t("cli.cover.is_optimal" if str(opt) == str(yours)
+                       else "cli.cover.not_optimal", n=yours, value=opt))
+    elif bounds.get("stopped"):
+        print("    " + t("cli.cover.stopped",
+                         detail=bounds["stopped_detail"]))
+    elif not args.prove_optimal:
+        print("  " + t("cli.cover.try_prove"))
     return rc
 
 
@@ -1538,6 +1583,18 @@ def build_parser():
     sp = add("cover", "is this an exact cover -- every element in exactly "
                       "one part? A clique partition is one case")
     sp.add_argument("spec", help=".py file returning a CoverSpec")
+    sp.add_argument("--optimize", action="store_true",
+                    help="also bound the MINIMUM: the relaxation's exact "
+                         "dual, over the spec's `candidates` pool. Your cover "
+                         "is an upper bound and this is the lower one")
+    sp.add_argument("--prove-optimal", action="store_true",
+                    dest="prove_optimal",
+                    help="and prove the integer optimum by branch and bound, "
+                         "which may not finish")
+    sp.add_argument("--max-nodes", type=int, default=5000, dest="max_nodes")
+    sp.add_argument("--wall-timeout-ms", type=int, default=None,
+                    dest="wall_timeout_ms", metavar="MS",
+                    help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
 
     sp = add("parametric", "a bound that holds for EVERY value of a "

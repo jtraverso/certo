@@ -49,6 +49,8 @@ Last updated: 2026-09-17. Four items that were waiting for a real instance now h
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **`cover --optimize` and `CoverSpec.to_lp`** *(user feedback P1)* | Three numbers with their statuses attached: your cover as a certified upper bound, the relaxation as an exact rational lower bound, and the integer optimum when branch and bound finishes. `candidates` required and refused rather than guessed, because minimal-relative-to-what is a modelling fact. Built for a misreading: a valid cover reported as an optimal one. |
+| ✅ | **An exact rational simplex** | Surfaced by the above. Deriving a degenerate dual by choosing which tight rows carry weight is C(49,7) on a realistic exact cover, about 10^8 — right for a handful of tight rows and hopeless past it. Past that the dual is solved outright, two-phase, Bland's rule, no floats. The motivating instance came back `exact: False` and is certified now. |
 | ✅ | **`certo order` shipped and nobody found it** *(user feedback P1)* | Not a missing feature: a discovery failure, which is worse, because the work was done and did not reach anyone. `asymptotics` and `decays` as aliases, a help line that leads with "does this DECAY in n", `certo commands` putting the question-to-command table in the terminal, and a `lint` note that names the command when a claim divides by a product of symbols. The last has a narrow trigger — two or more symbols at negative exponent — and fires zero times across the shipped examples. |
 | ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
 | ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
@@ -146,26 +148,7 @@ verifies *without* a solver. It does not.
 Everything here comes from the 0.6 field report, and the two P0s it named are
 already fixed.
 
-### 1. `CoverSpec.to_lp` and `cover --optimize` *(user feedback)*
-
-Today `cover` certifies a partition you have and `opt` optimises a relaxation
-written separately, and the user rebuilds the LP by hand in between. A
-canonical conversion — `to_lp(integral=False)` for the relaxation,
-`to_lp(integral=True)` for the physical minimum — plus
-
-    certo cover spec.py --optimize --prove-optimal
-
-would bundle the `exact_cover` upper bound, the relaxation's exact dual, and
-the branch-and-bound tree when it finishes. When it does not, it returns
-incumbent, lower bound and gap **labelled as inconclusive**, which the search
-can now do since 0.6.1.
-
-The reason this is P1 rather than a convenience: the same report shows someone
-reading a valid cover as an optimal one, and a fractional optimum as an
-integral cost. A command that produces both halves together is the fix for a
-misreading, not a shortcut.
-
-### 2. `verify --spec` and `certo --version` *(user feedback)*
+### 1. `verify --spec` and `certo --version` *(user feedback)*
 
 The certificate already stores `spec_path` and `spec_sha256`, and `status`
 already reports staleness. What is missing is the direct form:
@@ -177,7 +160,7 @@ of them. And `certo --version` currently reads as a missing subcommand; it
 should print the version, the commit when available, and the maximum
 certificate schema.
 
-### 3. A compact, solver-free branch-and-bound certificate *(user feedback)*
+### 2. A compact, solver-free branch-and-bound certificate *(user feedback)*
 
 63 nodes cost 842 KB, and the certificate is `solver_free: false`. Both are
 honest and both are worth improving:

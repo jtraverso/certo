@@ -848,5 +848,15 @@
   "commands.q.verify": "Is this stored certificate still good?",
   "commands.q.export": "Get this into Lean",
   "commands.q.ledger": "What did I run last month?",
-  "lint.spec.magnitude": "this claim divides by a product of symbols ({names}). If the question is whether it DECAYS in a growth parameter, `prove` cannot answer it -- a term that is Theta(1) is satisfiable forever and never improves. `certo order` reports the exponent, with a certificate."
+  "lint.spec.magnitude": "this claim divides by a product of symbols ({names}). If the question is whether it DECAYS in a growth parameter, `prove` cannot answer it -- a term that is Theta(1) is satisfiable forever and never improves. `certo order` reports the exponent, with a certificate.",
+  "cover.no_candidates": "to optimise, the spec needs `candidates`: the pool of parts yours was chosen from. 'Minimum' only means anything relative to what was available, and the set of all cliques is usually enormous and rarely what anyone meant, so it is not assumed.",
+  "cli.cover.bounds": "and how close that is to the minimum:",
+  "cli.cover.yours": "your cover      {n} parts   (an UPPER bound, certified above)",
+  "cli.cover.relaxed": "relaxation      {value}   (a LOWER bound, exact rational dual -- fractional, so not a cover you can build)",
+  "cli.cover.relax_failed": "relaxation      not certified: {detail}",
+  "cli.cover.optimum": "integer optimum {value}   (PROVED by branch and bound)",
+  "cli.cover.is_optimal": "your cover of {n} IS the minimum.",
+  "cli.cover.not_optimal": "your cover uses {n}; the minimum is {value}.",
+  "cli.cover.stopped": "integer optimum not reached: {detail}",
+  "cli.cover.try_prove": "the relaxation is fractional and a cover is not. `--prove-optimal` settles the integer minimum, when it finishes."
 }

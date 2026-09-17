@@ -1153,6 +1153,42 @@ El ejemplo es K7 partido en 7 triángulos —el plano de Fano— porque está
 ajustado (21 aristas, 7 partes, 3 cada una, sin margen) y cualquiera puede
 comprobar una línea a mano.
 
+### ...y cuán lejos está del mínimo
+
+Un certificado de cobertura es una **cota superior**. Un usuario leyó una como
+óptimo —reportando una construcción de 780 partes donde la obvia usa unas 41, y
+llamando a la diferencia una propiedad del grafo en vez de un hecho sobre su
+construcción—. Nada en el certificado estaba mal; la mitad que faltaba era la
+cota inferior, y vivía en un LP que tenía que reconstruir a mano.
+
+```
+$ certo cover examples/cover_optimize.py --optimize --prove-optimal
+DEMOSTRADO  [unsat]
+  un RECUBRIMIENTO EXACTO: 21 partes, cada uno de los 21 elementos en exactamente una
+
+  y cuán cerca está del mínimo:
+    tu cobertura    21 partes   (una cota SUPERIOR, certificada arriba)
+    relajación      7   (una cota INFERIOR, dual racional exacto --fraccionaria,
+                         así que no es una cobertura construible)
+    óptimo entero   7   (DEMOSTRADO por branch and bound)
+  tu cobertura usa 21; el mínimo es 7.
+```
+
+Tres números, tres estados, y las etiquetas viajan con ellos. El óptimo solo
+aparece cuando la búsqueda termina; cuando no, vuelve el incumbente, la cota y
+el gap, etiquetados como inconcluyentes.
+
+`CoverSpec(candidates=...)` es **obligatorio** para esto y se rechaza en vez de
+adivinarse: una cobertura solo es mínima relativa a lo que estabas dispuesto a
+usar, y el conjunto de todos los cliques de un grafo suele ser enorme y casi
+nunca es lo que alguien quería.
+
+`CoverSpec.to_lp(integral=False)` da la relajación y `to_lp(integral=True)` el
+mínimo físico, si quieres el LP. Las filas son **igualdades** para un
+recubrimiento exacto, que es lo único que una relajación escrita a mano
+equivoca.
+
+
 ### Tres formas de fallar, reportadas como tres cosas distintas
 
 | Qué está mal | Qué vuelve |
@@ -1940,6 +1976,29 @@ contradiga a otra es una línea nueva, no una edición— y **no copia
 certificados**, guarda su ruta y su digest. `ledger verify` los relee y los
 re-verifica, así que un certificado manipulado o ausente sale como fallo en
 vez de quedar duplicado en el log.
+
+## Cuando redondear un dual flotante deja de funcionar
+
+`opt` reconstruye un primal y un dual racionales desde un solver flotante y los
+comprueba exacto. Hay un régimen donde eso no puede funcionar: un óptimo
+**degenerado**, donde muchos duales son óptimos y el que CBC devuelve no tiene
+por qué redondear sobre ninguno.
+
+0.6.0 respondió derivando el dual por holgura complementaria y enumerando qué
+filas tensas llevan el peso. Medido sobre un recubrimiento exacto realista —98
+filas, **49 tensas, 7 variables activas**— eso son C(49, 7) bases candidatas,
+unas 10⁸. El enfoque es correcto para un puñado de filas tensas y desesperado
+más allá.
+
+Así que a partir de ahí certo resuelve el dual directamente con un **simplex de
+dos fases en racionales exactos**: ningún flotante, regla de Bland en todo, que
+es más lenta que steepest-edge y no puede ciclar. Terminar importa más que
+correr en un camino de reserva que solo se toma cuando el barato ya falló.
+
+Nada de lo que produce se cree por haberse producido ahí. El resultado pasa por
+el mismo `check_lp` que una conjetura redondeada, así que un bug ahí sale como
+un certificado que no verifica, nunca como uno equivocado que sí.
+
 
 ## El modo exacto dejó de depender del dual de CBC
 

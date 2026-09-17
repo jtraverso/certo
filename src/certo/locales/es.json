@@ -848,5 +848,15 @@
   "commands.q.verify": "¿Sigue siendo válido este certificado guardado?",
   "commands.q.export": "Llevar esto a Lean",
   "commands.q.ledger": "¿Qué corrí el mes pasado?",
-  "lint.spec.magnitude": "esta afirmación divide por un producto de símbolos ({names}). Si la pregunta es si DECAE en un parámetro de crecimiento, `prove` no puede responderla --un término Theta(1) es satisfacible para siempre y nunca mejora--. `certo order` da el exponente, con certificado."
+  "lint.spec.magnitude": "esta afirmación divide por un producto de símbolos ({names}). Si la pregunta es si DECAE en un parámetro de crecimiento, `prove` no puede responderla --un término Theta(1) es satisfacible para siempre y nunca mejora--. `certo order` da el exponente, con certificado.",
+  "cover.no_candidates": "para optimizar, el spec necesita `candidates`: el conjunto de partes del que salió la tuya. «Mínimo» solo significa algo relativo a lo que había disponible, y el conjunto de todos los cliques suele ser enorme y casi nunca es lo que alguien quería, así que no se supone.",
+  "cli.cover.bounds": "y cuán cerca está del mínimo:",
+  "cli.cover.yours": "tu cobertura    {n} partes   (una cota SUPERIOR, certificada arriba)",
+  "cli.cover.relaxed": "relajación      {value}   (una cota INFERIOR, dual racional exacto --fraccionaria, así que no es una cobertura construible)",
+  "cli.cover.relax_failed": "relajación      no certificada: {detail}",
+  "cli.cover.optimum": "óptimo entero   {value}   (DEMOSTRADO por branch and bound)",
+  "cli.cover.is_optimal": "tu cobertura de {n} ES el mínimo.",
+  "cli.cover.not_optimal": "tu cobertura usa {n}; el mínimo es {value}.",
+  "cli.cover.stopped": "óptimo entero no alcanzado: {detail}",
+  "cli.cover.try_prove": "la relajación es fraccionaria y una cobertura no lo es. `--prove-optimal` zanja el mínimo entero, cuando termina."
 }
