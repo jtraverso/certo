@@ -596,7 +596,7 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
 def parametric_bound_certificate(parameters, variables, objective,
                                  constraints, dual, bound, rows,
                                  title="", sense="max",
-                                 dual_poly=None) -> Certificate:
+                                 dual_poly=None, region=None) -> Certificate:
     """A bound on `opt(p)` for every p at or above the given floor.
 
     Weak duality holds symbolically. For a packing -- `max c.x, A x <= b` --
@@ -613,6 +613,15 @@ def parametric_bound_certificate(parameters, variables, objective,
     constant; `dual` keeps the readable form, and a certificate written before
     this existed has only the readable form and is read the same way.
 
+    `region` is SCOPE, not content. Each entry means `g(p) >= 0` on the
+    instances the bound is claimed for, and nothing here proves it -- the same
+    standing as the parameter floors, which also say which instances are meant.
+    It exists because the shift test proves non-negativity on a BOX, and a
+    branch cut out by a curve is not one. `verify` re-derives the multipliers'
+    effect and repeats every declared condition in its warnings, because a
+    certificate whose scope is only in the spec file is a certificate nobody
+    can read on its own.
+
     The shift is SUFFICIENT and not necessary. A certificate exists only when
     it succeeds; when it does not, no certificate is emitted, because "this
     route did not work" is not a bound.
@@ -626,6 +635,8 @@ def parametric_bound_certificate(parameters, variables, objective,
         payload["sense"] = sense
     if dual_poly is not None:
         payload["dual_poly"] = dual_poly
+    if region:
+        payload["region"] = region
     return Certificate(
         kind="parametric_bound", solver_free=True, payload=payload,
         note_key=("cert.note.parametric_bound_min" if sense == "min"
@@ -1394,7 +1405,7 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
     """Re-derive every residual and re-read the signs. No solver, no search."""
     from fractions import Fraction
 
-    from .parametric import dual_text, nonneg_on_ray
+    from .parametric import (dual_text, nonneg_on_region, region_terms)
     from .polynomials import Poly
 
     p = cert.payload
@@ -1408,8 +1419,11 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
 
     # `y >= 0`. Constant or not, it is the same shift test; a constant just
     # shifts to itself.
+    region = [(n, Poly.parse(ring, g))
+              for n, g in sorted(p.get("region", {}).items())]
+    terms = region_terms(region, lows)
     off = sorted(n for n, poly in y.items()
-                 if not nonneg_on_ray(poly, lows)[0])
+                 if not nonneg_on_region(poly, lows, terms)[0])
     nonneg = not off
     checks = [(t("verify.param.nonneg"), nonneg,
                t("verify.param.offenders", names=", ".join(off) or "-"))]
@@ -1434,7 +1448,7 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
                 acc = acc + Poly.parse(ring, row[var]) * y[name]
         obj = Poly.parse(ring, p["objective"].get(var, {}))
         residual = (obj - acc) if minimising else (acc - obj)
-        ok, _shifted = nonneg_on_ray(residual, lows)
+        ok, _shifted, _used, _rem = nonneg_on_region(residual, lows, terms)
         if not ok:
             bad.append(var)
     checks.append((t("verify.param.feasible"), not bad,
@@ -1453,10 +1467,19 @@ def _verify_parametric_bound(cert, limits) -> VerifyReport:
     floor = ", ".join("{} >= {}".format(k, v) for k, v in lows.items())
     detail_key = "verify.param.detail_min" if minimising \
         else "verify.param.detail"
+    warnings = [t("verify.param.scope", floor=floor)]
+    if region:
+        # Louder than the floor, because a floor looks like scope and a
+        # polynomial side condition can be mistaken for something proved.
+        warnings.append(t("verify.param.region", n=len(region),
+                          conditions="; ".join("{} >= 0".format(g)
+                                               for _n, g in region)))
+        floor = floor + ", " + ", ".join("{} >= 0".format(g)
+                                         for _n, g in region)
     return VerifyReport(
         nonneg and not bad and matches, "parametric_bound", True,
         checks=checks,
-        warnings=[t("verify.param.scope", floor=floor)],
+        warnings=warnings,
         method_key="verify.param.method",
         detail=t(detail_key, bound=str(want) or "0", floor=floor),
     )

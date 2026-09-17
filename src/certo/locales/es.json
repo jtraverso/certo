@@ -887,5 +887,6 @@
   "verify.param.detail_min": "óptimo >= {bound} para todo {floor}",
   "cert.note.parametric_bound_min": "dualidad débil, simbólicamente: un empaquetamiento factible acota por abajo un programa de recubrimiento, para todos los valores del parámetro a la vez",
   "verify.param.dual_text": "el dual legible coincide con los datos contra los que se comprueba",
-  "verify.param.differing": "difieren: {names}"
+  "verify.param.differing": "difieren: {names}",
+  "verify.param.region": "ALCANCE: la cota se afirma solo donde se cumplen {n} condición(es) laterales declaradas, y NADA aquí las demuestra -- {conditions}"
 }

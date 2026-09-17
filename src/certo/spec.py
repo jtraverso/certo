@@ -853,6 +853,24 @@ class ParametricSpec:
     in the cover shape: the dual there is a packing, and a packing of a growing
     object grows with it. `y >= 0` is then the same shift test as everything
     else.
+
+    `region` widens what a certificate can cover past a BOX. The shift test
+    proves non-negativity on `p >= p0`, so a branch has to be re-coordinatised
+    into a corner -- and a branch cut out by a curve, `q d + d r >=
+    d(d-1) + r(r-1)` say, has no such coordinates. Declaring it
+
+        region=[("separated_wins", q*d + d*r - d*(d-one) - r*(r-one))]
+
+    puts `g >= 0` in the certificate's SCOPE: the bound is claimed where the
+    box AND the region hold, and `verify` repeats both every time. Nothing
+    here proves `g >= 0`; it is a statement about which instances are meant,
+    the way the floors already are.
+
+    What certo does find is the MULTIPLIERS -- non-negative `lambda` with
+    `residual - sum(lambda_k g_k)` non-negative by shift -- because that
+    search is a linear program, which is the one kind of search this project
+    does on its own. Pairwise products of the declared conditions are derived
+    rather than assumed.
     """
 
     parameters: dict                 # name -> lower bound (a number)
@@ -860,6 +878,7 @@ class ParametricSpec:
     constraints: list                # [(name, {var: coef}, "<=", rhs)]
     dual: dict                       # constraint name -> non-negative rational
     sense: str = "max"
+    region: list = None              # [(name, g)] meaning `g(p) >= 0`, SCOPE
     title: str = ""
 
 

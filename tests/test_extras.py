@@ -3785,17 +3785,351 @@ def test_a_negative_dual_entry_is_refused_outright():
     assert "cap_mid" in r.detail
 
 
-def test_min_problems_and_ge_rows_are_refused_rather_than_reinterpreted():
-    d = {"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
-         "cap_small": Fraction(1, 3)}
-    assert "sense=min" in _run(_param(d, sense="min")).detail
+def test_mixing_the_two_shapes_is_refused_rather_than_reinterpreted():
+    """A packing maximises over `<=`; a cover minimises over `>=`. Not mixed.
 
+    Both shapes are supported, so what is refused is no longer "a min
+    problem" -- it is rows belonging to one shape inside the other, which is
+    a modelling mistake and not a harder problem.
+    """
     from certo.polynomials import Poly
     ring = ("p",)
     K = lambda c: Poly.const(ring, c)                      # noqa: E731
+
+    d = {"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
+         "cap_small": Fraction(1, 3)}
+    # min with `<=` rows: names the shape and the row sense it wanted.
+    detail = _run(_param(d, sense="min")).detail
+    assert "sense=min" in detail and ">=" in detail
+
+    # max with a `>=` row: names the offending row.
     r = _run(_param({"only": Fraction(1)}, rows=[
         ("only", {"x_big": K(1)}, ">=", K(1))]))
     assert "only" in r.detail
+
+    assert "sense=cheapest" in _run(_param(d, sense="cheapest")).detail
+
+
+# --- cover programs: the shape three separate write-ups reduce to ----------
+#
+# These pin NUMBERS, not behaviour. Each certified bound is compared against
+# the same program solved outright by the exact rational simplex, at every
+# point of a grid inside the branch. A bound that is merely valid would pass a
+# "verify returns ok" test; only the comparison catches a bound that drifted
+# off the optimum.
+
+
+def _cover_lp(weights, rows):
+    """`min w.z` over the given cover rows, exactly. The reference answer."""
+    from certo.simplex import minimise
+
+    A = [[Fraction(r[i]) for r in rows] for i in range(len(weights))]
+    z = minimise(A, [Fraction(w) for w in weights], [Fraction(1)] * len(rows))
+    return sum(w * zi for w, zi in zip(weights, z))
+
+
+def _c2(n):
+    return Fraction(n * (n - 1), 2)
+
+
+def test_a_two_orbit_cover_branch_is_exact_where_its_dual_is_feasible():
+    """Both sides of a threshold, each against the LP solved outright."""
+    from certo.parametric import evaluate
+    from certo.polynomials import Poly
+    from certo.spec import ParametricSpec
+
+    def build(ring, p, q):
+        one, two, three = (Poly.const(ring, c) for c in (1, 2, 3))
+        c2 = p * (p - one) * Poly.const(ring, Fraction(1, 2))
+        return c2, ParametricSpec(
+            parameters=None, sense="min",
+            objective={"x": c2, "y": p * q},
+            constraints=[("clique", {"x": three}, ">=", one),
+                         ("mixed", {"x": one, "y": two}, ">=", one)],
+            dual=None)
+
+    # branch q >= p - 1: the optimum is C(p,2), the dual pays only the mixed
+    # triangle, and its one live row is p*s >= 0.
+    ring = ("p", "s")
+    p, s = Poly.var(ring, "p"), Poly.var(ring, "s")
+    c2, spec = build(ring, p, p - Poly.const(ring, 1) + s)
+    spec.parameters = {"p": 3, "s": 0}
+    spec.dual = {"clique": Poly.const(ring, 0), "mixed": c2}
+    r = _run(spec)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["sense"] == "min"
+    assert r.meta["bound"] == "1/2*p^2 - 1/2*p"
+
+    bound = Poly.parse(ring, r.certificate.payload["bound"])
+    for a in range(7):
+        for b in range(7):
+            pv, sv = 3 + a, b
+            qv = pv - 1 + sv
+            want = _cover_lp([_c2(pv), Fraction(pv * qv)],
+                             [[3, 0], [1, 2]])
+            assert evaluate(bound, {"p": pv, "s": sv}) == want, (pv, qv)
+
+    # branch q <= p - 1: the other vertex, and a dual with two live entries.
+    ring = ("q", "s")
+    q, s = Poly.var(ring, "q"), Poly.var(ring, "s")
+    one, half = Poly.const(ring, 1), Poly.const(ring, Fraction(1, 2))
+    pp = q + one + s
+    c2, spec = build(ring, pp, q)
+    spec.parameters = {"q": 0, "s": 2}
+    spec.dual = {"clique": (c2 - pp * q * half) * Poly.const(ring, Fraction(1, 3)),
+                 "mixed": pp * q * half}
+    r = _run(spec)
+    assert r.verdict is Verdict.PROVED
+    bound = Poly.parse(ring, r.certificate.payload["bound"])
+    for a in range(7):
+        for b in range(7):
+            qv, sv = a, 2 + b
+            pv = qv + 1 + sv
+            want = _cover_lp([_c2(pv), Fraction(pv * qv)], [[3, 0], [1, 2]])
+            assert evaluate(bound, {"q": qv, "s": sv}) == want, (pv, qv)
+
+
+#: The five triangle types of a four-orbit cover, over (a, b, c, e).
+_ORBIT_ROWS = [[1, 2, 0, 0], [3, 0, 0, 0], [1, 0, 2, 0],
+               [0, 0, 2, 1], [0, 0, 0, 3]]
+_ORBIT_NAMES = ["NNI", "NNN", "NNR", "NRR", "RRR"]
+
+
+def _orbit_spec(ring, d, r, q, dual, floors):
+    from certo.polynomials import Poly
+    from certo.spec import ParametricSpec
+
+    one = Poly.const(ring, 1)
+    half = Poly.const(ring, Fraction(1, 2))
+    cols = ["a", "b", "c", "e"]
+    return ParametricSpec(
+        parameters=floors, sense="min",
+        objective={"a": d * (d - one) * half, "b": q * d, "c": d * r,
+                   "e": r * (r - one) * half},
+        constraints=[(n, {cols[i]: Poly.const(ring, row[i])
+                          for i in range(4) if row[i]}, ">=", one)
+                     for n, row in zip(_ORBIT_NAMES, _ORBIT_ROWS)],
+        dual=dual)
+
+
+def test_two_branches_of_a_four_orbit_cover_are_exact_on_their_boxes():
+    """The hot and separated covers, each on the box its dual is feasible on."""
+    from certo.parametric import evaluate
+    from certo.polynomials import Poly
+
+    zero = Fraction(0)
+
+    # hot: q = d - 1 + s, r = d + 1 + t. The dual pays the neighbourhood in
+    # full and splits what is left between the two R-facing types.
+    ring = ("d", "s", "t")
+    d, s, t = (Poly.var(ring, v) for v in ring)
+    one, half, third = (Poly.const(ring, c)
+                        for c in (1, Fraction(1, 2), Fraction(1, 3)))
+    rr = d + one + t
+    cd, cr = d * (d - one) * half, rr * (rr - one) * half
+    spec = _orbit_spec(ring, d, rr, d - one + s,
+                       {"NNI": cd, "NNN": Poly.const(ring, 0),
+                        "NNR": Poly.const(ring, 0), "NRR": d * rr * half,
+                        "RRR": (cr - d * rr * half) * third},
+                       {"d": 3, "s": 0, "t": 0})
+    r = _run(spec)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["bound"] == "d^2 + 2/3*d*t + 1/6*t^2 + 1/6*t"
+    bound = Poly.parse(ring, r.certificate.payload["bound"])
+    for du in range(5):
+        for sv in range(5):
+            for tv in range(5):
+                dv = 3 + du
+                rv, qv = dv + 1 + tv, dv - 1 + sv
+                want = _cover_lp([_c2(dv), Fraction(qv * dv), Fraction(dv * rv),
+                                  _c2(rv)], _ORBIT_ROWS)
+                got = evaluate(bound, {"d": dv, "s": sv, "t": tv})
+                assert got == want, (dv, rv, qv, got, want)
+
+    # separated: d = r - 1 + m, q = d - 1 + s. Here the dual SPLITS the
+    # neighbourhood between two types, and the split is what makes the
+    # crossing orbit pay for itself.
+    ring = ("r", "m", "s")
+    rv_, m, s = (Poly.var(ring, v) for v in ring)
+    one, half = Poly.const(ring, 1), Poly.const(ring, Fraction(1, 2))
+    dd = rv_ - one + m
+    cd = dd * (dd - one) * half
+    cr = rv_ * (rv_ - one) * half
+    spec = _orbit_spec(ring, dd, rv_, dd - one + s,
+                       {"NNI": cd - rv_ * m * half,
+                        "NNN": Poly.const(ring, 0), "NNR": rv_ * m * half,
+                        "NRR": cr, "RRR": Poly.const(ring, 0)},
+                       {"r": 4, "m": 0, "s": 0})
+    r = _run(spec)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["bound"] == "r^2 + r*m + 1/2*m^2 - 2*r - 3/2*m + 1"
+    bound = Poly.parse(ring, r.certificate.payload["bound"])
+    for ru in range(5):
+        for mv in range(5):
+            for sv in range(5):
+                rrv = 4 + ru
+                dv = rrv - 1 + mv
+                qv = dv - 1 + sv
+                want = _cover_lp([_c2(dv), Fraction(qv * dv), Fraction(dv * rrv),
+                                  _c2(rrv)], _ORBIT_ROWS)
+                got = evaluate(bound, {"r": rrv, "m": mv, "s": sv})
+                assert got == want, (dv, rrv, qv, got, want)
+    assert zero == 0
+
+
+def test_a_branch_cut_out_by_a_curve_is_declared_rather_than_boxed():
+    """The shift proves non-negativity on a BOX. Some branches are not boxes.
+
+    Here the branch needs `q d + d r >= d(d-1) + r(r-1)`, a quadratic curve.
+    Without it the dual has entries the shift cannot clear; with it declared,
+    certo finds the multipliers by linear program and the bound is exact
+    against the simplex at every point of the region.
+    """
+    from certo.parametric import evaluate
+    from certo.polynomials import Poly
+    from certo.spec import ParametricSpec
+
+    ring = ("q", "k", "r")
+    q, k, r = (Poly.var(ring, v) for v in ring)
+    one, two = Poly.const(ring, 1), Poly.const(ring, 2)
+    half, third = (Poly.const(ring, Fraction(1, n)) for n in (2, 3))
+    d = q + one + k                          # q <= d - 1, by construction
+    cd, cr = d * (d - one) * half, r * (r - one) * half
+    crossing = d * r * half - cr             # >= 0 exactly when r <= d + 1
+
+    def build(region):
+        cols = ["a", "b", "c", "e"]
+        return ParametricSpec(
+            parameters={"q": 1, "k": 0, "r": 4}, sense="min",
+            objective={"a": cd, "b": q * d, "c": d * r, "e": cr},
+            constraints=[(n, {cols[i]: Poly.const(ring, row[i])
+                              for i in range(4) if row[i]}, ">=", one)
+                         for n, row in zip(_ORBIT_NAMES, _ORBIT_ROWS)],
+            dual={"NNI": q * d * half,
+                  "NNN": (cd - q * d * half - crossing) * third,
+                  "NNR": crossing, "NRR": cr, "RRR": Poly.const(ring, 0)},
+            region=region)
+
+    # Without the region the route fails, and fails honestly: no certificate.
+    plain = _run(build(None))
+    assert plain.verdict is Verdict.INCONCLUSIVE
+    assert plain.certificate is None
+
+    region = [("r_within", d + one - r),
+              ("uniform_wins", cd * two + cr * two - q * d - d * r)]
+    r_ = _run(build(region))
+    assert r_.verdict is Verdict.PROVED
+    pay = r_.certificate.payload
+    assert sorted(pay["region"]) == ["r_within", "uniform_wins"]
+
+    rep = verify(_roundtrip(r_.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    # The scope must travel with the certificate, loudly: a side condition is
+    # not something proved, and a reader who misses that misreads the claim.
+    assert any("NOTHING here proves them" in w for w in rep.warnings)
+
+    bound = Poly.parse(ring, pay["bound"])
+    inside = exact = 0
+    for qv in range(1, 8):
+        for kv in range(0, 6):
+            for rv in range(4, 12):
+                dv = qv + 1 + kv
+                if dv + 1 - rv < 0:
+                    continue
+                if dv * (dv - 1) + rv * (rv - 1) - qv * dv - dv * rv < 0:
+                    continue
+                inside += 1
+                want = _cover_lp([_c2(dv), Fraction(qv * dv),
+                                  Fraction(dv * rv), _c2(rv)], _ORBIT_ROWS)
+                got = evaluate(bound, {"q": qv, "k": kv, "r": rv})
+                assert got <= want, (dv, rv, qv, got, want)
+                exact += got == want
+    assert inside > 100 and exact == inside
+
+
+def test_an_artificial_left_in_the_basis_does_not_corrupt_the_answer():
+    """Dependent rows end phase 1 with an artificial basic at level zero.
+
+    Renaming it to a real variable states a false tableau, and the symplex
+    then returns a `y` that does not satisfy its own constraints -- silently,
+    which is the part that matters. Pinned on the instance that found it: one
+    column that must come back with multiplier exactly 1.
+    """
+    from certo.simplex import minimise
+
+    # rows are one per monomial of a polynomial identity, so they are
+    # dependent by construction; the single column equals the target exactly.
+    target = [Fraction(c) for c in (-1, -1, 1, 1, -1, 4, 2, -5, -4)]
+    A = [[-c for c in target]]
+    y = minimise(A, [Fraction(1)], [-c for c in target])
+    assert y == [Fraction(1)]
+    for j in range(len(target)):
+        assert sum(A[i][j] * y[i] for i in range(len(A))) >= -target[j]
+
+
+def test_a_cover_dual_stops_being_feasible_where_the_branch_ends():
+    """The threshold in the value function IS the dual's feasibility.
+
+    Same dual, same program, on a box that crosses `q = p - 1` instead of
+    staying on one side. It must be refused, and the column it fails on must
+    be the one carrying the crossing edges.
+    """
+    from certo.polynomials import Poly
+    from certo.spec import ParametricSpec
+
+    ring = ("p", "q")
+    p, q = Poly.var(ring, "p"), Poly.var(ring, "q")
+    one, two, three = (Poly.const(ring, c) for c in (1, 2, 3))
+    c2 = p * (p - one) * Poly.const(ring, Fraction(1, 2))
+
+    r = _run(ParametricSpec(
+        parameters={"p": 3, "q": 1}, sense="min",
+        objective={"x": c2, "y": p * q},
+        constraints=[("clique", {"x": three}, ">=", one),
+                     ("mixed", {"x": one, "y": two}, ">=", one)],
+        dual={"clique": Poly.const(ring, 0), "mixed": c2}))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+    assert r.meta["failed_columns"] == ["y"]
+
+
+def test_a_polynomial_dual_is_carried_exactly_and_checked_against_its_text():
+    """`dual` is what a reader sees; `dual_poly` is what verify recomputes."""
+    from certo.polynomials import Poly
+    from certo.spec import ParametricSpec
+
+    ring = ("p", "s")
+    p = Poly.var(ring, "p")
+    one, two, three = (Poly.const(ring, c) for c in (1, 2, 3))
+    c2 = p * (p - one) * Poly.const(ring, Fraction(1, 2))
+    r = _run(ParametricSpec(
+        parameters={"p": 3, "s": 0}, sense="min",
+        objective={"x": c2, "y": p * (p - one + Poly.var(ring, "s"))},
+        constraints=[("clique", {"x": three}, ">=", one),
+                     ("mixed", {"x": one, "y": two}, ">=", one)],
+        dual={"clique": Poly.const(ring, 0), "mixed": c2}))
+    pay = r.certificate.payload
+    assert pay["sense"] == "min"
+    assert pay["dual"]["mixed"] == "1/2*p^2 - 1/2*p"
+    assert Poly.parse(ring, pay["dual_poly"]["mixed"]) == c2
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+    # the readable copy made to disagree with the data it is checked from
+    bent = r.certificate.to_dict()
+    bent["payload"]["dual"]["mixed"] = "1/2*p^2"
+    rep = verify(Certificate.from_dict(bent), LIM)
+    assert not rep.ok
+    assert any("readable dual" in n for n, ok, _ in rep.checks if not ok)
+
+
+def test_a_constant_dual_certificate_is_unchanged_by_the_cover_shape():
+    """The packing shape must not have grown fields it does not need."""
+    r = _run(_param({"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
+                     "cap_small": Fraction(1, 3)}))
+    pay = r.certificate.payload
+    assert "sense" not in pay          # "max" is the default and stays unwritten
+    assert "dual_poly" not in pay      # `dual` already carries rationals exactly
+    assert verify(_roundtrip(r.certificate), LIM).ok
 
 
 def test_the_shift_is_exact_and_sufficient_not_necessary():

@@ -129,11 +129,27 @@ def minimise(A, b, c):
     if -T[-1][-1] != 0:
         raise SimplexLimit("the dual is infeasible")
 
+    # An artificial can END phase 1 still in the basis, at level zero, when
+    # the rows are dependent -- which they routinely are here, because the
+    # rows are one per monomial and monomials are not independent. Renaming
+    # such a basic variable to a real one would state a false tableau: the
+    # column it names is not the column the row was solved for. So drive it
+    # out by a real pivot, and when the whole row is zero across the real
+    # columns the row is redundant and is dropped.
+    for i in range(len(basis) - 1, -1, -1):
+        if basis[i] < total:
+            continue
+        col = next((j for j in range(total) if T[i][j] != 0), None)
+        if col is None:
+            del T[i]
+            del basis[i]
+            continue
+        _pivot(T, basis, i, col)
+
     # Phase 2: drop the artificials, minimise b.y  ->  maximise -b.y.
     for t in T:
         del t[total:width]
     T.pop()
-    basis = [j if j < total else 0 for j in basis]
     obj = [Fraction(0)] * total + [Fraction(0)]
     for i in range(m):
         obj[i] = Fraction(b[i])

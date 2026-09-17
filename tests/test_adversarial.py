@@ -266,6 +266,34 @@ def test_parametric_bound():
     assert "dual_poly" in got.payload
     _report("parametric_bound_min", probe(got))
 
+    # A declared region. This one is SCOPE: dropping a condition widens what
+    # the certificate claims, which is the direction that has to be caught.
+    ring = ("q", "k", "r")
+    q, k, rr = (Poly.var(ring, v) for v in ring)
+    one, two = Poly.const(ring, 1), Poly.const(ring, 2)
+    half, third = (Poly.const(ring, Fraction(1, n)) for n in (2, 3))
+    d = q + one + k
+    cd, cr = d * (d - one) * half, rr * (rr - one) * half
+    crossing = d * rr * half - cr
+    cols = ["a", "b", "c", "e"]
+    shape = [("NNI", [1, 2, 0, 0]), ("NNN", [3, 0, 0, 0]),
+             ("NNR", [1, 0, 2, 0]), ("NRR", [0, 0, 2, 1]),
+             ("RRR", [0, 0, 0, 3])]
+    scoped = ParametricSpec(
+        parameters={"q": 1, "k": 0, "r": 4}, sense="min",
+        objective={"a": cd, "b": q * d, "c": d * rr, "e": cr},
+        constraints=[(n, {cols[i]: Poly.const(ring, row[i])
+                          for i in range(4) if row[i]}, ">=", one)
+                     for n, row in shape],
+        dual={"NNI": q * d * half,
+              "NNN": (cd - q * d * half - crossing) * third,
+              "NNR": crossing, "NRR": cr, "RRR": Poly.const(ring, 0)},
+        region=[("r_within", d + one - rr),
+                ("uniform_wins", cd * two + cr * two - q * d - d * rr)])
+    got = algebra.parametric(scoped, LIM).certificate
+    assert sorted(got.payload["region"]) == ["r_within", "uniform_wins"]
+    _report("parametric_bound_region", probe(got))
+
 
 def test_ideal_and_sos():
     import z3

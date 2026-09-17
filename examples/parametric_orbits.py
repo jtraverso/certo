@@ -75,44 +75,37 @@ a proof obligation. Together they pin the branch exactly, which is
 what the 343-point agreement above records -- and that agreement is a test, not
 a certificate, because a grid is never the claim.
 
-THE SECOND BRANCH, and why there is not a third here. `separated()` below is
-`q >= d - 1` with `r <= d + 1`, in the coordinates that quadrant needs:
+THE WHOLE TRICHOTOMY TAKES FIVE CERTIFICATES, and that is the thing worth
+carrying away. Three of them are boxes, re-coordinatised by a slack per
+inequality. Two are not boxes at all: inside `q <= d - 1` the minimum switches
+between the uniform and separated values across
 
-    $ certo parametric sep_branch.py
-    PROVED  [unsat]
-      for all r >= 4, m >= 0, s >= 0, the optimum is at least
-      r^2 + r*m + 1/2*m^2 - 2*r - 3/2*m + 1
-      columns: 4
-      sense: min
+    q d + d r  =  d(d-1) + r(r-1)
 
-which is `C(d,2) + C(r,2)` with `d = r - 1 + m`, again exact against the
-simplex at all 343 points of its box.
+a quadratic curve, and no substitution `x -> x0 + u` turns a curved face into a
+corner. Those two DECLARE the condition with `region=` instead, which puts it
+in the certificate's scope rather than proving it, and lets certo find the
+multipliers by linear program. Counted over 1170 parameter points (`d` 3..11,
+`r` 4..13, `q` 1..13), every bound exact against the simplex, nothing unsound,
+nothing left over:
 
-The remaining region is `q <= d - 1`, and there the minimum switches between
-the uniform and separated values across `q d + d r = d(d-1) + r(r-1)` -- a
-quadratic curve, not a coordinate box, so no single shift test decides it and
-no single ray covers it. Counted over 1170 parameter points (`d` 3..11, `r`
-4..13, `q` 1..13), every one of which the two boxes here classify correctly
-and none of which they misclassify:
+    hot               q >= d-1, r >= d+1            492   box
+    separated         q >= d-1, r <= d+1            300   box
+    uniform_wide      q <= d-1, r >= d+1            264   box
+    uniform_narrow    q <= d-1, r <= d+1, U <= D    243   2 declared conditions
+    separated_narrow  q <= d-1, r <= d+1, D <= U    107   2 declared conditions
+                                                   ----
+                                                   1170   of 1170
 
-    hot,        q >= d-1, r >= d+1        492 certified
-    separated,  q >= d-1, r <= d+1        300 certified
-    outside both boxes                    450
-      reachable by the uniform dual, one split of it       210
-      reachable by the uniform dual, the other split       234
-      reachable by the separated dual's other split         62
-      reachable by none of the four                          0
-
-Four duals, in four coordinate systems, and the overlaps are real rather than
-an artefact of how they were written -- each covers a closed region and the
-regions share their boundaries.
+The overlaps are real rather than an artefact of how they were written: each
+covers a closed region, and the regions share their boundaries.
 
 That is not a shortfall to apologise for; it is the finite content the three
 written lines leave out. "The objective is affine on a triangle, evaluate at
 the three vertices, duality finishes it" is correct and complete as an
-argument. What it takes to WRITE DOWN is four certificates in four coordinate
-systems, and nothing in the prose says so, because on a blackboard nobody has
-to.
+argument. What it takes to WRITE DOWN is five certificates in four coordinate
+systems, two of them scoped by a curve, and nothing in the prose says so --
+because on a blackboard nobody has to.
 """
 from fractions import Fraction
 
@@ -185,6 +178,135 @@ def separated():
         },
         title="the separated-cover branch of a four-orbit cover program",
     )
+
+
+def uniform_wide():
+    """The uniform cover where the residual clique is large: `r >= d + 1`.
+
+    Still a box -- `d = q + 1 + k` is `q <= d - 1`, `r = d + 1 + t` is the
+    other side -- and the dual pays every triangle type something.
+    """
+    ring = ("q", "k", "t")
+    q = Poly.var(ring, "q")
+    k = Poly.var(ring, "k")
+    t = Poly.var(ring, "t")
+    one = Poly.const(ring, 1)
+    half = Poly.const(ring, Fraction(1, 2))
+    third = Poly.const(ring, Fraction(1, 3))
+    dd = q + one + k
+    rr = dd + one + t
+    cd = dd * (dd - one) * half
+    cr = rr * (rr - one) * half
+
+    return _orbit_program(
+        ring, dd, rr, q, {"q": 0, "k": 0, "t": 0},
+        dual={"NNI": q * dd * half,
+              "NNN": (cd - q * dd * half) * third,
+              "NNR": Poly.const(ring, 0),
+              "NRR": dd * rr * half,
+              "RRR": (cr - dd * rr * half) * third},
+        title="the uniform-cover branch, large residual clique")
+
+
+def uniform_narrow():
+    """The uniform cover where `r <= d + 1`, and the one branch that is NOT a box.
+
+    Here the minimum switches between the uniform and separated values across
+
+        q d + d r  =  d(d-1) + r(r-1)
+
+    a quadratic curve. No substitution `x -> x0 + u` turns that into a corner,
+    so the branch is declared rather than re-coordinatised:
+
+        region=[("r_within", d + 1 - r), ("uniform_wins", ...)]
+
+    That is SCOPE and not content. Nothing here proves either condition -- the
+    bound is claimed where they hold, the same standing the parameter floors
+    already have, and `verify` says so in a warning of its own every time.
+
+    What certo does find is the MULTIPLIERS, because that search is a linear
+    program: non-negative `lambda` with `residual - sum(lambda_k g_k)`
+    non-negative by shift. They are polynomials rather than numbers -- the
+    crossing-orbit dual is `r (d - r + 1) / 2`, which is `r/2` times the first
+    condition -- and a polynomial with non-negative coefficients is just more
+    columns in the same program.
+
+    Exact against the simplex at all 408 grid points that satisfy both
+    conditions, with the 312 that do not correctly outside the claim.
+    """
+    ring = ("q", "k", "r")
+    q = Poly.var(ring, "q")
+    k = Poly.var(ring, "k")
+    r = Poly.var(ring, "r")
+    one = Poly.const(ring, 1)
+    two = Poly.const(ring, 2)
+    half = Poly.const(ring, Fraction(1, 2))
+    third = Poly.const(ring, Fraction(1, 3))
+    dd = q + one + k
+    cd = dd * (dd - one) * half
+    cr = r * (r - one) * half
+    crossing = dd * r * half - cr          # >= 0 exactly when r <= d + 1
+
+    return _orbit_program(
+        ring, dd, r, q, {"q": 1, "k": 0, "r": 4},
+        dual={"NNI": q * dd * half,
+              "NNN": (cd - q * dd * half - crossing) * third,
+              "NNR": crossing,
+              "NRR": cr,
+              "RRR": Poly.const(ring, 0)},
+        region=[("r_within", dd + one - r),
+                ("uniform_wins", cd * two + cr * two - q * dd - dd * r)],
+        title="the uniform-cover branch, on a region that is not a box")
+
+
+def separated_narrow():
+    """The separated cover where `q <= d - 1`: the fifth and last certificate.
+
+    `separated()` splits nothing -- it puts all of `C(d,2)` on one triangle
+    type -- and that only stays feasible while `q >= d - 1`. Below that the
+    same cover is still the minimum but has to be paid for differently, with
+    `r (d - r + 1) / 2` moved onto the crossing type. Another region, because
+    `D <= U` is the same quadratic curve seen from the other side.
+    """
+    ring = ("q", "k", "r")
+    q = Poly.var(ring, "q")
+    k = Poly.var(ring, "k")
+    r = Poly.var(ring, "r")
+    one = Poly.const(ring, 1)
+    two = Poly.const(ring, 2)
+    half = Poly.const(ring, Fraction(1, 2))
+    dd = q + one + k
+    cd = dd * (dd - one) * half
+    cr = r * (r - one) * half
+    crossing = r * (dd - r + one) * half
+
+    return _orbit_program(
+        ring, dd, r, q, {"q": 1, "k": 0, "r": 4},
+        dual={"NNI": cd - crossing,
+              "NNN": Poly.const(ring, 0),
+              "NNR": crossing,
+              "NRR": cr,
+              "RRR": Poly.const(ring, 0)},
+        region=[("r_within", dd + one - r),
+                ("separated_wins", q * dd + dd * r - cd * two - cr * two)],
+        title="the separated-cover branch, paid for below q = d - 1")
+
+
+def _orbit_program(ring, d, r, q, floors, dual, region=None, title=""):
+    """The same four-orbit cover program, in whichever coordinates a branch needs."""
+    one = Poly.const(ring, 1)
+    half = Poly.const(ring, Fraction(1, 2))
+    cols = ["a", "b", "c", "e"]
+    rows = [("NNI", [1, 2, 0, 0]), ("NNN", [3, 0, 0, 0]), ("NNR", [1, 0, 2, 0]),
+            ("NRR", [0, 0, 2, 1]), ("RRR", [0, 0, 0, 3])]
+    return ParametricSpec(
+        parameters=floors, sense="min",
+        objective={"a": d * (d - one) * half, "b": q * d, "c": d * r,
+                   "e": r * (r - one) * half},
+        constraints=[(n, {cols[i]: Poly.const(ring, row[i])
+                          for i in range(4) if row[i]}, ">=", one)
+                     for n, row in rows],
+        dual=dual, region=region, title=title)
 
 
 def spec():

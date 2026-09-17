@@ -199,6 +199,7 @@ def parametric(spec, limits: Limits | None = None,
         dual_poly=({str(n): _ser(spec, v) for n, v in spec.dual.items()}
                    if out["polynomial_dual"] else None),
         sense=out["sense"],
+        region=out["region"] or None,
         bound=out["bound"].serialize(),
         rows=out["rows"],
         title=spec.title,

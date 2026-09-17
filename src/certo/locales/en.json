@@ -887,5 +887,6 @@
   "verify.param.detail_min": "optimum >= {bound} for all {floor}",
   "cert.note.parametric_bound_min": "weak duality, symbolically: a feasible packing bounds a cover program from below, for every parameter value at once",
   "verify.param.dual_text": "the readable dual matches the data it is checked from",
-  "verify.param.differing": "differing: {names}"
+  "verify.param.differing": "differing: {names}",
+  "verify.param.region": "SCOPE: the bound is claimed only where {n} declared side condition(s) hold, and NOTHING here proves them -- {conditions}"
 }

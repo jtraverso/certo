@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17. Reordered after measuring an adjacent library, the self-check finding, and a negative result on the canonical form — see "What changed the ranking".
+Last updated: 2026-09-17. Reordered after measuring an adjacent library, the self-check finding, a negative result on the canonical form, and reading three write-ups of one argument against the tool — see "What changed the ranking".
 
 ---
 
@@ -58,6 +58,8 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 | ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
 | ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
 | ✅ | **`parametric` for cover programs** | `sense="min"` with `>=` rows, bounding from BELOW out of a feasible packing, and dual entries that may be polynomials because a cover's dual grows with the instance. Forced by three separate write-ups of one argument, all of which reduce to a symmetrised cover over edge orbits and all of which state the value as a minimum of named closed forms. Two branches of a two-orbit program and one branch of a four-orbit program are now certificates; each is EXACT against an exact rational simplex on its branch (49 and 343 points). The branch conditions come out as the dual's own feasibility. |
+| ✅ | **`parametric` past the box: `region=`** *(P1)* | The shift proves non-negativity on a ray, so a certificate covers a BOX -- and a branch cut out by `q d + d r = d(d-1) + r(r-1)` is not one. Side conditions are now DECLARED: `g(p) >= 0` enters the certificate's scope, nothing proves it, and `verify` warns separately and loudly because a polynomial condition reads like something proved. certo finds the MULTIPLIERS, since that search is a linear program -- polynomial ones, because the multiplier of a condition is `r/2` as often as it is a number. A trichotomy that two boxes covered 68% of now takes five certificates and covers 1170 of 1170 measured points, every bound exact against the simplex. |
+| ✅ | **The exact simplex could return a `y` violating its own constraints** | Found by the above, silently. Dependent rows -- one per monomial of a polynomial identity, so dependent by construction -- end phase 1 with an artificial basic at level zero, and the transition renamed it to variable index 0, which is a real variable. That states a false tableau; the answer came back wrong or as a spurious "unbounded". Artificials are now pivoted out on a real column, and a row with no real column left is dropped as redundant. Not a soundness hole anywhere it was used -- every caller re-checks what the simplex hands back -- but it was losing answers and would have gone on doing it. |
 | ✅ | **A named square is a legitimate hint** | `farkas --nonlinear` searches a fixed square set -- each hypothesis squared, `x²`, `(x-y)²` -- and a margin estimate that completes the square as `(2s-q)²` or `12(u-v/4)²` is outside it, so the heuristic missed and said so. It did not need a feature: a square is a tautology, so assuming one adds a row without adding an assumption. Three comparisons from one write-up now close solver-free, with multipliers `1/16` and `1/48` that are the source's own arithmetic read back. Documented, because the mechanism existed and nobody could have guessed it. |
 | ✅ | **A `>=` load priced at zero** *(user feedback P1)* | Same root cause, other consumer. Now `d(optimum)/d(bound)`, summed over the normalised rows with their signs — negative for a binding `>=`, because raising a floor costs you — with the direction stated and the source rows in the payload. |
 | ✅ | **Minimisation in branch and bound** *(user feedback P1)* | Refusing it left the user negating by hand and their certificate describing a formulation nobody posed. The tree still searches `max -c.x` because that is what happens, and the payload records both what was searched and what was asked. |
@@ -206,8 +208,6 @@ reason each branch is its own certificate.
 
 ---
 
----
-
 ## P1 — next
 
 ### 1. A `--fully-checkable` branch-and-bound certificate *(user feedback)*
@@ -225,6 +225,27 @@ Two halves, and the second matters more:
 
 Document, either way, exactly what needs a solver during `verify` and what
 each leaf stores.
+
+### 2. Integer maximisation of a quadratic, and the floor that comes with it
+
+The other obligation the corpus states and certo cannot express. A value
+function on a branch is a downward parabola in an INTEGER variable,
+
+    F(p) = p(2n+1-3p)/2 = (2n+1)^2/24 - (3/2)(p - (2n+1)/6)^2
+
+and the claim is that its maximum over integer `p` is exactly the floor of the
+continuous peak, attained at the integer nearest the real vertex. Two pieces:
+
+* the integer maximum of a concave quadratic — `bisect` brackets a constant
+  and `mixed` needs a finite model, so neither fits a statement quantified
+  over `n`;
+* the closed form for the floor, which rests on `(2n+1)^2 ≡ 1 or 9 (mod 24)`
+  by residue class — a finite check over a modulus, which `cases` could do if
+  the quantified statement around it had somewhere to live.
+
+`induct` is the closest existing shape and does not cover it. Not urgent; it
+is here because it is the second thing the corpus asks for that has no command,
+and two is a pattern.
 
 ---
 

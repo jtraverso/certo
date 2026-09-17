@@ -106,6 +106,98 @@ def nonneg_on_ray(poly: Poly, lows: dict):
     return all(c >= 0 for c in shifted.terms.values()), shifted
 
 
+def region_terms(region, lows):
+    """The declared side conditions, shifted, with their pairwise products.
+
+    A product of non-negative quantities is non-negative, so the products are
+    DERIVED and not assumed -- the same step `nlinarith` takes, and the reason
+    a region of two conditions can cut out a curved face rather than a corner.
+    """
+    base = [(str(n), shift(g, lows)) for n, g in region]
+    out = list(base)
+    for i, (n1, g1) in enumerate(base):
+        for n2, g2 in base[i:]:
+            out.append(("{}*{}".format(n1, n2), g1 * g2))
+    return out
+
+
+def _monomial_multiples(terms, ring, budget):
+    """`u^a * g` for every shifted monomial that fits inside `budget`.
+
+    The multiplier of a side condition is not in general a NUMBER. A residual
+    like `r (d - r + 1) / 2` needs `r / 2` times the condition `d - r + 1 >= 0`,
+    and after the shift `r` is a floor plus a distance, both non-negative. So
+    the multipliers are polynomials with non-negative coefficients, which is
+    the same linear program with more columns rather than a different method.
+    """
+    from itertools import product as _product
+
+    out = []
+    for name, g in terms:
+        room = budget - g.degree
+        if room < 0:
+            continue
+        for e in _product(range(room + 1), repeat=len(ring)):
+            if sum(e) > room:
+                continue
+            if not any(e):
+                out.append((name, g))
+                continue
+            mono = Poly(ring, {tuple(e): Fraction(1)})
+            label = "*".join(v for v, k in zip(ring, e) for _ in range(k))
+            out.append(("{}*{}".format(label, name), mono * g))
+    return out
+
+
+def nonneg_on_region(poly: Poly, lows: dict, terms):
+    """Is `poly >= 0` on the box, GIVEN the declared side conditions?
+
+    Returns `(ok, shifted, multipliers, remainder)`. The certificate is
+
+        poly  =  sum_k lambda_k g_k  +  remainder,   lambda_k >= 0
+
+    with every coefficient of the shifted `remainder` non-negative, so the
+    whole right-hand side is non-negative wherever the `g_k` are. Finding the
+    multipliers is a linear program in `lambda` -- the coefficients of the
+    remainder are linear in it -- which is why the search lives here: it was
+    already an LP, the same reason `farkas` finds its own multipliers.
+
+    With no side conditions this is exactly `nonneg_on_ray`, because the only
+    non-negative `lambda` is the empty one.
+    """
+    from .simplex import SimplexLimit, minimise
+
+    shifted = shift(poly, lows)
+    if all(c >= 0 for c in shifted.terms.values()):
+        return True, shifted, {}, shifted
+    if not terms:
+        return False, shifted, {}, shifted
+
+    columns = _monomial_multiples(terms, poly.vars, shifted.degree)
+    if not columns:
+        return False, shifted, {}, shifted
+
+    monomials = sorted(set(shifted.terms) | {m for _, g in columns
+                                             for m in g.terms})
+    # `min sum(lambda)` subject to `shifted[m] - sum_k lambda_k g_k[m] >= 0`.
+    A = [[-g.terms.get(m, Fraction(0)) for m in monomials] for _, g in columns]
+    c = [-shifted.terms.get(m, Fraction(0)) for m in monomials]
+    try:
+        lam = minimise(A, [Fraction(1)] * len(columns), c)
+    except SimplexLimit:
+        return False, shifted, {}, shifted
+
+    remainder = shifted
+    used = {}
+    for (name, g), value in zip(columns, lam):
+        if value:
+            used[name] = used.get(name, Fraction(0)) + value
+            remainder = remainder - g.scaled(value)
+    ok = all(v >= 0 for v in used.values()) and \
+        all(co >= 0 for co in remainder.terms.values())
+    return ok, shifted, used, remainder
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -156,16 +248,24 @@ def certify(spec) -> dict:
     if extra:
         raise NotParametric(_t("param.dual_extra", names=", ".join(extra[:5])))
 
+    # The declared region, if any. These are SCOPE and not something proved:
+    # the certificate holds where they hold, and says so every verification.
+    region = [(str(n), P(g)) for n, g in (getattr(spec, "region", None) or [])]
+    terms = region_terms(region, spec.parameters)
+
     # `y >= 0`. A constant dual is a comparison; a polynomial one is the same
-    # shift test the residuals get, and "not shown non-negative" is what a
-    # failure means there -- never "negative".
+    # test the residuals get, and "not shown non-negative" is what a failure
+    # means there -- never "negative".
     negative, dual_rows = [], []
     for name in sorted(y):
-        ok, shifted = nonneg_on_ray(y[name], spec.parameters)
+        ok, shifted, used, _rem = nonneg_on_region(y[name], spec.parameters,
+                                                   terms)
         if not ok:
             negative.append(name)
         dual_rows.append({"constraint": str(name), "value": y[name].serialize(),
-                          "shifted": shifted.serialize(), "ok": ok})
+                          "shifted": shifted.serialize(), "ok": ok,
+                          "region_multipliers": {k: str(v)
+                                                 for k, v in used.items()}})
 
     # A^T y - c, column by column. Every variable that appears anywhere gets a
     # column, including ones the objective never mentions: a variable with no
@@ -181,11 +281,13 @@ def certify(spec) -> dict:
         obj = P(spec.objective.get(var, 0))
         # Maximise: `A^T y >= c`. Minimise: `M^T y <= w`. One sign.
         residual = (obj - acc) if minimising else (acc - obj)
-        ok, shifted = nonneg_on_ray(residual, spec.parameters)
+        ok, shifted, used, _rem = nonneg_on_region(residual, spec.parameters,
+                                                   terms)
         rows.append({"variable": var,
                      "residual": residual.serialize(),
                      "shifted": shifted.serialize(),
                      "ok": ok,
+                     "region_multipliers": {k: str(v) for k, v in used.items()},
                      "negative": sorted(str(c) for c in shifted.terms.values()
                                         if c < 0)})
 
@@ -199,8 +301,14 @@ def certify(spec) -> dict:
         "rows": rows,
         "bound": bound,
         "sense": "min" if minimising else "max",
+        "region": {n: g.serialize() for n, g in region},
         "dual_rows": dual_rows,
-        "polynomial_dual": any(len(p.terms) > 1 or any(e for e in p.terms)
+        # A dual is polynomial when some entry has more than one term, or one
+        # term with a non-zero exponent. `any(e)` over the EXPONENT, not over
+        # the dict -- iterating the dict yields keys, and a key is a non-empty
+        # tuple and therefore always truthy.
+        "polynomial_dual": any(len(p.terms) > 1
+                               or any(any(e) for e in p.terms)
                                for p in y.values()),
         "negative_dual": negative,
         "ok": not negative and all(r["ok"] for r in rows),
