@@ -29,6 +29,7 @@ import time
 from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
                            family_extremum_certificate,
+                           ratio_bound_certificate,
                            integer_peak_certificate,
                            resultant_certificate, sos_certificate)
 from ..i18n import t
@@ -136,6 +137,56 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
             out["stopped"] = got.meta
             out["stopped_detail"] = got.detail
     return out
+
+
+def ratio(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """A rational-function inequality, for every parameter at once, no solver."""
+    from ..ratio import NotARatio, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotARatio as e:
+        return Result("ratio", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    floor = ", ".join("{} >= {}".format(k, v)
+                      for k, v in spec.parameters.items())
+    ln, ld = out["left"]
+    rn, rd = out["right"]
+
+    def show(num, den):
+        return str(num) or "0" if str(den) == "1"             else "({}) / ({})".format(str(num) or "0", str(den))
+
+    if not out["ok"]:
+        if not (out["left_positive"] and out["right_positive"]):
+            which = ", ".join(x for x, ok in ((str(ld), out["left_positive"]),
+                                              (str(rd), out["right_positive"]))
+                              if not ok)
+            detail = t("engine.ratio.denominator", which=which)
+        else:
+            detail = t("engine.ratio.not_shown", floor=floor,
+                       difference=str(out["difference"]) or "0")
+        return Result("ratio", Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, ms, None, detail=detail,
+                      meta={"difference": str(out["difference"]) or "0"})
+
+    cert = ratio_bound_certificate(
+        parameters=dict(spec.parameters),
+        left=[ln.serialize(), ld.serialize()],
+        right=[rn.serialize(), rd.serialize()],
+        relation=spec.relation, difference=out["difference"].serialize(),
+        region=out["region"] or None, title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("ratio", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM, ms,
+                  cert,
+                  detail=t("engine.ratio.proved", floor=floor,
+                           left=show(ln, ld), rel=spec.relation,
+                           right=show(rn, rd)),
+                  meta={"difference": str(out["difference"]) or "0",
+                        "floor": floor})
 
 
 def family_max(spec, limits: Limits | None = None,

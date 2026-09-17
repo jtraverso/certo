@@ -40,6 +40,7 @@ CASES = [
     ("parametric_bound.py", "parametric", []),
     ("parametric_cover.py", "parametric", []),
     ("parametric_orbits.py", "parametric", []),
+    ("ratio_window.py", "ratio", []),
     ("peak_residues.py", "peak", []),
     ("packing_with_loads.py", "opt", []),
     ("clique_partition.py", "cover", []),

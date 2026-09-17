@@ -1217,6 +1217,93 @@ def _mirror_spec(n=7):
     )
 
 
+# --- ratio: a fraction inequality for every n, with no solver --------------
+
+
+def _ratio(left, right, relation="<=", floor=2):
+    from certo.polynomials import Poly
+    from certo.spec import RatioSpec
+
+    return RatioSpec(parameters={"n": floor}, left=left, right=right,
+                     relation=relation)
+
+
+def _run_ratio(spec):
+    from certo.engines import algebra
+
+    return algebra.ratio(spec, LIM)
+
+
+def test_a_fraction_inequality_holds_for_every_n_without_a_solver():
+    from certo.polynomials import Poly
+
+    ring = ("n",)
+    n = Poly.var(ring, "n")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+
+    r = _run_ratio(_ratio((n - K(2), n * n), (K(1), n)))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["difference"] == "2*n"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+    # and it is not vacuously true: the same claim reversed is refused
+    back = _run_ratio(_ratio((K(1), n), (n - K(2), n * n)))
+    assert back.verdict is Verdict.INCONCLUSIVE
+
+    # strict needs the constant term of the shifted difference positive
+    tight = _run_ratio(_ratio((n - K(2), n * n), (K(1), n), relation="<"))
+    assert tight.verdict is Verdict.PROVED
+    # `n <= n` is true and `n < n` is not
+    assert _run_ratio(_ratio(n, n)).verdict is Verdict.PROVED
+    assert _run_ratio(_ratio(n, n, relation="<")).verdict is Verdict.INCONCLUSIVE
+
+
+def test_a_denominator_not_shown_positive_is_refused_not_assumed():
+    """A negative denominator flips the inequality: the certificate would be
+    exactly backwards, so this is a refusal rather than an assumption."""
+    from certo.polynomials import Poly
+
+    ring = ("n",)
+    n = Poly.var(ring, "n")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+
+    # n - 5 is negative at n = 2, and the claim would reverse there
+    r = _run_ratio(_ratio((K(1), n - K(5)), (K(1), n)))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "denominator" in r.detail
+
+    # raise the floor past the sign change and the same claim goes through
+    ok = _run_ratio(_ratio((K(1), n), (K(1), n - K(5)), floor=6))
+    assert ok.verdict is Verdict.PROVED
+
+
+def test_the_verifier_rebuilds_the_difference_from_the_two_sides():
+    """A certificate carrying a friendlier difference than its sides produce."""
+    from certo.certificate import Certificate
+    from certo.polynomials import Poly
+
+    ring = ("n",)
+    n = Poly.var(ring, "n")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+
+    r = _run_ratio(_ratio((n - K(2), n * n), (K(1), n)))
+    bent = json.loads(json.dumps(r.certificate.to_dict()))
+    # claim the false bound, keeping the difference that proved the true one
+    bent["payload"]["right"] = [Poly.const(ring, 1).serialize(),
+                                (n * n).serialize()]
+    rep = verify(Certificate.from_dict(bent), LIM)
+    assert not rep.ok
+    assert any("cross-multiplied" in name for name, ok, _ in rep.checks
+               if not ok)
+
+
+def test_ge_is_refused_because_it_is_the_same_claim_twice():
+    r = _run_ratio(_ratio(1, 2, relation=">="))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "sides swapped" in r.detail
+
+
 # --- family: the largest of many LPs, and why nothing beats it -------------
 
 

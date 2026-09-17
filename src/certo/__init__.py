@@ -23,7 +23,7 @@ from .limits import Limits
 from .polynomials import Poly
 from .spec import (BisectSpec, BoundSpec, DomainSpec, IdealSpec,
                    InductSpec, Lemma, LPSpec, NumberSpec, OrderSpec,
-                   CoverSpec, EliminateSpec, FamilySpec, ParametricSpec, PeakSpec,
+                   CoverSpec, EliminateSpec, FamilySpec, ParametricSpec, PeakSpec, RatioSpec,
                    SOSSpec,
                    MultiSpec, Outcome, ProofSpec, Spec, SweepSpec,
                    SynthSpec, load_spec)
@@ -34,7 +34,7 @@ __version__ = "0.7.0"
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",
     "BisectSpec", "BoundSpec", "DomainSpec", "IdealSpec", "InductSpec",
-    "NumberSpec", "OrderSpec", "SOSSpec", "EliminateSpec", "ParametricSpec", "PeakSpec", "FamilySpec", "CoverSpec", "Poly", "MultiSpec",
+    "NumberSpec", "OrderSpec", "SOSSpec", "EliminateSpec", "ParametricSpec", "PeakSpec", "FamilySpec", "RatioSpec", "CoverSpec", "Poly", "MultiSpec",
     "ProofSpec", "Lemma",
     "Outcome", "load_spec",
     "Limits", "Status", "Verdict", "Result",

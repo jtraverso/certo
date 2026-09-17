@@ -593,6 +593,32 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
     )
 
 
+def ratio_bound_certificate(parameters, left, right, relation, difference,
+                            region=None, title="") -> Certificate:
+    """`f/g <= h/k` for every parameter at or above the floor. No solver.
+
+    Clearing the denominators turns it into `h*g - f*k >= 0` on a ray, which
+    is the same shift test the parametric bound uses. The step that can go
+    wrong is the clearing: multiplying through preserves the direction only
+    when both denominators are POSITIVE, so both are checked, and a
+    denominator not shown positive is a refusal -- a negative one would flip
+    the inequality and make this certificate exactly backwards.
+
+    The difference travels so it can be re-expanded; the denominators travel
+    so their positivity can be re-checked. Nothing here is taken on trust from
+    the producer, including the arithmetic that built the difference.
+    """
+    payload = {"parameters": parameters, "left": list(left),
+               "right": list(right), "relation": relation,
+               "difference": difference, "title": title}
+    if region:
+        payload["region"] = region
+    return Certificate(
+        kind="ratio_bound", solver_free=True, payload=payload,
+        note_key="cert.note.ratio_bound",
+    )
+
+
 def family_extremum_certificate(value, argmax, primal, dual, bounds, ids,
                                 count, title="") -> Certificate:
     """`max over this family = V`. Two claims, and they are not symmetric.
@@ -1158,6 +1184,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
         "parametric_bound": _verify_parametric_bound,
@@ -1512,6 +1539,68 @@ def _verify_exact_cover(cert, limits) -> VerifyReport:
                  kind=t("verify.cover.exactly" if p.get("exact", True)
                         else "verify.cover.atleast")),
     )
+
+
+def _verify_ratio_bound(cert, limits) -> VerifyReport:
+    """Re-multiply, re-shift, re-read the signs. Nothing is trusted."""
+    from .parametric import nonneg_on_region, region_terms
+    from .polynomials import Poly
+    from .ratio import positive_on_ray
+
+    p = cert.payload
+    ring = tuple(p["parameters"])
+    lows = p["parameters"]
+    ln, ld = (Poly.parse(ring, x) for x in p["left"])
+    rn, rd = (Poly.parse(ring, x) for x in p["right"])
+    region = [(n, Poly.parse(ring, g))
+              for n, g in sorted(p.get("region", {}).items())]
+    terms = region_terms(region, lows)
+
+    left_ok, _ls = positive_on_ray(ld, lows, terms)
+    right_ok, _rs = positive_on_ray(rd, lows, terms)
+    checks = [(t("verify.ratio.denominators"), left_ok and right_ok,
+               t("verify.ratio.which", left=str(ld) or "0",
+                 right=str(rd) or "0"))]
+
+    # The difference is REBUILT from the two sides, not read from the payload.
+    want = Poly.parse(ring, p["difference"])
+    got = rn * ld - ln * rd
+    checks.append((t("verify.ratio.expanded"), not (got - want),
+                   str(want) or "0"))
+
+    # An unrecognised relation must not fall back to the weaker reading: a
+    # payload saying something this verifier does not understand has to be
+    # refused, or every future spelling silently means `<=`.
+    if p["relation"] not in ("<=", "<"):
+        checks.append((t("verify.ratio.relation"), False, str(p["relation"])))
+        return VerifyReport(False, "ratio_bound", True, checks=checks,
+                            detail=t("ratio.relation", rel=p["relation"]))
+    strict = p["relation"] == "<"
+    if strict:
+        sign_ok, _sh = positive_on_ray(got, lows, terms)
+    else:
+        sign_ok, _sh, _u, _r = nonneg_on_region(got, lows, terms)
+    checks.append((t("verify.ratio.sign_strict" if strict
+                     else "verify.ratio.sign"), bool(sign_ok),
+                   str(got) or "0"))
+
+    floor = ", ".join("{} >= {}".format(k, v) for k, v in lows.items())
+    warnings = [t("verify.ratio.scope", floor=floor)]
+    if region:
+        warnings.append(t("verify.param.region", n=len(region),
+                          conditions="; ".join("{} >= 0".format(g)
+                                               for _n, g in region)))
+    return VerifyReport(
+        all(c[1] for c in checks), "ratio_bound", True, checks=checks,
+        warnings=warnings, method_key="verify.ratio.method",
+        detail=t("verify.ratio.detail", left=_ratio_text(ln, ld),
+                 rel=p["relation"], right=_ratio_text(rn, rd), floor=floor),
+    )
+
+
+def _ratio_text(num, den) -> str:
+    text = str(num) or "0"
+    return text if str(den) == "1" else "({}) / ({})".format(text, str(den))
 
 
 def _verify_family_extremum(cert, limits) -> VerifyReport:

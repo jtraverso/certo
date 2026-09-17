@@ -899,6 +899,44 @@ class ParametricSpec:
 
 
 @dataclass
+class RatioSpec:
+    """A rational-function inequality, claimed for every parameter at once.
+
+        from certo.polynomials import Poly
+
+        RING = ("n",)
+        n = Poly.var(RING, "n")
+        K = lambda c: Poly.const(RING, c)
+
+        RatioSpec(
+            parameters={"n": 2},           # name -> lower bound
+            left=(n - K(2), n * n),        # (numerator, denominator)
+            right=(K(1), n),
+        )                                  # (n-2)/n^2 <= 1/n for all n >= 2
+
+    A side may be a `Poly` or a number, in which case the denominator is one.
+    `relation` is `"<="` or `"<"`; anything else is refused, because `>=` is
+    the same claim with the sides swapped and two spellings of one statement
+    is how a sign error hides.
+
+    Both denominators are CHECKED POSITIVE on the ray. Clearing them preserves
+    the direction only when they are, and a denominator not shown positive is
+    a refusal rather than an assumption -- if one were negative the inequality
+    would flip and the certificate would be exactly backwards.
+
+    `region` takes declared side conditions `g(p) >= 0`, with the same
+    standing they have in `ParametricSpec`: scope, not content.
+    """
+
+    parameters: dict                 # name -> lower bound (a number)
+    left: object                     # Poly, number, or (numerator, denominator)
+    right: object
+    relation: str = "<="             # "<=" or "<"
+    region: list = None              # [(name, g)] meaning `g(p) >= 0`, SCOPE
+    title: str = ""
+
+
+@dataclass
 class FamilySpec:
     """A finite family of linear programs, and the largest of them.
 

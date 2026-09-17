@@ -266,6 +266,20 @@ def test_branch_bound():
     _report("branch_bound", probe(cert))
 
 
+def test_ratio_bound():
+    from certo.engines import algebra
+    from certo.polynomials import Poly
+    from certo.spec import RatioSpec
+
+    ring = ("n",)
+    n = Poly.var(ring, "n")
+    K = lambda c: Poly.const(ring, c)                       # noqa: E731
+    got = algebra.ratio(RatioSpec(parameters={"n": 2},
+                                  left=(n - K(2), n * n),
+                                  right=(K(1), n)), LIM).certificate
+    _report("ratio_bound", probe(got))
+
+
 def test_integer_peak():
     from certo.engines import algebra
     from certo.polynomials import Poly

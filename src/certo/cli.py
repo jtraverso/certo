@@ -250,6 +250,7 @@ BY_QUESTION = (
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
+        ("commands.q.ratio", "ratio"),
         ("commands.q.family", "family"),
         ("commands.q.exists", "exists"),
     )),
@@ -595,6 +596,15 @@ def cmd_cover(args):
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
     return rc
+
+
+def cmd_ratio(args):
+    from .engines import algebra
+    from .spec import RatioSpec, load_spec
+
+    spec = load_spec(args.spec, RatioSpec)
+    res = algebra.ratio(spec, limits_from(args), spec_path=args.spec)
+    return emit(res, args)
 
 
 def cmd_family(args):
@@ -1701,6 +1711,11 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("ratio", "a rational-function inequality, for every parameter "
+                      "at once and with no solver")
+    sp.add_argument("spec", help=".py file returning a RatioSpec")
+    sp.set_defaults(func=cmd_ratio)
 
     sp = add("family", "the largest of a finite family of linear programs, "
                        "with every other one bounded below it")
