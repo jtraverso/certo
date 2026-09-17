@@ -1961,7 +1961,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veintiséis comandos y veintiocho tipos de certificado, y la forma de un
+Veintiséis comandos y treinta tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

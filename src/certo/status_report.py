@@ -1,6 +1,6 @@
 """`certo status`: where a proof stands, not what one command said.
 
-Twenty-three commands, twenty-eight certificate kinds, and until now no way to
+Twenty-six commands, thirty certificate kinds, and until now no way to
 look at a directory of them and see the state of the work. A research project
 is not a sequence of runs; it is a set of claims -- some established, some
 standing on an assumption, some still owed -- and that shape lived only in the
