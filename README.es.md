@@ -129,6 +129,41 @@ qué sigue debiendo el proyecto.
 | **un LLM al que le piden usar esto** | [Qué comando responde a qué pregunta](#qué-comando-responde-a-qué-pregunta), luego [El DSL](#el-dsl) y [Servidor MCP](#servidor-mcp). Corre [`certo lint`](#lint-antes-de-gastar-el-cómputo) sobre cada spec antes de ejecutarlo. |
 | **alguien preguntándose qué NO hace** | [Qué no hace](#qué-no-hace) — tan importante como la lista de comandos |
 
+## ¿No encuentras el comando? Haz la pregunta
+
+```
+$ certo commands
+Qué comando responde a qué pregunta. Lee la pregunta, no el nombre.
+
+  ¿CUÁNTO, CUÁN PEQUEÑO, CUÁNTOS?
+    certo opt                          ¿Cuál es el óptimo, exacto?
+    certo mixed --prove-optimal        ...¿y es óptimo de verdad sobre los enteros?
+    certo bisect                       ¿Dónde está el umbral de esta constante?
+    certo bounds                       ¿Es cierta esta desigualdad numérica?
+    certo order                        ¿DECAE este término en n, o es Theta(1)?
+    certo parametric                   Lo comprobé para p = 5..12. ¿Vale para TODO p?
+```
+
+También `certo what`. Es la tabla de enrutado de más abajo, en la terminal, en
+tu idioma —porque el README no es donde estás cuando te atascas—.
+
+**Esto existe por un fallo que merece quedar registrado.** `certo order` salió
+en 0.5.0, documentado con sección propia, ejemplo y dos filas de tabla. Un
+usuario se pasó una sesión escribiéndolo a mano en Python tres veces, y luego
+lo pidió como *la única función que querría para 0.7*. Había buscado
+«asintótico» y «decae»; el comando se llama `order`.
+
+Así que `certo asymptotics` y `certo decays` ahora lo ejecutan, la línea de
+ayuda empieza por *«¿decae este término en n?»* en vez de por el exponente, y
+`lint` nombra el comando cuando una afirmación divide por un producto de
+símbolos —la forma de una pregunta de magnitudes, que `prove` no puede
+responder—.
+
+Ese disparador es deliberadamente estrecho: **dos o más** símbolos distintos
+con exponente negativo. Uno solo es demasiado común para significar nada.
+Sobre los 39 ejemplos que se envían salta cero veces.
+
+
 ## Qué comando responde a qué pregunta
 
 Formulado como la pregunta, porque así es como llega cualquiera.

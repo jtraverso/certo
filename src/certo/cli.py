@@ -225,6 +225,72 @@ def limits_from(args) -> Limits:
 # ---------------------------------------------------------------------------
 
 
+#: The question people arrive with, and the command that answers it. Keyed on
+#: the QUESTION because that is what somebody has when they are stuck: a
+#: person who needs `order` is thinking "does this decay", not "order".
+BY_QUESTION = (
+    ("commands.group.true", (
+        ("commands.q.prove", "prove"),
+        ("commands.q.core", "core"),
+        ("commands.q.farkas", "farkas"),
+        ("commands.q.induct", "induct"),
+    )),
+    ("commands.group.sane", (
+        ("commands.q.regime", "check --hypotheses-only"),
+        ("commands.q.lint", "lint"),
+        ("commands.q.status", "status"),
+        ("commands.q.doctor", "doctor"),
+    )),
+    ("commands.group.size", (
+        ("commands.q.opt", "opt"),
+        ("commands.q.optimal", "mixed --prove-optimal"),
+        ("commands.q.bisect", "bisect"),
+        ("commands.q.bounds", "bounds"),
+        ("commands.q.order", "order"),
+        ("commands.q.parametric", "parametric"),
+    )),
+    ("commands.group.every", (
+        ("commands.q.sweep", "sweep"),
+        ("commands.q.cases", "cases"),
+        ("commands.q.shrink", "shrink"),
+        ("commands.q.witnesses", "sweep --witnesses"),
+    )),
+    ("commands.group.algebra", (
+        ("commands.q.ideal", "ideal"),
+        ("commands.q.eliminate", "eliminate"),
+        ("commands.q.sos", "sos"),
+        ("commands.q.number", "number"),
+        ("commands.q.cover", "cover"),
+    )),
+    ("commands.group.keep", (
+        ("commands.q.synth", "synth"),
+        ("commands.q.compose", "compose"),
+        ("commands.q.verify", "verify"),
+        ("commands.q.export", "export --lean"),
+        ("commands.q.ledger", "ledger"),
+    )),
+)
+
+
+def cmd_commands(args):
+    """Which command answers which question, in the terminal."""
+    if args.json:
+        print(json.dumps(
+            [{"group": t(g), "rows": [{"question": t(q), "command": c}
+                                      for q, c in rows]}
+             for g, rows in BY_QUESTION], indent=2, ensure_ascii=False))
+        return 0
+    print(t("commands.header"))
+    for group, rows in BY_QUESTION:
+        print()
+        print("  " + t(group))
+        for question, command in rows:
+            print("    {:<34} {}".format("certo " + command, t(question)))
+    print()
+    print("  " + t("commands.footer"))
+    return 0
+
+
 def cmd_prove(args):
     from .engines import smt
     from .spec import Spec, load_spec
@@ -1347,8 +1413,15 @@ def build_parser():
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def add(name, helptext):
-        return sub.add_parser(name, help=helptext, parents=[common])
+    def add(name, helptext, aliases=()):
+        """A subcommand, and the other words somebody might type for it.
+
+        `order` shipped, was documented, and was not found by the person who
+        wanted it, because they were looking for "asymptotic" and "decays".
+        An alias costs one tuple entry and removes that whole failure.
+        """
+        return sub.add_parser(name, help=helptext, parents=[common],
+                              aliases=list(aliases))
 
     for name, fn, helptext in (
         ("prove", cmd_prove, "negate the claim and look for unsat -> unsat core"),
@@ -1431,6 +1504,10 @@ def build_parser():
                          "(this is exactly what nlinarith does)")
     sp.set_defaults(func=cmd_farkas)
 
+    sp = add("commands", "which command answers which question",
+             aliases=("what",))
+    sp.set_defaults(func=cmd_commands)
+
     sp = add("lint", "check a spec before spending the compute: no goal, an "
                      "empty family, an inductive step that starts too late")
     sp.add_argument("spec", help="the .py file to check")
@@ -1487,8 +1564,10 @@ def build_parser():
     sp.add_argument("--question", choices=("prime", "factor"), default="prime")
     sp.set_defaults(func=cmd_number)
 
-    sp = add("order", "the exponent of n in a term, once magnitudes are "
-                      "substituted: does it decay, or is it Theta(1)?")
+    sp = add("order", "does this term DECAY in n, or is it Theta(1)? "
+                      "Substitutes magnitudes and reports the exponent -- the "
+                      "asymptotic question a solver cannot ask",
+             aliases=("asymptotics", "decays"))
     sp.add_argument("spec", help=".py file returning an OrderSpec")
     sp.add_argument("--expect", choices=("decays", "constant", "grows"),
                     help="what you claim; without it this measures rather "

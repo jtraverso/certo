@@ -129,6 +129,48 @@ the project still owes.
 | **an LLM being asked to use this** | [Which command answers which question](#which-command-answers-which-question), then [The DSL](#the-dsl) and [MCP server](#mcp-server). Run [`certo lint`](#lint-before-the-compute-is-spent) on every spec before running it. |
 | **wondering what it will NOT do** | [What it does not do](#what-it-does-not-do) — as important as the command list |
 
+## Can't find the command? Ask the question
+
+```
+$ certo commands
+Which command answers which question. Read the question, not the name.
+
+  HOW BIG, HOW SMALL, HOW MANY?
+    certo opt                          What is the optimum, exactly?
+    certo mixed --prove-optimal        ...and is it really optimal over the integers?
+    certo bisect                       Where is the threshold for this constant?
+    certo bounds                       Is this numeric inequality true? (e, log, pi, zeta)
+    certo order                        Does this term DECAY in n, or is it Theta(1)?
+    certo parametric                   I checked it for p = 5..12. Does it hold for EVERY p?
+```
+
+Also `certo what`. It is the routing table below, in the terminal, in your
+language — because the README is not where you are when you are stuck.
+
+**This exists because of a failure worth recording.** `certo order` shipped in
+0.5.0, documented with its own section, example and two table rows. A user
+spent a session writing it by hand in Python three times, then asked for it as
+*the one function I would want in 0.7*. They had searched for "asymptotic" and
+"decays"; the command is called `order`.
+
+So `certo asymptotics` and `certo decays` now run it, the help line leads with
+*"does this term DECAY in n"* rather than with the exponent, and `lint` names
+the command when a claim divides by a product of symbols — the shape of a
+magnitude question, which `prove` cannot answer:
+
+```
+$ certo lint regime.py
+  [--] this claim divides by a product of symbols (d, p, u). If the question is
+       whether it DECAYS in a growth parameter, `prove` cannot answer it -- a
+       term that is Theta(1) is satisfiable forever and never improves.
+       `certo order` reports the exponent, with a certificate.
+```
+
+That trigger is deliberately narrow: **two or more** distinct symbols at
+negative exponent. One is far too common to mean anything. Across the 39
+shipped examples it fires zero times.
+
+
 ## Which command answers which question
 
 Phrased as the question, because that is how anybody arrives.

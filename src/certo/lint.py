@@ -156,6 +156,27 @@ def _contradictory(assumptions, limits):
     return _mus(s, ind, [n for n in names if n in raw] or names, lim)
 
 
+def _magnitude_shaped(expr):
+    """Does this divide by a PRODUCT of symbols? Then it is a magnitude question.
+
+    The expression that cost a user three hand-written sessions was
+    `5kWC^2 / (u^3 d^2 p^10)`: a quotient whose denominator is several symbols
+    at once. `prove` says SAT on it forever and correctly, because it is not an
+    infeasibility -- it is a feasibility that does not improve with `n`.
+
+    Two or more distinct symbols at negative exponent is the trigger. One is
+    too common to mean anything; two is the shape.
+    """
+    from .asymptotics import NotAsymptotic, parse
+
+    try:
+        poly = parse(expr)
+    except (NotAsymptotic, Exception):
+        return None
+    negative = {sym for mono in poly.terms for sym, power in mono if power < 0}
+    return sorted(negative) if len(negative) >= 2 else None
+
+
 def _check_spec(spec, limits):
     if spec.goal is None:
         yield _f(ERROR, "spec.no_goal")
@@ -168,11 +189,30 @@ def _check_spec(spec, limits):
             yield _f(WARN, "spec.claim_false")
         elif z3.is_true(spec.goal):
             yield _f(WARN, "spec.claim_true")
+        else:
+            # `order` shipped in 0.5.0 and the person who needed it did not
+            # find it. Naming it where the shape appears is the one place a
+            # user is guaranteed to be looking.
+            for side in _sides(spec.goal):
+                names = _magnitude_shaped(side)
+                if names:
+                    yield _f(NOTE, "spec.magnitude",
+                             names=", ".join(names[:4]))
+                    break
     if not spec.assumptions:
         yield _f(NOTE, "spec.no_hypotheses")
     clash = _contradictory(spec.assumptions, limits)
     if clash:
         yield _f(ERROR, "spec.vacuous", names=", ".join(clash))
+
+
+def _sides(goal):
+    """The two sides of a comparison, or nothing."""
+    import z3
+
+    if z3.is_app(goal) and goal.num_args() == 2:
+        return [goal.arg(0), goal.arg(1)]
+    return []
 
 
 def _check_multi(spec, limits):

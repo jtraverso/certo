@@ -4179,6 +4179,69 @@ def test_self_check_refuses_to_report_a_certificate_verify_rejects():
     assert r.meta["self_check"] == "FAILED"
 
 
+
+# --- discovery: a command that shipped and nobody found -------------------
+
+
+def test_order_answers_to_the_words_people_actually_type():
+    """`order` shipped in 0.5.0 and its user searched for "asymptotic"."""
+    from certo.cli import build_parser
+
+    choices = None
+    for action in build_parser()._actions:
+        if getattr(action, "dest", "") == "cmd" and action.choices:
+            choices = action.choices
+    assert "order" in choices
+    for word in ("asymptotics", "decays"):
+        assert word in choices, word
+        # An alias is the same parser, not a copy that can drift.
+        assert choices[word] is choices["order"]
+
+
+def test_the_help_line_leads_with_the_question_not_the_machinery():
+    from certo.cli import build_parser
+
+    for action in build_parser()._actions:
+        if getattr(action, "dest", "") == "cmd" and action.choices:
+            helptext = action._choices_actions
+    line = next(a.help for a in helptext if a.dest == "order")
+    assert "DECAY" in line and "asymptotic" in line
+
+
+def test_the_question_table_is_available_in_the_terminal():
+    """It lived only in the README, which is not where somebody is stuck."""
+    from certo.cli import BY_QUESTION
+    from certo.i18n import t
+
+    commands = {c for _, rows in BY_QUESTION for _, c in rows}
+    assert "order" in commands
+    # Every label resolves in both languages, or the table prints raw keys.
+    for group, rows in BY_QUESTION:
+        assert not t(group).startswith("commands."), group
+        for question, _ in rows:
+            assert not t(question).startswith("commands."), question
+
+
+def test_lint_names_order_when_the_claim_divides_by_a_product():
+    """The precise trigger, on the expression that cost a user three sessions."""
+    import z3
+
+    from certo.lint import _magnitude_shaped
+
+    k, W, C, u, d, p = z3.Reals("k W C u d p")
+    hit = _magnitude_shaped(5 * k * W * C * C / (u ** 3 * d ** 2 * p ** 10))
+    assert hit == ["d", "p", "u"]
+
+    # And it stays quiet where it would be noise. One symbol downstairs is
+    # far too common to mean anything.
+    x, y, z = z3.Reals("x y z")
+    assert _magnitude_shaped(x + y) is None
+    assert _magnitude_shaped(x / y) is None
+    assert _magnitude_shaped(x * y * z) is None
+    assert _magnitude_shaped((x + y) / z) is None
+    assert _magnitude_shaped(x / (y * z)) == ["y", "z"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

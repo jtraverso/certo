@@ -6,6 +6,34 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### `certo commands`, and aliases for the words people actually type
+
+`certo order` shipped in 0.5.0 with its own README section, its own example,
+and two table rows. A user spent a session writing it by hand in Python three
+times, then asked for it as *the one function I would want in 0.7*. They had
+searched for "asymptotic" and "decays"; the command is called `order`.
+
+That is a discovery failure, and a worse problem than a missing feature: the
+work was done and did not reach anyone. Four things, none of them another
+table:
+
+* **`certo asymptotics` and `certo decays`** run `order`. An alias costs one
+  tuple entry and removes the whole failure mode.
+* **The help line leads with the question**: "does this term DECAY in n, or is
+  it Theta(1)?" rather than "the exponent of n in a term".
+* **`certo commands`** (also `certo what`) prints the question-to-command
+  table in the terminal, in your language. It existed only in the README, and
+  the README is not where somebody is when they are stuck.
+* **`lint` names the command** when a claim divides by a PRODUCT of symbols —
+  the shape of a magnitude question, which `prove` cannot answer because a
+  Theta(1) term is satisfiable forever and never improves.
+
+The lint trigger is deliberately narrow: two or more distinct symbols at
+negative exponent, because one is far too common to mean anything. It fires on
+the exact expression that cost that user the session, and zero times across
+the 39 shipped examples.
+
+
 ## [0.6.1] — 2026-09-17
 
 **Schema unchanged: `SCHEMA_VERSION` stays 4.** Two optional payload fields on
