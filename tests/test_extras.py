@@ -3600,6 +3600,124 @@ def test_a_coupled_denominator_ladder_was_never_the_problem():
         assert shared is not None, (xf, yf)
 
 
+
+# --- eliminating a variable, with the identity that proves it -------------
+
+
+def _elim(equations, eliminate, variables):
+    from certo import EliminateSpec
+    from certo.engines import algebra
+
+    return algebra.eliminate(
+        EliminateSpec(variables=list(variables), equations=equations,
+                      eliminate=eliminate, title="t"), LIM)
+
+
+def test_the_resultant_is_the_discriminant_when_it_should_be():
+    """Res(f, f') = -(b^2 - 4c) for f = t^2 + bt + c. Checkable by hand."""
+    import z3
+
+    b, c, t = z3.Reals("b c t")
+    r = _elim([t * t + b * t + c, 2 * t + b], "t", ["b", "c", "t"])
+    assert r.verdict is Verdict.SATISFIABLE
+    assert r.meta["resultant"] == "-b^2 + 4*c"
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_elimination_turns_a_system_into_a_condition_on_what_is_left():
+    """t^2 = s in t^3 + st + 1 gives 2st + 1, so a common root needs 4s^3 = 1."""
+    import z3
+
+    s, t = z3.Reals("s t")
+    r = _elim([t ** 3 + s * t + 1, t * t - s], "t", ["s", "t"])
+    assert r.meta["resultant"] == "-4*s^3 + 1"
+    assert "4*s^3" in r.detail
+
+
+def test_a_constant_resultant_refutes_a_common_root_over_any_field():
+    import z3
+
+    t = z3.Real("t")
+    r = _elim([t * t, t * t - 1], "t", ["t"])
+    assert r.verdict is Verdict.REFUTED and r.status is Status.UNSAT
+    assert r.meta["case"] == "no_common_root"
+    assert r.meta["resultant"] == "1"
+
+
+def test_a_vanishing_resultant_means_a_shared_factor():
+    import z3
+
+    s, t = z3.Reals("s t")
+    f = (t - s) * (t + 1)
+    r = _elim([f, f], "t", ["s", "t"])
+    assert r.meta["case"] == "common_factor"
+    assert r.meta["resultant"] == "0"
+
+
+def test_the_certificate_verifies_by_expanding_and_needs_no_solver():
+    import z3
+
+    s, t = z3.Reals("s t")
+    r = _elim([t ** 3 + s * t + 1, t * t - s], "t", ["s", "t"])
+    cert = r.certificate
+    assert cert.solver_free
+
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok and rep.solver_free
+    names = [n for n, _, _ in rep.checks]
+    assert any("A*f + B*g" in n for n in names)
+    # The eliminated variable is gone from the answer, which is the point.
+    assert "t" not in cert.payload["resultant"]
+
+
+def test_forged_cofactors_are_caught_by_the_arithmetic():
+    """The identity is the whole claim, so breaking it must fail."""
+    import z3
+
+    s, t = z3.Reals("s t")
+    d = json.loads(json.dumps(
+        _elim([t ** 3 + s * t + 1, t * t - s], "t", ["s", "t"])
+        .certificate.to_dict()))
+    key = next(iter(d["payload"]["A"]))
+    d["payload"]["A"][key] = str(Fraction(d["payload"]["A"][key]) + 1)
+    assert not verify(Certificate.from_dict(d), LIM).ok
+
+
+def test_sufficiency_is_qualified_when_both_leading_coefficients_can_vanish():
+    """Res = 0 stops being enough where the leading coefficients die."""
+    import z3
+
+    s, t = z3.Reals("s t")
+    # Leading coefficient in t is `s` for both: at s = 0 the degrees drop.
+    r = _elim([s * t * t + 1, s * t * t + t], "t", ["s", "t"])
+    cert = r.certificate
+    assert cert.payload["lead_f_constant"] is False
+    assert cert.payload["lead_g_constant"] is False
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok
+    assert any("sufficiency is lost" in w for w in rep.warnings)
+
+
+def test_three_equations_are_refused_rather_than_iterated():
+    """Pairwise resultants introduce factors nothing here could certify away."""
+    import z3
+
+    s, t = z3.Reals("s t")
+    r = _elim([t * t - s, t - s, t + s], "t", ["s", "t"])
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+    assert "ideal" in r.detail
+
+
+def test_a_variable_that_is_not_there_says_which_ones_are():
+    import z3
+
+    s, t = z3.Reals("s t")
+    r = _elim([t * t - s, t - s], "u", ["s", "t"])
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "s, t" in r.detail
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

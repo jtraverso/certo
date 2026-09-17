@@ -738,6 +738,36 @@ class IdealSpec:
 
 
 @dataclass
+class EliminateSpec:
+    """Two polynomials and the variable to get rid of.
+
+        EliminateSpec(
+            variables=["s", "t"],
+            equations=[t ** 3 + s * t + 1, t ** 2 - s],
+            eliminate="t",
+        )
+
+    The answer is the RESULTANT: a polynomial in the remaining variables that
+    vanishes exactly when the two share a root in `t`. So "these two equations
+    have a common solution" becomes a condition on `s` alone, which is the
+    step people do by hand while setting a problem up.
+
+    EXACTLY TWO equations, because that is what a resultant is. Iterating it
+    pairwise over more introduces extraneous factors that nothing here could
+    certify away; for a larger system `ideal` is the right command, and it
+    says what follows rather than what eliminates.
+
+    Both must have degree at least 1 in `eliminate` -- there is nothing to
+    eliminate otherwise, and the Sylvester matrix is not defined.
+    """
+
+    variables: list
+    equations: list                  # exactly two: z3 terms or Poly
+    eliminate: str                   # the variable to remove
+    title: str = ""
+
+
+@dataclass
 class SOSSpec:
     """A polynomial claimed non-negative everywhere, certified as a sum of
     squares.

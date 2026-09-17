@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Twenty-five commands. Runs in milliseconds where a formalisation
+CLI and MCP. Twenty-six commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -177,6 +177,7 @@ Phrased as the question, because that is how anybody arrives.
 | Your question | Command | What comes back |
 |---|---|---|
 | Do these polynomial equations have a solution? | `ideal` | Gröbner cofactors, checked by expanding |
+| Get rid of `t` and tell me the condition on `s` | `eliminate` | the **resultant**, with `Res = A·f + B·g` attached |
 | Is this polynomial non-negative everywhere? | `sos` | exact rational squares, solver-free |
 | Is this integer prime? | `number` | a Pratt tree, checked by modular exponentiation |
 
@@ -191,7 +192,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The twenty-five commands](#the-twenty-five-commands).
+[The twenty-six commands](#the-twenty-six-commands).
 
 ## What it is and what it is not
 
@@ -319,7 +320,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-five commands
+## The twenty-six commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -335,6 +336,7 @@ and what to expect.
 | `order` | The exponent of `n` once magnitudes are substituted: decays, or Θ(1)? | exact Laurent | **the exponent**, solver-free |
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
+| `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
 | `cases` | SAT with a verified DRAT proof | own CDCL or external binary | DRAT proof |
@@ -387,6 +389,7 @@ def spec():
 | `ProofSpec` | `compose` |
 | `InductSpec` | `induct` |
 | `IdealSpec` | `ideal` |
+| `EliminateSpec` | `eliminate` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -420,6 +423,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
 | `mixed_design` | a construction exists and attains a value; NOT that it is optimal | **yes**, exact arithmetic |
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
+| `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
 | `mus` | unsatisfiability **and** minimality | **yes** |
@@ -1078,6 +1082,67 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+## `eliminate`: remove a variable, keep the condition
+
+`ideal` says what follows from a system. This answers the other question
+people ask while setting one up: **get rid of `t` and tell me what has to be
+true of `s`.**
+
+```
+$ certo eliminate examples/eliminate_parameter.py
+SATISFIABLE  [sat]
+  eliminated t. A common root exists only where this vanishes: -4*s^3 + 1
+  degrees: 3 and 2 in t
+  certificate: resultant (no solver needed)
+```
+
+The answer is the **resultant**: a polynomial in the remaining variables that
+vanishes exactly when the two share a root in `t`. That example is chosen so
+you can check it by hand — substitute `t² = s` into `t³ + st + 1` to get
+`2st + 1`, so `t = -1/(2s)`, and back into `t² = s` gives `4s³ = 1`.
+
+What travels is not the number but the **Bézout identity**:
+
+```
+$ certo verify out/elim.json
+VALID  resultant certificate (checked by expanding two products, no solver)
+  [ok] Res = A*f + B*g, by expanding  (resultant: -4*s^3 + 1)
+  [ok] the Bezout cofactors have the degrees the construction gives them
+```
+
+Computing a resultant is a determinant over a polynomial ring; checking one is
+expanding two products and subtracting. That gap is the whole reason this is a
+certificate rather than "the algebra system agreed". The determinant itself is
+Bareiss — fraction-free, where every division is a polynomial division whose
+remainder is **asserted to be zero** rather than assumed.
+
+### A non-zero constant is a refutation
+
+```
+$ certo eliminate no_common_root.py
+REFUTED  [unsat]
+  NO common root in t, for any values of the other variables, over any field:
+  the resultant is the non-zero constant 1
+```
+
+That is conclusive in the strong direction and costs one determinant.
+
+### What it does not say
+
+`Res = 0` is **necessary** for a common root, over any field. It is
+**sufficient** over an algebraically closed field, and only where the leading
+coefficients in the eliminated variable do not both vanish. Over the reals a
+vanishing resultant may mean a common *complex* root and nothing more.
+
+`verify` repeats that every time, and when both leading coefficients can
+vanish it says so specifically — that locus is exactly where sufficiency is
+lost.
+
+**Exactly two polynomials**, because that is what a resultant is. Iterating it
+pairwise over a larger system introduces extraneous factors that nothing here
+could certify away; use `ideal` for that.
+
 
 ## `order`: does this term decay, or is it Theta(1)?
 
@@ -1850,7 +1915,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Twenty-five commands and twenty-eight certificate kinds, and the shape of a
+Twenty-six commands and twenty-eight certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```

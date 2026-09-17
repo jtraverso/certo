@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Veinticinco comandos. Corre en milisegundos donde una
+CLI y MCP. Veintiséis comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -177,6 +177,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | Tu pregunta | Comando | Qué vuelve |
 |---|---|---|
 | ¿Tienen solución estas ecuaciones polinómicas? | `ideal` | cofactores de Gröbner, comprobables expandiendo |
+| Quítame `t` y dime la condición sobre `s` | `eliminate` | la **resultante**, con `Res = A·f + B·g` adjunta |
 | ¿Es este polinomio no negativo en todas partes? | `sos` | cuadrados racionales exactos, sin solver |
 | ¿Es primo este entero? | `number` | un árbol de Pratt, comprobable por exponenciación modular |
 
@@ -191,7 +192,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
-[Los veinticinco comandos](#los-veinticinco-comandos).
+[Los veintiséis comandos](#los-veintiséis-comandos).
 
 ## Qué es y qué no es
 
@@ -313,7 +314,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veinticinco comandos
+## Los veintiséis comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -329,6 +330,7 @@ esperar.
 | `order` | El exponente de `n` tras sustituir magnitudes: ¿decae, o Θ(1)? | Laurent exacto | **el exponente**, sin solver |
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
+| `eliminate` | Quitar una variable de dos polinomios; quedarse con la condición | Sylvester + Bareiss | **Res = A·f + B·g**, sin solver |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
 | `number` | Primalidad, o una factorización | Pratt | **árbol de exponenciación modular** |
 | `cases` | SAT con prueba DRAT verificada | CDCL propio o binario externo | prueba DRAT |
@@ -381,6 +383,7 @@ def spec():
 | `ProofSpec` | `compose` |
 | `InductSpec` | `induct` |
 | `IdealSpec` | `ideal` |
+| `EliminateSpec` | `eliminate` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -414,6 +417,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `induction` | los casos base, el paso **y** que encadenan sin hueco | no, re-resuelve |
 | `mixed_design` | una construcción existe y alcanza un valor; NO que sea óptima | **sí**, aritmética exacta |
 | `ideal` | `f = Σ hᵢgᵢ` | **sí**, expandir un producto |
+| `resultant` | `Res = A·f + B·g` | **sí**, expandir dos productos |
 | `sos` | `p = Σ dᵢqᵢ²` en racionales exactos | **sí**, expandir un producto |
 | `number` | primalidad, o una factorización | **sí**, exponenciación modular |
 | `mus` | insatisfacibilidad **y** minimalidad | **sí** |
@@ -1076,6 +1080,68 @@ Tres detalles que separan un certificado de un test:
 
 `--question factor` da la factorización, con cada factor llevando su propio
 certificado de primalidad, para que «y estos son primos» no quede colgando.
+
+## `eliminate`: quita una variable, quédate con la condición
+
+`ideal` dice qué se sigue de un sistema. Esto responde la otra pregunta que se
+hace uno montándolo: **quítame `t` y dime qué tiene que cumplir `s`.**
+
+```
+$ certo eliminate examples/eliminate_parameter.py
+SATISFACIBLE  [sat]
+  eliminada t. Solo hay raíz común donde esto se anula: -4*s^3 + 1
+  degrees: 3 and 2 in t
+  certificado: resultant (no necesita solver)
+```
+
+La respuesta es la **resultante**: un polinomio en las variables restantes que
+se anula exactamente cuando las dos comparten raíz en `t`. Ese ejemplo está
+elegido para que lo compruebes a mano —sustituye `t² = s` en `t³ + st + 1` y
+queda `2st + 1`, luego `t = -1/(2s)`, y de vuelta en `t² = s` sale `4s³ = 1`—.
+
+Lo que viaja no es el número sino la **identidad de Bézout**:
+
+```
+$ certo verify out/elim.json
+VÁLIDO  certificado resultant (comprobado expandiendo dos productos, sin solver)
+  [ok] Res = A*f + B*g, expandiendo  (resultante: -4*s^3 + 1)
+  [ok] los cofactores de Bézout tienen los grados que les da la construcción
+```
+
+Calcular una resultante es un determinante sobre un anillo de polinomios;
+comprobarla es expandir dos productos y restar. Esa brecha es toda la razón de
+que sea un certificado y no «el sistema de álgebra estuvo de acuerdo». El
+determinante es Bareiss —libre de fracciones, donde cada división es una
+división de polinomios cuyo resto se **comprueba que es cero** en vez de
+suponerlo—.
+
+### Una constante no nula es una refutación
+
+```
+$ certo eliminate sin_raiz_comun.py
+REFUTADO  [unsat]
+  NO hay raíz común en t, para ningún valor de las demás variables, sobre
+  ningún cuerpo: la resultante es la constante no nula 1
+```
+
+Eso es concluyente en la dirección fuerte y cuesta un determinante.
+
+### Qué no dice
+
+`Res = 0` es **necesario** para una raíz común, sobre cualquier cuerpo. Es
+**suficiente** sobre un cuerpo algebraicamente cerrado, y solo donde los
+coeficientes líderes en la variable eliminada no se anulen los dos. Sobre los
+reales una resultante nula puede significar una raíz común *compleja* y nada
+más.
+
+`verify` lo repite siempre, y cuando los dos coeficientes líderes pueden
+anularse lo dice explícitamente: ese lugar es exactamente donde se pierde la
+suficiencia.
+
+**Exactamente dos polinomios**, porque eso es una resultante. Iterarla por
+pares sobre un sistema mayor introduce factores extraños que nada aquí podría
+certificar; para eso está `ideal`.
+
 
 ## `order`: ¿decae este término, o es Theta(1)?
 
@@ -1895,7 +1961,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veinticinco comandos y veintiocho tipos de certificado, y la forma de un
+Veintiséis comandos y veintiocho tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

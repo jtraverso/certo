@@ -565,6 +565,35 @@ def ideal_certificate(variables, equations, claim, cofactors, inconsistent,
     )
 
 
+def resultant_certificate(variables, eliminated, f, g, resultant, A, B,
+                          deg_f, deg_g, lead_f, lead_g, lead_f_constant,
+                          lead_g_constant, title="") -> Certificate:
+    """`Res(f, g) = A*f + B*g`, with the cofactors attached.
+
+    Computing a resultant is a determinant over a polynomial ring; checking
+    one is expanding two products and subtracting. That gap is the reason this
+    travels as a certificate: a determinant nobody can check is a number
+    somebody has to take on faith.
+
+    `lead_f_constant` and `lead_g_constant` are not decoration. `Res = 0` is
+    necessary for a common root always, and SUFFICIENT only over an
+    algebraically closed field and only when the leading coefficients in the
+    eliminated variable do not both vanish. When they can, the certificate
+    still verifies and `verify` says what it no longer licenses.
+    """
+    return Certificate(
+        kind="resultant", solver_free=True,
+        payload={"variables": list(variables), "eliminated": eliminated,
+                 "f": f, "g": g, "resultant": resultant, "A": A, "B": B,
+                 "deg_f": deg_f, "deg_g": deg_g,
+                 "lead_f": lead_f, "lead_g": lead_g,
+                 "lead_f_constant": bool(lead_f_constant),
+                 "lead_g_constant": bool(lead_g_constant),
+                 "title": title},
+        note_key="cert.note.resultant",
+    )
+
+
 def sos_certificate(variables, poly, terms, basis_size, denom,
                     title="") -> Certificate:
     """`p = sum d_i q_i^2` in exact rationals.
@@ -931,6 +960,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "induction": _verify_induction,
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
+        "resultant": _verify_resultant,
         "sos": _verify_sos,
         "number": _verify_number,
         "mixed_design": _verify_mixed_design,
@@ -1231,6 +1261,49 @@ def _verify_orbit_witnesses(cert, limits) -> VerifyReport:
                  orbits=p["orbits"]),
     )
 
+
+
+def _verify_resultant(cert, limits) -> VerifyReport:
+    """Expand `A*f + B*g` and compare with the resultant. That is the whole check."""
+    from .polynomials import Poly
+
+    p = cert.payload
+    variables = tuple(p["variables"])
+    f = Poly.parse(variables, p["f"])
+    g = Poly.parse(variables, p["g"])
+    A = Poly.parse(variables, p["A"])
+    B = Poly.parse(variables, p["B"])
+    res = Poly.parse(variables, p["resultant"])
+
+    ok = not (A * f + B * g - res)
+    checks = [(t("verify.resultant.identity"), ok,
+               t("verify.resultant.res", res=str(res) or "0"))]
+
+    # The Bezout normalisation. Not needed for soundness -- the identity above
+    # is the whole claim -- but a construction that broke it produced these
+    # cofactors by some other route, and that is worth knowing.
+    k = variables.index(p["eliminated"]) if p["eliminated"] in variables else None
+    if k is not None:
+        da = max((e[k] for e in A.terms), default=-1)
+        db = max((e[k] for e in B.terms), default=-1)
+        shaped = da < p["deg_g"] and db < p["deg_f"]
+        checks.append((t("verify.resultant.degrees"), shaped,
+                       t("verify.resultant.deg_detail", da=da, db=db,
+                         m=p["deg_g"], n=p["deg_f"])))
+        ok = ok and shaped
+
+    warnings = []
+    if not p.get("lead_f_constant") and not p.get("lead_g_constant"):
+        # Both leading coefficients can vanish, and there sufficiency goes.
+        warnings.append(t("verify.resultant.leading"))
+    warnings.append(t("verify.resultant.closed_field"))
+
+    return VerifyReport(
+        ok, "resultant", True, checks=checks, warnings=warnings,
+        method_key="verify.resultant.method",
+        detail=t("verify.resultant.detail", var=p["eliminated"],
+                 n=p["deg_f"], m=p["deg_g"]),
+    )
 
 
 def _verify_ideal(cert, limits) -> VerifyReport:

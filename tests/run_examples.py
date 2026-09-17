@@ -35,6 +35,7 @@ CASES = [
     ("bounds_constant.py", "bounds", []),
     ("order_decay.py", "order", []),
     ("ideal_inconsistent.py", "ideal", []),
+    ("eliminate_parameter.py", "eliminate", []),
     ("sos_quartic.py", "sos", []),
     ("number_mersenne.py", "number", []),
     ("induct_sum.py", "induct", []),

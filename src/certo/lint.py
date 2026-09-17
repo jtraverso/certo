@@ -117,6 +117,7 @@ COMMANDS = {
     "BoundSpec": "bounds", "ProofSpec": "compose", "InductSpec": "induct",
     "IdealSpec": "ideal", "SOSSpec": "sos", "NumberSpec": "number",
     "OrderSpec": "order", "CNFSpec": "sat", "CNF": "sat",
+    "EliminateSpec": "eliminate",
 }
 
 
@@ -431,6 +432,38 @@ def _check_sos(spec, limits):
         yield _f(ERROR, "sos.no_variables")
 
 
+def _check_eliminate(spec, limits):
+    from .polynomials import Poly
+
+    if len(spec.equations) != 2:
+        yield _f(ERROR, "eliminate.two_only", n=len(spec.equations))
+        return
+    if spec.eliminate not in spec.variables:
+        yield _f(ERROR, "eliminate.unknown_var", name=spec.eliminate,
+                 names=", ".join(spec.variables))
+        return
+    variables = tuple(spec.variables)
+    k = variables.index(spec.eliminate)
+    degrees = []
+    for e in spec.equations:
+        try:
+            poly = e if isinstance(e, Poly) else Poly.from_z3(e, variables)
+        except Exception as exc:
+            yield _f(ERROR, "ideal.not_polynomial", error=str(exc))
+            return
+        degrees.append(max((m[k] for m in poly.terms), default=0))
+    if min(degrees) < 1:
+        # The Sylvester matrix is not defined, and the engine refuses -- but
+        # comparing two integers here beats finding out after a load.
+        yield _f(ERROR, "eliminate.degree_zero", var=spec.eliminate,
+                 n=degrees[0], m=degrees[1])
+        return
+    yield _f(NOTE, "eliminate.sizes", var=spec.eliminate,
+             n=degrees[0], m=degrees[1], size=degrees[0] + degrees[1])
+    if degrees[0] + degrees[1] > 14:
+        yield _f(WARN, "eliminate.big", size=degrees[0] + degrees[1])
+
+
 def _check_ideal(spec, limits):
     if not spec.equations:
         yield _f(ERROR, "ideal.no_equations")
@@ -491,5 +524,5 @@ CHECKS = {
     "OrderSpec": _check_order, "SOSSpec": _check_sos, "IdealSpec": _check_ideal,
     "NumberSpec": _check_number, "SynthSpec": _check_synth,
     "BisectSpec": _check_bisect, "CNFSpec": _check_cnf, "CNF": _check_cnf,
-    "PackingSpec": _check_packing,
+    "PackingSpec": _check_packing, "EliminateSpec": _check_eliminate,
 }

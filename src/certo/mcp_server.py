@@ -697,6 +697,34 @@ async def ideal(spec_path: str | None = None, spec_source: str | None = None,
 
 
 @mcp.tool(description=(
+    "ELIMINATE a variable from exactly two polynomials and get the condition "
+    "on the ones that remain. The answer is the resultant: it vanishes "
+    "exactly when the two share a root in the eliminated variable, so "
+    "'do f and g have a common solution in t' becomes a polynomial condition "
+    "on everything else. Comes with the Bezout identity Res = A*f + B*g, so "
+    "checking it is expanding two products -- no solver, no algebra system. "
+    "A resultant that is a NON-ZERO CONSTANT proves no common root exists at "
+    "all. Res = 0 is necessary for a common root always, and sufficient only "
+    "over an algebraically closed field with a non-vanishing leading "
+    "coefficient; the certificate says which case you are in. For more than "
+    "two equations use `ideal`."))
+@_guard
+async def eliminate(spec_path: str | None = None,
+                    spec_source: str | None = None,
+                    variable: str | None = None,
+                    timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import EliminateSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), EliminateSpec)
+    if variable:
+        spec.eliminate = variable
+    res = await _off(algebra.eliminate, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "Certify a polynomial NON-NEGATIVE everywhere as an exact sum of squares: "
     "p = sum d_i q_i^2 with rational d_i and rational linear forms. The Gram "
     "matrix is searched for in floating point and never reaches the "

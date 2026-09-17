@@ -6,6 +6,47 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### `certo eliminate`: remove a variable, keep the condition
+
+`ideal` says what follows from a system. This is the other question people ask
+while setting one up — *get rid of `t` and tell me what has to be true of `s`*
+— and the answer is the **resultant**, a polynomial in the remaining variables
+that vanishes exactly when the two share a root in the eliminated one.
+
+```
+$ certo eliminate examples/eliminate_parameter.py
+SATISFIABLE  [sat]
+  eliminated t. A common root exists only where this vanishes: -4*s^3 + 1
+```
+
+What travels is not the number but the **Bezout identity** `Res = A*f + B*g`.
+Computing a resultant is a determinant over a polynomial ring; checking one is
+expanding two products and subtracting. That gap is the whole reason it is a
+certificate rather than "the algebra system agreed", and `verify` does the
+expansion in exact rationals with no solver.
+
+The determinant is Bareiss — fraction-free, where every division is a
+polynomial division whose **remainder is asserted to be zero** rather than
+assumed. No rational functions ever appear, so nothing has to be cleared at
+the end.
+
+Three things it is careful about:
+
+* A resultant that is a **non-zero constant** refutes a common root outright,
+  for any values of anything, over any field. Conclusive, for one determinant.
+* `Res = 0` is **necessary** always and **sufficient** only over an
+  algebraically closed field with a non-vanishing leading coefficient.
+  `verify` repeats that every time, and says so specifically when both leading
+  coefficients can vanish — that locus is exactly where sufficiency is lost.
+* **Exactly two polynomials.** Iterating pairwise over a larger system
+  introduces extraneous factors nothing here could certify away; that is what
+  `ideal` is for.
+
+`certo lint` knows the spec: the wrong number of equations, a variable that is
+not there, and a degree of zero in the eliminated variable are all caught by
+comparing integers, before any determinant is computed.
+
+
 ## [0.5.2] — 2026-09-17
 
 **Schema unchanged: `SCHEMA_VERSION` stays 4.** The two features here add

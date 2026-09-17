@@ -64,7 +64,7 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "achieved", "conditional", "discrete_gain", "selected",
                 "skeleton_from", "nodes", "by_bound", "infeasible",
                 "leaves", "closed", "integral_level", "tight",
-                "mu", "nu", "gap", "leading",
+                "mu", "nu", "gap", "leading", "case", "resultant", "case",
                 # both are already said in the detail line, and once loudly
                 "constant_goal", "hypotheses_only", "clash")
 
@@ -428,6 +428,22 @@ def cmd_ideal(args):
         print("  " + t("cli.ideal.cofactors"))
         for i, h in res.meta["cofactors"].items():
             print("    g{} * ({})".format(i, h))
+    return rc
+
+
+def cmd_eliminate(args):
+    from .engines import algebra
+    from .spec import EliminateSpec, load_spec
+
+    spec = load_spec(args.spec, EliminateSpec)
+    if args.variable:
+        spec.eliminate = args.variable
+    res = algebra.eliminate(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        # The identity is the certificate's whole content, so it is worth
+        # showing rather than leaving in the JSON.
+        print("  " + t("cli.eliminate.identity", var=spec.eliminate))
     return rc
 
 
@@ -1339,6 +1355,13 @@ def build_parser():
                       "what follows, with Groebner cofactors")
     sp.add_argument("spec", help=".py file returning an IdealSpec")
     sp.set_defaults(func=cmd_ideal)
+
+    sp = add("eliminate", "remove a variable from two polynomials: the "
+                          "resultant, with the Bezout identity attached")
+    sp.add_argument("spec", help=".py file returning an EliminateSpec")
+    sp.add_argument("--variable", metavar="NAME",
+                    help="the variable to eliminate, instead of the spec's")
+    sp.set_defaults(func=cmd_eliminate)
 
     sp = add("sos", "certify a polynomial non-negative as an exact sum of "
                     "squares: numeric search, rational certificate")

@@ -49,6 +49,7 @@ Last updated: 2026-09-17. P1 is down to the two items that want a real instance;
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **`certo eliminate`: resultants** *(P2)* | Removes a variable from two polynomials and returns the condition on the rest, with the Bezout identity `Res = A*f + B*g` attached — so checking a determinant over a polynomial ring is expanding two products. Bareiss throughout, every division verified exact rather than assumed. A non-zero constant resultant refutes a common root over any field; `Res = 0` is necessary always and sufficient only over an algebraically closed field with a non-vanishing leading coefficient, which `verify` repeats and qualifies. |
 | ✅ | **Derive the LP dual instead of reconstructing it** *(user feedback P1)* | 3 of 56 exact LPs needed the rational pair injected by hand, all on symmetric solutions: on a degenerate vertex CBC returns an arbitrary one of many optimal duals and rounding it need not be dual-feasible. Complementary slackness determines the dual from the primal in exact `Fraction`, and where it underdetermines it the choices ARE the optimal duals. Certifies now with no usable dual from the solver at all. The second cause this item claimed — a coupled denominator ladder — was **measured and refuted**; that pass was dropped rather than shipped. |
 | ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
 | ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
@@ -159,22 +160,14 @@ dual weights follow a visible pattern in `s`.
 
 ## P2 — high value, more work
 
-### 5. Flag algebras, now that the objection is gone
+### 3. Flag algebras, now that the objection is gone
 
 `sos` established the pattern: numeric search, rational reconstruction, exact
 re-verification. A flag-algebra bound is the same shape one level up. Wanted:
 2–3 real packing instances to build against, so the interface is designed
 around a problem rather than around the method.
 
-### 6. Resultants and elimination
-
-`ideal` covers membership. Elimination — "remove `t` from these equations and
-tell me the condition on the parameters" — is the algebraic route to the same
-place `qe` would reach, and it is exact. The certificate wants the Bézout
-identity `Res(f,g) = Af + Bg`, which is verifiable by expansion exactly like
-the cofactors.
-
-### 7. `SetFamily` canonicalisation for matchings and coloured hypergraphs
+### 4. `SetFamily` canonicalisation for matchings and coloured hypergraphs
 *(user feedback)*
 
 `canonical()` quotients by relabelling the ground set. A family of MATCHINGS
@@ -187,7 +180,7 @@ Worth building against the real instance rather than in the abstract: which
 symmetries are genuine depends on the problem, and guessing wrong merges two
 orbits, which nothing downstream would notice.
 
-### 8. Combinatorial types beyond set families
+### 5. Combinatorial types beyond set families
 
 `SetFamily` covers hypergraphs, designs, codes and mask systems, because they
 are all one shape. What it does not cover: ordered structures (sequences,
@@ -195,7 +188,7 @@ words, permutation patterns) and edge-coloured or directed objects. Worth
 adding when a real problem asks, not before — the value of a native type is
 the boilerplate it removes, and boilerplate nobody is writing is not a cost.
 
-### 9. A canonical form that scales past the cap
+### 6. A canonical form that scales past the cap
 
 `SetFamily.canonical()` refuses above 200,000 candidate relabellings, which a
 very regular family on more than ~10 points will hit. The fix is individual-

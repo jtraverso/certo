@@ -434,6 +434,30 @@ def spec():
     assert asked["certificate"]["kind"] == "model"
 
 
+
+def test_eliminate_reaches_the_model_with_the_identity_attached():
+    """A determinant nobody can check is a number somebody takes on faith."""
+    src = """
+import z3
+from certo import EliminateSpec
+def spec():
+    s, t = z3.Reals("s t")
+    return EliminateSpec(variables=["s", "t"],
+                         equations=[t**3 + s*t + 1, t*t - s],
+                         eliminate="t", title="condition on s")
+"""
+    out = run(call("eliminate", {"spec_source": src}))
+    assert out["verdict"] == "satisfiable"
+    assert out["meta"]["resultant"] == "-4*s^3 + 1"
+    assert out["certificate"]["kind"] == "resultant"
+
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"] and rep["solver_free"]
+    # The caveat travels with it: necessary always, sufficient only over an
+    # algebraically closed field.
+    assert any("algebraically closed" in w for w in rep["warnings"])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0
