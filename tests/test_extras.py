@@ -4132,6 +4132,122 @@ def test_a_constant_dual_certificate_is_unchanged_by_the_cover_shape():
     assert verify(_roundtrip(r.certificate), LIM).ok
 
 
+# --- peak: the best integer choice, for a whole family at once -------------
+
+
+def _peak(offset, shift, floors=None):
+    from certo.polynomials import Poly
+    from certo.spec import PeakSpec
+
+    ring = ("m", "x")
+    m, x = Poly.var(ring, "m"), Poly.var(ring, "x")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+    obj = x * (m * K(6) + K(2 * offset + 1) - x * K(3)) * K(Fraction(1, 2))
+    return PeakSpec(parameters=floors or {"m": 0}, variable="x", objective=obj,
+                    argmax=Poly.var(("m",), "m") + Poly.const(("m",), shift))
+
+
+def _run_peak(spec):
+    from certo.engines import algebra
+
+    return algebra.peak(spec, LIM)
+
+
+def test_the_integer_peak_matches_brute_force_on_every_residue_class():
+    """Three classes, three closed forms, and no floor anywhere in the check."""
+    from certo.parametric import evaluate
+    from certo.polynomials import Poly
+
+    def value(n, p):
+        return Fraction(p * (2 * n + 1 - 3 * p), 2)
+
+    for offset, shift, want in ((0, 0, "3/2*m^2 + 1/2*m"),
+                                (1, 0, "3/2*m^2 + 3/2*m"),
+                                (2, 1, "3/2*m^2 + 5/2*m + 1")):
+        r = _run_peak(_peak(offset, shift))
+        assert r.verdict is Verdict.PROVED, (offset, r.detail)
+        assert r.meta["value"] == want, (offset, r.meta["value"])
+
+        pay = r.certificate.payload
+        val = Poly.parse(("m",), pay["value"])
+        arg = Poly.parse(("m",), pay["argmax"])
+        for mv in range(0, 25):
+            n = 3 * mv + offset
+            if n < 1:
+                continue
+            brute = max(value(n, p) for p in range(0, 2 * n + 4))
+            star = evaluate(arg, {"m": mv})
+            assert evaluate(val, {"m": mv}) == brute, (offset, mv)
+            assert value(n, star) == brute, (offset, mv)
+            # the same number the source states as a floor, without one
+            assert brute == Fraction((2 * n + 1) ** 2 // 24)
+
+        assert verify(_roundtrip(r.certificate), LIM).ok
+
+    # The tie: at n = 3m+1 the vertex is exactly halfway, so BOTH neighbours
+    # certify, and both give the same value. A certificate with slack there
+    # would be describing a different problem.
+    other = _run_peak(_peak(1, 1))
+    assert other.verdict is Verdict.PROVED
+    assert other.meta["value"] == "3/2*m^2 + 3/2*m"
+
+
+def test_a_maximiser_one_step_out_is_refused_and_says_which_test_failed():
+    r = _run_peak(_peak(0, 1))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+    assert "NOT ESTABLISHED" in r.detail
+    # and it reports the derivative, which is the quantity that is too large
+    assert r.meta["slope"]
+
+
+def test_a_non_integer_maximiser_is_refused_rather_than_assumed_integral():
+    """An argument about a point that does not exist proves nothing."""
+    from certo.polynomials import Poly
+    from certo.spec import PeakSpec
+
+    ring = ("m", "x")
+    m, x = Poly.var(ring, "m"), Poly.var(ring, "x")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+    r = _run_peak(PeakSpec(
+        parameters={"m": 0}, variable="x",
+        objective=x * (m * K(6) + K(1) - x * K(3)) * K(Fraction(1, 2)),
+        argmax=Poly.const(("m",), Fraction(1, 2))))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "1/2" in r.detail
+
+
+def test_a_convex_or_higher_degree_objective_has_no_peak_to_certify():
+    from certo.polynomials import Poly
+    from certo.spec import PeakSpec
+
+    ring = ("m", "x")
+    m, x = Poly.var(ring, "m"), Poly.var(ring, "x")
+    one = Poly.var(("m",), "m")
+
+    convex = _run_peak(PeakSpec({"m": 0}, "x", x * x - m * x, one))
+    assert convex.verdict is Verdict.INCONCLUSIVE
+    assert "not shown negative" in convex.detail
+
+    cubic = _run_peak(PeakSpec({"m": 0}, "x", x * x * x - m * x, one))
+    assert cubic.verdict is Verdict.INCONCLUSIVE
+    assert "degree 3" in cubic.detail
+
+
+def test_the_peak_verifier_rederives_the_coefficients_from_the_objective():
+    """The payload says what A and the slope are; verify must not believe it."""
+    r = _run_peak(_peak(0, 0))
+    bent = r.certificate.to_dict()
+    bent["payload"]["value"] = {"0": "0"}          # claim a different maximum
+    rep = verify(Certificate.from_dict(bent), LIM)
+    assert not rep.ok
+    assert any("expanded" in n for n, ok, _ in rep.checks if not ok)
+
+    bent = r.certificate.to_dict()
+    bent["payload"]["argmax"] = {"1": "1"}         # a different maximiser
+    assert not verify(Certificate.from_dict(bent), LIM).ok
+
+
 def test_the_shift_is_exact_and_sufficient_not_necessary():
     """Pinned, because the gap is the honest limit of the whole command."""
     from certo.parametric import nonneg_on_ray, shift

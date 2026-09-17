@@ -382,6 +382,7 @@ and what to expect.
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
 | `parametric` | A bound for EVERY value of a parameter, from a dual you already have -- packing from above, cover from below | weak duality, symbolic | **y and the shifted residuals**, solver-free |
+| `peak` | The best INTEGER choice for a family of concave quadratics, and the value there | exact, no search | **the maximiser and two step inequalities**, solver-free |
 | `cover` | Is this an exact cover? A clique partition is one case | counting | **the universe and the parts**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
@@ -437,6 +438,7 @@ def spec():
 | `IdealSpec` | `ideal` |
 | `EliminateSpec` | `eliminate` |
 | `ParametricSpec` | `parametric` |
+| `PeakSpec` | `peak` |
 | `CoverSpec` | `cover` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
@@ -473,6 +475,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
 | `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
 | `parametric_bound` | `opt(p) ≤ b(p)·y` for all p, or `≥` for a cover program | **yes**, expand and read signs |
+| `integer_peak` | no integer beats `x*`, and `x*` attains the value | **yes**, expand and read signs |
 | `exact_cover` | every element in exactly one part | **yes**, counting |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
@@ -1331,6 +1334,72 @@ and each finishing with *"duality completes the proof"*. What duality completes
 it **with** is one dual per branch and a check that each stays feasible along
 its branch — which is a finite object nobody had written down, and is exactly a
 certificate.
+
+
+## `peak`: the best WHOLE number, for every n at once
+
+A value function peaks somewhere, and if the thing being chosen is a count — a
+clique size, a block count, a number of parts — the answer has to be a whole
+number. A write-up reaches it like this:
+
+> complete the square, observe the objective is an integer at integer
+> argument, conclude the maximum is the **floor** of the continuous peak, and
+> attain it at the integer nearest the real vertex
+
+Every step is right, and none of them is checkable, because **the floor of a
+parametric expression is not a polynomial**: there is nothing to expand.
+
+This certifies the same thing without one. Move the origin to the claimed
+maximiser `x*`; for any integer step `t`,
+
+```
+q(x* + t) - q(x*)  =  A t^2 + q'(x*) t
+```
+
+which for `A < 0` is `<= 0` for every non-zero integer `t` **exactly when**
+
+```
+A  <=  q'(x*)  <=  -A
+```
+
+Two polynomial inequalities in the parameters, checked by the same shift
+`parametric` uses. No floor anywhere.
+
+```
+$ certo peak examples/peak_residues.py
+PROVED  [unsat]
+  for all m >= 0, no integer beats m, where the value is 3/2*m^2 + 1/2*m
+  certificate: integer_peak (no solver needed)
+  and that is every integer choice with m >= 0 -- not a sample of them
+```
+
+### Why it is the maximum and not an upper bound on it
+
+`x*` is an integer, so the value **is attained**. The certificate says two
+things at once: no integer does better, and this integer does that well. Which
+is why a maximiser with non-integer coefficients is **refused** rather than
+assumed integral — an argument about a point that does not exist proves
+nothing.
+
+### The residues are the answer, not an obstacle
+
+Which integer is nearest the vertex depends on the parameter modulo something,
+so the family splits and **each class is its own spec**. For the example above,
+`n = 3m + j`:
+
+| class | `x*` | `q'(x*)` | value |
+|---|---|---|---|
+| `n = 3m` | `m` | `1/2` | `m(3m+1)/2` |
+| `n = 3m+1` | `m` or `m+1` | `3/2` | `3m(m+1)/2` |
+| `n = 3m+2` | `m+1` | `-1/2` | `(m+1)(3m+2)/2` |
+
+The middle row meets the criterion with **nothing to spare**, and that is not
+a near miss — it is the tie. The vertex falls exactly halfway, both neighbours
+attain the maximum, and both certify. A certificate with slack there would be
+describing a different problem.
+
+Same division of labour as everywhere else: certo does not search for `x*`.
+Round the real vertex and hand it over.
 
 
 ## `eliminate`: remove a variable, keep the condition

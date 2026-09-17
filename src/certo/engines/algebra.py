@@ -28,6 +28,7 @@ import time
 
 from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
+                           integer_peak_certificate,
                            resultant_certificate, sos_certificate)
 from ..i18n import t
 from ..limits import Limits
@@ -134,6 +135,54 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
             out["stopped"] = got.meta
             out["stopped_detail"] = got.detail
     return out
+
+
+def peak(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """The best integer choice, for every parameter value at once."""
+    from ..peak import NotAPeak, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotAPeak as e:
+        return Result("peak", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    floor = ", ".join("{} >= {}".format(k, v)
+                      for k, v in spec.parameters.items())
+
+    if not out["ok"]:
+        # Each failure is its own sentence, because they mean different
+        # things: a convex objective has no peak to find, a fractional
+        # maximiser is not a point, and a failed step test is this route
+        # coming up short rather than the claim being false.
+        if not out["concave"]:
+            detail = t("engine.peak.not_concave", lead=str(out["A"]) or "0")
+        elif not out["integral"]:
+            detail = t("engine.peak.fractional",
+                       coefs=", ".join(out["fractional"][:4]))
+        else:
+            detail = t("engine.peak.not_shown", floor=floor,
+                       slope=str(out["slope"]) or "0")
+        return Result("peak", Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, ms, None, detail=detail,
+                      meta={"slope": str(out["slope"]) or "0"})
+
+    cert = integer_peak_certificate(
+        parameters=dict(spec.parameters), variable=spec.variable,
+        objective=spec.objective.serialize(),
+        argmax=out["argmax"].serialize(),
+        value=out["value"].serialize(),
+        region=out["region"] or None, title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("peak", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM, ms, cert,
+                  detail=t("engine.peak.proved", value=str(out["value"]) or "0",
+                           argmax=str(out["argmax"]) or "0", floor=floor),
+                  meta={"value": str(out["value"]) or "0",
+                        "argmax": str(out["argmax"]) or "0",
+                        "floor": floor})
 
 
 def parametric(spec, limits: Limits | None = None,

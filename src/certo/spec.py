@@ -883,6 +883,50 @@ class ParametricSpec:
 
 
 @dataclass
+class PeakSpec:
+    """A concave quadratic in one INTEGER variable, and where it peaks.
+
+        from certo.polynomials import Poly
+
+        RING = ("m", "x")
+        m, x = Poly.var(RING, "m"), Poly.var(RING, "x")
+        K = lambda c: Poly.const(RING, c)
+
+        PeakSpec(
+            parameters={"m": 0},           # the parameters, and their floors
+            variable="x",                  # the one that must be an integer
+            objective=x * (m * K(6) + K(1) - x * K(3)) * K(Fraction(1, 2)),
+            argmax=Poly.var(("m",), "m"),  # over the PARAMETERS alone
+        )
+
+    Certifies that no integer beats `argmax`, for every parameter value at or
+    above the floor at once -- and, because `argmax` is an integer, that the
+    value there IS the integer maximum rather than an upper bound on it.
+
+    `objective` is a `Poly` over the parameters AND the variable, of degree at
+    most two in the variable; `argmax` is a `Poly` over the parameters only,
+    with INTEGER coefficients, since a maximiser that is not an integer at
+    integer parameters is not a maximiser of anything here.
+
+    Which integer is nearest the real vertex depends on the parameter modulo
+    something, so a family splits into residue classes and each class is its
+    own spec with its own `argmax`. They are different claims; one certificate
+    covering all of them would be hiding the split rather than proving it.
+
+    `region` takes declared side conditions `g(p) >= 0`, exactly as
+    `ParametricSpec` does and with exactly the same standing: scope, not
+    content, repeated by `verify` and proved by nothing.
+    """
+
+    parameters: dict                 # name -> lower bound (a number)
+    variable: str                    # the integer variable
+    objective: object                # Poly over parameters + variable
+    argmax: object                   # Poly over the parameters alone
+    region: list = None              # [(name, g)] meaning `g(p) >= 0`, SCOPE
+    title: str = ""
+
+
+@dataclass
 class EliminateSpec:
     """Two polynomials and the variable to get rid of.
 

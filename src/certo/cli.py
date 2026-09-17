@@ -249,6 +249,7 @@ BY_QUESTION = (
         ("commands.q.bounds", "bounds"),
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
+        ("commands.q.peak", "peak"),
     )),
     ("commands.group.every", (
         ("commands.q.sweep", "sweep"),
@@ -591,6 +592,18 @@ def cmd_cover(args):
                          detail=bounds["stopped_detail"]))
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
+    return rc
+
+
+def cmd_peak(args):
+    from .engines import algebra
+    from .spec import PeakSpec, load_spec
+
+    spec = load_spec(args.spec, PeakSpec)
+    res = algebra.peak(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("value"):
+        print("  " + t("cli.peak.scope", floor=res.meta["floor"]))
     return rc
 
 
@@ -1661,6 +1674,11 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("peak", "the best INTEGER choice for a family of concave "
+                     "quadratics, and the value there")
+    sp.add_argument("spec", help=".py file returning a PeakSpec")
+    sp.set_defaults(func=cmd_peak)
 
     sp = add("parametric", "a bound that holds for EVERY value of a "
                            "parameter, from a dual you already have")

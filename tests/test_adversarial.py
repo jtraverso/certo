@@ -44,6 +44,10 @@ DESCRIPTIVE = {
     "candidate", "counterexamples", "steps", "trace", "blocked", "witnesses",
     "bridge", "bridges", "used", "unused", "lemmas", "base", "k0",
     "base_upto", "step_from", "question", "cores", "table", "claim",
+    # `peak`: the name of the integer variable. It labels a column of the
+    # objective and nothing else -- rename it in both places and every
+    # coefficient, every check and the answer are identical.
+    "variable",
     "order", "deg_f", "deg_g", "lead_f", "lead_g", "lead_f_constant",
     "lead_g_constant", "multiplicities", "max_size", "half_degree",
     "original_sense", "original_optimum", "discrete_gain", "conditional",
@@ -229,6 +233,23 @@ def test_resultant():
                          equations=[t ** 3 + s * t + 1, t * t - s],
                          eliminate="t")
     _report("resultant", probe(algebra.eliminate(spec, LIM).certificate))
+
+
+def test_integer_peak():
+    from certo.engines import algebra
+    from certo.polynomials import Poly
+    from certo.spec import PeakSpec
+
+    ring = ("m", "x")
+    m, x = Poly.var(ring, "m"), Poly.var(ring, "x")
+    K = lambda c: Poly.const(ring, c)                       # noqa: E731
+    spec = PeakSpec(
+        parameters={"m": 0}, variable="x",
+        objective=x * (m * K(6) + K(1) - x * K(3)) * K(Fraction(1, 2)),
+        argmax=Poly.var(("m",), "m"))
+    got = algebra.peak(spec, LIM).certificate
+    assert got.payload["value"] == {"2": "3/2", "1": "1/2"}
+    _report("integer_peak", probe(got))
 
 
 def test_parametric_bound():

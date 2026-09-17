@@ -744,6 +744,39 @@ async def parametric(spec_path: str | None = None,
 
 
 @mcp.tool(description=(
+    "PEAK: the best INTEGER choice for a whole family of concave quadratics, "
+    "and the value there. Use when a value function is optimised over "
+    "something that must be a whole number -- a clique size, a block count, a "
+    "number of parts -- and the claim is quantified over a parameter rather "
+    "than checked for the cases somebody ran. A write-up completes the "
+    "square, says the objective is an integer at integer argument, and "
+    "concludes the maximum is the FLOOR of the continuous peak; the floor of "
+    "a parametric expression is not a polynomial and so is not checkable. "
+    "This certifies the same thing without one: moving the origin to the "
+    "claimed maximiser x*, an integer step t changes the objective by "
+    "A t^2 + q'(x*) t, which is <= 0 for every non-zero integer t exactly "
+    "when A <= q'(x*) <= -A -- two polynomial inequalities, checked by "
+    "expanding and reading signs, no solver. The bound is ATTAINED because "
+    "x* is an integer, so the answer is the integer maximum and not an upper "
+    "bound on it; a maximiser with non-integer coefficients is refused rather "
+    "than assumed integral. Which integer is nearest the vertex usually "
+    "depends on the parameter modulo something, so a family splits into "
+    "residue classes and EACH IS ITS OWN SPEC -- they are different claims. "
+    "certo does not search for x*: round the real vertex and hand it over."))
+@_guard
+async def peak(spec_path: str | None = None,
+               spec_source: str | None = None,
+               timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import PeakSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), PeakSpec)
+    res = await _off(algebra.peak, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "ELIMINATE a variable from exactly two polynomials and get the condition "
     "on the ones that remain. The answer is the resultant: it vanishes "
     "exactly when the two share a root in the eliminated variable, so "

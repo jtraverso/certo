@@ -593,6 +593,43 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
     )
 
 
+def integer_peak_certificate(parameters, variable, objective, argmax, value,
+                             region=None, title="") -> Certificate:
+    """No integer beats `argmax`, and `argmax` attains `value`. For every p.
+
+    A concave quadratic `q(x) = A x^2 + B x + C` whose coefficients are
+    polynomials in the parameters. Moving the origin to the claimed maximiser,
+    an integer step `t` changes the objective by `A t^2 + q'(x*) t`, which is
+    `<= 0` for every non-zero integer `t` exactly when
+
+        A  <=  q'(x*)  <=  -A.
+
+    So the certificate is `x*`, the coefficients, and those two polynomial
+    inequalities -- checked by the same shift the parametric bound uses. No
+    floor appears anywhere, which is the point: the floor of a parametric
+    expression is not a polynomial and cannot be expanded, and this says the
+    same thing without one.
+
+    The bound is attained rather than merely valid, because `x*` is an integer
+    -- which is why the certificate refuses a non-integral `argmax` instead of
+    taking "it is an integer really" on trust.
+    """
+    # Everything else -- the leading coefficient, the derivative at `x*`, the
+    # two step inequalities, the region multipliers -- is ONE expansion away
+    # from these and is recomputed on every verification. Carrying a second
+    # copy would put fields in the payload that nothing checks, and a field
+    # nothing checks can say anything.
+    payload = {"parameters": parameters, "variable": variable,
+               "objective": objective, "argmax": argmax, "value": value,
+               "title": title}
+    if region:
+        payload["region"] = region
+    return Certificate(
+        kind="integer_peak", solver_free=True, payload=payload,
+        note_key="cert.note.integer_peak",
+    )
+
+
 def parametric_bound_certificate(parameters, variables, objective,
                                  constraints, dual, bound, rows,
                                  title="", sense="max",
@@ -1047,6 +1084,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "integer_peak": _verify_integer_peak,
         "parametric_bound": _verify_parametric_bound,
         "exact_cover": _verify_exact_cover,
         "sos": _verify_sos,
@@ -1398,6 +1436,61 @@ def _verify_exact_cover(cert, limits) -> VerifyReport:
                  n=out["universe"],
                  kind=t("verify.cover.exactly" if p.get("exact", True)
                         else "verify.cover.atleast")),
+    )
+
+
+def _verify_integer_peak(cert, limits) -> VerifyReport:
+    """Re-derive the coefficients from the objective, and re-read the signs."""
+    from fractions import Fraction
+
+    from .parametric import nonneg_on_region, region_terms
+    from .peak import split
+    from .polynomials import Poly
+
+    p = cert.payload
+    params = tuple(p["parameters"])
+    lows = p["parameters"]
+    full = tuple(list(params) + [p["variable"]])
+    objective = Poly.parse(full, p["objective"])
+    star = Poly.parse(params, p["argmax"])
+
+    # From the objective itself, not from what the payload says they are.
+    A, B, C = split(objective, p["variable"])
+    neg_a = A.scaled(-1)
+    region = [(n, Poly.parse(params, g))
+              for n, g in sorted(p.get("region", {}).items())]
+    terms = region_terms(region, lows)
+
+    shape, _sh, _u, _r = nonneg_on_region(neg_a, lows, terms)
+    const = neg_a.terms.get((0,) * len(params), Fraction(0))
+    concave = shape and const > 0
+    checks = [(t("verify.peak.concave"), concave, str(A) or "0")]
+
+    integral = all(co.denominator == 1 for co in star.terms.values())
+    checks.append((t("verify.peak.integral"), integral, str(star) or "0"))
+
+    slope = A.scaled(2) * star + B
+    up_ok, _s1, _m1, _r1 = nonneg_on_region(neg_a - slope, lows, terms)
+    low_ok, _s2, _m2, _r2 = nonneg_on_region(slope - A, lows, terms)
+    checks.append((t("verify.peak.step"), up_ok and low_ok, str(slope) or "0"))
+
+    want = Poly.parse(params, p["value"])
+    got = A * star * star + B * star + C
+    matches = not (got - want)
+    checks.append((t("verify.peak.value"), matches, str(want) or "0"))
+
+    floor = ", ".join("{} >= {}".format(k, v) for k, v in lows.items())
+    warnings = [t("verify.peak.scope", floor=floor)]
+    if region:
+        warnings.append(t("verify.param.region", n=len(region),
+                          conditions="; ".join("{} >= 0".format(g)
+                                               for _n, g in region)))
+    return VerifyReport(
+        concave and integral and up_ok and low_ok and matches,
+        "integer_peak", True, checks=checks, warnings=warnings,
+        method_key="verify.peak.method",
+        detail=t("verify.peak.detail", value=str(want) or "0",
+                 argmax=str(star) or "0", floor=floor),
     )
 
 
