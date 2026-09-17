@@ -3831,6 +3831,106 @@ def test_forging_the_bound_is_caught_by_re_expanding_it():
     assert not verify(Certificate.from_dict(d), LIM).ok
 
 
+
+# --- local loads: named regions the design has to respect -----------------
+
+
+def _loaded(loads, caps=1):
+    from certo import PackingSpec
+
+    items = [("p{}".format(i), res, 1) for i, res in enumerate(
+        [("dA0", "e01"), ("dA1", "e02"), ("dA2", "e12"),
+         ("dB0", "e34"), ("dB1", "e35"), ("dB2", "e45")])]
+    return PackingSpec(items=items, capacities=caps, loads=loads,
+                       title="a packing with region bounds")
+
+
+def _opt(spec):
+    from certo.engines import lp
+
+    return lp.opt(spec.to_lp(), LIM)
+
+
+def test_a_load_is_a_row_the_dual_prices():
+    """Not a post-hoc check: it constrains the optimum and shows its price."""
+    free = _opt(_loaded([]))
+    bound = _opt(_loaded([("within_A", {"p0": 1, "p1": 1, "p2": 1}, "<=", 1)]))
+    assert Fraction(free.meta["objective"]) > Fraction(bound.meta["objective"])
+
+    loads = bound.certificate.payload["loads"]
+    assert [ld["name"] for ld in loads] == ["within_A"]
+    assert loads[0]["binding"] is True
+    # A binding region has a shadow price: relaxing it buys exactly that.
+    assert Fraction(loads[0]["dual"]) > 0
+
+
+def test_the_certificate_records_what_the_design_does_to_each_load():
+    r = _opt(_loaded([("within_A", {"p0": 1, "p1": 1, "p2": 1}, "<=", 2),
+                      ("within_B", {"p3": 1, "p4": 1, "p5": 1}, "<=", 3)]))
+    loads = {ld["name"]: ld for ld in r.certificate.payload["loads"]}
+    assert loads["within_A"]["achieved"] == "2"
+    assert loads["within_A"]["slack"] == "0"
+    assert loads["within_B"]["achieved"] == "3"
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_load_with_slack_is_reported_as_such():
+    r = _opt(_loaded([("roomy", {"p0": 1}, "<=", 5)]))
+    ld = r.certificate.payload["loads"][0]
+    assert ld["binding"] is False
+    assert Fraction(ld["slack"]) > 0
+    assert Fraction(ld["dual"]) == 0          # slack means it costs nothing
+
+
+def test_a_forged_load_value_is_caught_by_recomputing_it():
+    """The coefficients travel, so the artefact answers on its own."""
+    r = _opt(_loaded([("within_A", {"p0": 1, "p1": 1, "p2": 1}, "<=", 2)]))
+    d = json.loads(json.dumps(r.certificate.to_dict()))
+    d["payload"]["loads"][0]["achieved"] = "1"
+    rep = verify(Certificate.from_dict(d), LIM)
+    assert not rep.ok
+    assert any("within_A" in name for name, ok, _ in rep.checks if not ok)
+
+
+def test_loads_accept_every_sense_including_exact_preservation():
+    from certo import PackingSpec
+
+    for sense, bound, want in (("<=", 2, True), (">=", 1, True),
+                               ("==", 2, True)):
+        r = _opt(_loaded([("region", {"p0": 1, "p1": 1, "p2": 1},
+                           sense, bound)]))
+        ld = r.certificate.payload["loads"][0]
+        assert ld["sense"] == sense
+        assert verify(_roundtrip(r.certificate), LIM).ok is want, sense
+    _ = PackingSpec
+
+
+def test_a_load_on_an_item_that_is_not_there_is_refused():
+    """Otherwise the row is silently weaker than intended."""
+    try:
+        _loaded([("oops", {"p0": 1, "ghost": 1}, "<=", 1)])
+    except ValueError as e:
+        assert "ghost" in str(e)
+    else:
+        raise AssertionError("a weight on a missing item was accepted")
+
+
+def test_a_load_may_not_take_a_resource_name():
+    try:
+        _loaded([("e01", {"p0": 1}, "<=", 1)]).to_lp()
+    except ValueError as e:
+        assert "e01" in str(e)
+    else:
+        raise AssertionError("a load shadowed a resource row")
+
+
+def test_a_packing_with_no_loads_carries_an_empty_list():
+    """The field is optional, and its absence must not change anything."""
+    r = _opt(_loaded([]))
+    assert r.certificate.payload["loads"] == []
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

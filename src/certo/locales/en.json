@@ -767,5 +767,11 @@
   "lint.param.dual_missing": "no dual entry for these constraints: {names}",
   "lint.param.negative": "the dual has negative entries, so weak duality does not apply at all: {names}",
   "lint.param.shape": "{rows} rows over {params}",
-  "lint.param.all_zero": "every dual entry is zero, so the bound will be 0 and the certificate will say nothing useful"
+  "lint.param.all_zero": "every dual entry is zero, so the bound will be 0 and the certificate will say nothing useful",
+  "cli.loads.header": "{n} declared loads, and what the design does to them:",
+  "cli.loads.binding": "BINDING",
+  "cli.loads.slack": "slack {slack}",
+  "cli.loads.price": "costs {price} per unit of bound -- relaxing it buys that much",
+  "verify.lp.load": "load `{name}` holds, and at the declared value",
+  "verify.lp.load_detail": "{got} {sense} {bound}, slack {slack}"
 }

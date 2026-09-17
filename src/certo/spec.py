@@ -122,6 +122,10 @@ class LPSpec:
     cons: list = field(default_factory=list)  # [(name, {var: coef}, sense, rhs)]
     kinds: dict = field(default_factory=dict)  # name -> continuous|integer|binary
     target: object = None          # a value `mixed` compares the result against
+    # Which constraint names are LOADS rather than resource capacities. Purely
+    # informational to the LP -- a row is a row -- and it is what lets the
+    # certificate report them separately from the encoding.
+    load_names: list = field(default_factory=list)
 
     KINDS = ("continuous", "integer", "binary")
 

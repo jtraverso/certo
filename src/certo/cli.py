@@ -459,6 +459,22 @@ def cmd_eliminate(args):
     return rc
 
 
+def print_loads(cert):
+    """The declared regions, what the design does to each, and what it cost."""
+    loads = (cert.payload or {}).get("loads") if cert else None
+    if not loads:
+        return
+    print("  " + t("cli.loads.header", n=len(loads)))
+    for ld in loads:
+        mark = t("cli.loads.binding") if ld["binding"] else t("cli.loads.slack",
+                                                              slack=ld["slack"])
+        print("    {:<16} {} {} {}   {}".format(
+            ld["name"], ld["achieved"], ld["sense"], ld["bound"], mark))
+        if ld.get("dual") and ld["dual"] != "0":
+            print("    {:<16} {}".format(
+                "", t("cli.loads.price", price=ld["dual"])))
+
+
 def cmd_sos(args):
     from .engines import algebra
     from .spec import SOSSpec, load_spec
@@ -661,6 +677,7 @@ def cmd_opt(args):
                            "cli.opt.target.short",
                            value=res.meta["objective"],
                            target=res.meta["target"]))
+        print_loads(res.certificate)
     return rc
 
 

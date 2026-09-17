@@ -210,7 +210,7 @@ def lp_dual_certificate(sense, objective, dual, A, b, c, names,
                         primal=None, var_names=None, is_exact=False,
                         integer=False, integral_point=None,
                         integral_objective=None, kinds=None,
-                        target=None) -> Certificate:
+                        target=None, loads=None) -> Certificate:
     return Certificate(
         kind="lp_dual",
         solver_free=True,
@@ -226,6 +226,11 @@ def lp_dual_certificate(sense, objective, dual, A, b, c, names,
             # discrete part exists; this says WHICH, so a reader of the
             # certificate alone can tell a design from a relaxation.
             "kinds": kinds or {}, "target": target,
+            # Named regions the design was asked to respect, each with what
+            # the solution actually does to it and what it cost. An OPTIONAL
+            # field, which the frozen schema allows: a reader that does not
+            # know about loads verifies the certificate exactly as before.
+            "loads": loads or [],
         },
         note_key="cert.note.lp_dual.exact" if is_exact else "cert.note.lp_dual.float",
     )
@@ -1943,6 +1948,24 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                 warnings.append(t("verify.lp.ilp_gap",
                                   value=exact.serialize(value),
                                   bound=exact.serialize(rep["objective"])))
+
+    # The declared loads, recomputed from the primal rather than believed.
+    for load in p.get("loads") or []:
+        xs = {v: f for v, f in zip(p.get("var_names") or [],
+                                   exact.parse_all(p["primal"] or []))}
+        got = sum((exact.to_fraction(c) * xs.get(v, 0)
+                   for v, c in (load.get("coeffs") or {}).items()),
+                  exact.to_fraction(0))
+        want = exact.to_fraction(load["bound"])
+        declared = exact.to_fraction(load["achieved"])
+        sense = load.get("sense", "<=")
+        holds = (got <= want if sense == "<=" else
+                 got >= want if sense == ">=" else got == want)
+        checks.append((t("verify.lp.load", name=load["name"]),
+                       holds and got == declared,
+                       t("verify.lp.load_detail", got=exact.serialize(got),
+                         sense=sense, bound=load["bound"],
+                         slack=load.get("slack", "?"))))
 
     # A target turns "here is the optimum" into "here is a bound that meets
     # what you needed", which for an existence proof is the whole question.

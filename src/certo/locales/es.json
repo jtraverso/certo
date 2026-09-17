@@ -767,5 +767,11 @@
   "lint.param.dual_missing": "no hay entrada dual para estas restricciones: {names}",
   "lint.param.negative": "el dual tiene entradas negativas, así que la dualidad débil no aplica en absoluto: {names}",
   "lint.param.shape": "{rows} filas sobre {params}",
-  "lint.param.all_zero": "toda entrada del dual es cero, así que la cota será 0 y el certificado no dirá nada útil"
+  "lint.param.all_zero": "toda entrada del dual es cero, así que la cota será 0 y el certificado no dirá nada útil",
+  "cli.loads.header": "{n} cargas declaradas, y qué les hace el diseño:",
+  "cli.loads.binding": "ACTIVA",
+  "cli.loads.slack": "holgura {slack}",
+  "cli.loads.price": "cuesta {price} por unidad de cota --relajarla compra eso—",
+  "verify.lp.load": "la carga `{name}` se cumple, y en el valor declarado",
+  "verify.lp.load_detail": "{got} {sense} {bound}, holgura {slack}"
 }

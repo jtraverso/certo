@@ -37,6 +37,13 @@ class PackingSpec:
     sense: str = "max"
     integer: object = False             # True, or a set of item kinds
     title: str = ""
+    # Named regions with bounds: [(name, {item: weight}, sense, bound)].
+    # A resource cap says "this pair is used once"; a LOAD says something
+    # about a region of the design -- "the within-A load stays under N_A" --
+    # and the difference is that a load is part of the argument rather than
+    # part of the encoding. They become rows like any other, so the dual
+    # prices them, and the certificate records what the solution does to each.
+    loads: list = field(default_factory=list)
     _kinds: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
@@ -50,6 +57,28 @@ class PackingSpec:
         names = [i[0] for i in norm]
         if len(set(names)) != len(names):
             raise ValueError("duplicate item names in the packing")
+
+        known = set(names)
+        seen = set()
+        for entry in self.loads:
+            if len(entry) != 4:
+                raise ValueError(
+                    "a load is (name, {item: weight}, sense, bound), got "
+                    "{} fields".format(len(entry)))
+            lname, weights, sense, _bound = entry
+            if sense not in ("<=", ">=", "=="):
+                raise ValueError("load {}: sense must be <=, >= or ==, not "
+                                 "{}".format(lname, sense))
+            if str(lname) in seen:
+                raise ValueError("duplicate load name: {}".format(lname))
+            seen.add(str(lname))
+            unknown = sorted(str(k) for k in weights if str(k) not in known)
+            if unknown:
+                # A weight on an item that is not there is silent otherwise:
+                # the row is simply weaker than intended.
+                raise ValueError("load {} weights items that are not in the "
+                                 "packing: {}".format(lname,
+                                                      ", ".join(unknown[:5])))
         self.items = norm
         self._kinds = {i[0]: i[3] for i in norm}
 
@@ -128,6 +157,18 @@ class PackingSpec:
         for r in self.resources:
             lp.constraint({n: 1 for n in by_resource[r]}, "<=",
                           self.capacity_of(r), name=r)
+
+        # Loads go in last and keep their own names, so the dual reads as a
+        # price per REGION next to the price per resource.
+        taken = set(self.resources)
+        for lname, weights, sense, bound in self.loads:
+            key = str(lname)
+            if key in taken:
+                raise ValueError("load {} collides with a resource name"
+                                 .format(key))
+            lp.constraint({str(k): v for k, v in weights.items()},
+                          sense, bound, name=key)
+            lp.load_names.append(key)
         return lp
 
 

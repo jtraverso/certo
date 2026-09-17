@@ -34,6 +34,45 @@ from ..status import Result, Status, Verdict
 ENGINE = "pulp/CBC"
 
 
+def _load_report(spec, x, duals_by_name):
+    """What the solution does to each declared load, exactly.
+
+    The coefficients travel with it. A load that could only be re-checked by
+    re-reading the spec would be a load nobody re-checks: the point of putting
+    it in the certificate is that the artefact answers on its own.
+    """
+    from .. import exact
+
+    names = getattr(spec, "load_names", None) or []
+    if not names:
+        return None
+    by_name = {n: (coeffs, sense, rhs) for n, coeffs, sense, rhs in spec.cons}
+    at = {v: x[j] for j, v in enumerate(spec.var_names)}
+    out = []
+    for n in names:
+        if n not in by_name:
+            continue
+        coeffs, sense, rhs = by_name[n]
+        achieved = sum((c * at.get(v, 0) for v, c in coeffs.items()),
+                       exact.to_fraction(0))
+        bound = exact.to_fraction(rhs)
+        slack = bound - achieved if sense == "<=" else achieved - bound
+        out.append({
+            "name": n, "sense": sense,
+            "coeffs": {v: exact.serialize(c) for v, c in coeffs.items()},
+            "bound": exact.serialize(bound),
+            "achieved": exact.serialize(achieved),
+            # For "==" the slack is the deviation, and zero is the only
+            # acceptable value; saying so uniformly keeps the reader from
+            # having to remember which sense they wrote.
+            "slack": exact.serialize(achieved - bound if sense == "=="
+                                     else slack),
+            "binding": (achieved == bound),
+            "dual": exact.serialize(duals_by_name.get(n, 0)),
+        })
+    return out
+
+
 def _integral_point(spec, A, b, c, sol_float):
     """CBC's integer answer, rounded and CHECKED, with its exact objective.
 
@@ -164,7 +203,10 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
         objective_ex = rep["objective"]
         if spec.sense == "min":
             objective_ex = -objective_ex
+        loads = _load_report(spec, x_ex,
+                             dict(zip(cons_names, y_ex)) if y_ex else {})
         cert = lp_dual_certificate(
+            loads=loads,
             sense=spec.sense, objective=exact.serialize(rep["objective"]),
             dual=exact.serialize_all(y_ex), primal=exact.serialize_all(x_ex),
             A=[exact.serialize_all(r) for r in A], b=exact.serialize_all(b),

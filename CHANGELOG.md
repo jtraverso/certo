@@ -6,6 +6,43 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Local loads: named regions a packing has to respect
+
+A packing certificate proved an optimum and could not say the thing an
+argument usually needs next: *and the design holds the bounds I put on each
+region, by this much, and that one cost me this.*
+
+`PackingSpec(loads=[("within_A", {...}, "<=", 2)])` declares them, and they
+become rows like any other — so the dual prices them for free:
+
+```
+2 declared loads, and what the design does to them:
+  within_A         2 <= 2   BINDING
+                   costs 1 per unit of bound -- relaxing it buys that much
+  within_B         3 <= 5   slack 2
+```
+
+That second column is the point: a binding region with a shadow price is doing
+work, one with slack is along for the ride, and knowing which is which is what
+tells you where to spend effort tightening an argument.
+
+A capacity is part of the ENCODING; a load is part of the ARGUMENT. They are
+declared separately for that reason, and reported apart.
+
+The certificate carries each load's coefficients, bound, achieved value and
+slack, as an **optional payload field** — which the frozen schema allows.
+`verify` recomputes the achieved value from the primal rather than believing
+the declared one, so a certificate that understates what a region used fails.
+
+Senses `<=`, `>=` and `==`; the last is exact preservation. A weight on an
+item that is not in the packing, or a load name colliding with a resource, is
+refused rather than accepted quietly — the first makes a row silently weaker
+than intended and the second makes two prices indistinguishable in the dual.
+
+Taken from a real model whose constraints read `within-A load <= N_A`
+alongside a parity condition and a divisibility one.
+
+
 ### `certo parametric`: the finite-to-infinite jump
 
 The thing this project kept saying it could not do, and the sentence that

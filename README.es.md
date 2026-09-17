@@ -1736,6 +1736,49 @@ La traza guarda el ÍNDICE tomado en `reduce()` en cada paso, no solo el id
 resultante. Eso permite que la verificación repita el descenso exacto en vez
 de rehacer la búsqueda.
 
+## Cargas locales: regiones con nombre que el diseño debe respetar
+
+Un certificado de packing demuestra un óptimo. Lo que un argumento suele
+necesitar después es otra cosa: **y el diseño cumple las cotas que puse sobre
+cada región, con este margen, y esa me costó esto.**
+
+```python
+PackingSpec(
+    items=..., capacities=1,
+    loads=[("within_A", {"p0": 1, "p1": 1, "p2": 1}, "<=", 2),
+           ("within_B", {"p3": 1, "p4": 1, "p5": 1}, "<=", 5)],
+)
+```
+
+```
+$ certo opt examples/packing_with_loads.py
+  óptimo EXACTO certificado: 5 (denominador <= 1)
+  2 cargas declaradas, y qué les hace el diseño:
+    within_A         2 <= 2   ACTIVA
+                     cuesta 1 por unidad de cota --relajarla compra eso—
+    within_B         3 <= 5   holgura 2
+```
+
+Lee la segunda columna. `within_A` está **activa** y su precio sombra es 1:
+relaja esa cota en uno y el óptimo sube exactamente uno. `within_B` tiene
+holgura 2, así que no es lo que te frena, y apretar el argumento ahí no compra
+nada. Esa es la diferencia entre una cota que trabaja y una que va de
+pasajera —y sale gratis, porque una carga es una fila y el dual ya la valoró—.
+
+Una capacidad es parte de la **codificación**; una carga es parte del
+**argumento**. Por eso se declaran aparte, y el certificado las reporta aparte.
+
+`verify` recomputa cada valor alcanzado desde el primal en vez de creerse el
+declarado, así que un certificado que subestime lo que usó una región falla.
+
+Las cargas admiten `<=`, `>=` o `==`. La última es preservación exacta —*esta
+región lleva exactamente esto*— que es lo que significa «preserva estas cargas
+locales» cuando el argumento depende del valor y no de un techo.
+
+Se rechazan en vez de aceptarse en silencio: un peso sobre un elemento que no
+está en el packing, y un nombre de carga que choca con un recurso.
+
+
 ## Packings
 
 Clicos compitiendo por aristas, bloques compitiendo por puntos: la forma se

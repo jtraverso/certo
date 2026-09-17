@@ -1729,6 +1729,55 @@ the ORDER and the claim that nothing failed below the first failure. With
 `--stop-on-first` the larger sizes were never run, and the certificate records
 that.
 
+## Local loads: named regions the design has to respect
+
+A packing certificate proves an optimum. The thing an argument usually needs
+next is different: **and the design holds the bounds I put on each region, by
+this much, and that one cost me this.**
+
+```python
+PackingSpec(
+    items=..., capacities=1,
+    loads=[("within_A", {"p0": 1, "p1": 1, "p2": 1}, "<=", 2),
+           ("within_B", {"p3": 1, "p4": 1, "p5": 1}, "<=", 5)],
+)
+```
+
+```
+$ certo opt examples/packing_with_loads.py
+  EXACT optimum certified: 5 (denominator <= 1)
+  2 declared loads, and what the design does to them:
+    within_A         2 <= 2   BINDING
+                     costs 1 per unit of bound -- relaxing it buys that much
+    within_B         3 <= 5   slack 2
+```
+
+Read the second column. `within_A` is **binding** and its shadow price is 1:
+relax that bound by one and the optimum goes up by exactly one. `within_B` has
+slack 2, so it is not what is holding you back and tightening the argument
+there buys nothing. That is the difference between a bound doing work and a
+bound along for the ride — and it is free, because a load is a row and the
+dual already priced it.
+
+A capacity is part of the **encoding**; a load is part of the **argument**.
+They are declared separately for that reason, and the certificate reports them
+apart.
+
+`verify` recomputes each achieved value from the primal rather than believing
+the declared one, so a certificate that understates what a region used fails:
+
+```
+[XX] load `within_A` holds, and at the declared value   2 <= 2, slack 0
+```
+
+Loads take `<=`, `>=` or `==`. The last is exact preservation — *this region
+carries exactly this much* — which is what "preserve these local loads" means
+when the argument depends on the value rather than a ceiling.
+
+Refused rather than accepted quietly: a weight on an item that is not in the
+packing, and a load name that collides with a resource.
+
+
 ## Packings
 
 Cliques competing for edges, blocks competing for points -- the shape recurs,
