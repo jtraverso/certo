@@ -1,6 +1,6 @@
 """Which command answers which question, as data rather than as a print.
 
-Thirty-four commands and twenty spec types is a lot of choosing for somebody
+Forty commands and twenty-one spec types is a lot of choosing for somebody
 -- or something -- that just wants to know whether a claim holds. The routing
 knowledge existed and lived inside a terminal renderer, which meant the only
 way to use it was to read it.
@@ -35,12 +35,12 @@ SPEC_OF = {
     "sweep": "SweepSpec", "cases": "CNFSpec", "shrink": "SweepSpec",
     "ideal": "IdealSpec", "eliminate": "EliminateSpec", "sos": "SOSSpec",
     "number": "NumberSpec", "compose": "ProofSpec", "lint": "*",
-    "audit": "*", "reduce": "SymmetrySpec",
+    "audit": "*", "reduce": "SymmetrySpec", "matrix": "MatrixSpec",
 }
 
 #: Which commands leave a certificate that re-checks with NO solver.
 SOLVER_FREE = {
-    "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
+    "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
     "cover", "ideal", "eliminate", "sos", "number", "order", "bounds",
     "cases",
 }
@@ -66,6 +66,7 @@ BY_QUESTION = (
         ("commands.q.bounds", "bounds"),
         ("commands.q.order", "order"),
         ("commands.q.reduce", "reduce"),
+        ("commands.q.matrix", "matrix"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
         ("commands.q.entry", "entry"),
@@ -169,6 +170,7 @@ RUNNERS = {
     "moment": ("certo.engines.algebra", "moment"),
     "ratio": ("certo.engines.algebra", "ratio"),
     "reduce": ("certo.engines.algebra", "reduce_symmetry"),
+    "matrix": ("certo.engines.algebra", "integer_matrix"),
     "family": ("certo.engines.algebra", "family_max"),
     # `CoverSpec` answers two questions: `cover` checks one you have, and
     # `exists` asks whether any does. `ask` takes the first as the default,

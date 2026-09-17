@@ -375,7 +375,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The thirty-nine commands
+## The forty commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -396,6 +396,7 @@ and what to expect.
 | `parametric` | A bound for EVERY value of a parameter, from a dual you already have -- packing from above, cover from below | weak duality, symbolic | **y and the shifted residuals**, solver-free |
 | `peak` | The best INTEGER choice for a family of concave quadratics, and the value there | exact, no search | **the maximiser and two step inequalities**, solver-free |
 | `reduce` | "By symmetry": the three hypotheses of the averaging argument, checked | exact, no search | **generators, orbits and the quotient**, solver-free |
+| `matrix` | Exact integer linear algebra: rank, determinant, Hermite and Smith | unimodular transforms | **U, V and their inverses**, checked by multiplication, solver-free |
 | `family` | The largest of ten thousand linear programs, and why nothing beats it | exact LP | **the winner and a dual for the rest**, solver-free |
 | `ratio` | A fraction inequality for EVERY n | exact polynomials | **the cleared numerator and the sign of the denominator**, solver-free |
 | `moment` | Is the expected number of bad events below one, so a good object exists? | exact rationals | **the moment and the mass it leaves over**, solver-free |

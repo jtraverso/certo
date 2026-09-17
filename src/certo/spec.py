@@ -948,6 +948,38 @@ class EntrySpec:
     title: str = ""
 
 
+
+
+@dataclass
+class MatrixSpec:
+    """An integer matrix, and which exact question to ask of it.
+
+        MatrixSpec(
+            matrix=[[2, 4, 4], [-6, 6, 12], [10, -4, -16]],
+            question="smith",
+        )
+
+    Four questions, one shape of evidence: `det`, `rank`, `hermite`, `smith`.
+    All four are answered by unimodular transforms carried alongside their
+    inverses, so checking is integer matrix multiplication and not a second
+    elimination.
+
+    `rows` and `cols` select a submatrix before anything else happens, which
+    is how a MINOR is asked for: the same four questions, on the rows and
+    columns you name. Indices are 0-based and may repeat nothing.
+
+    Entries must be integers -- `Fraction(4, 2)` is accepted, `2.5` is
+    refused rather than rounded, because a matrix quietly rounded is a
+    different matrix.
+    """
+
+    matrix: object                   # a list of lists of integers
+    question: str = "hermite"        # det | rank | hermite | smith
+    rows: object = None              # a sub-selection, 0-based
+    cols: object = None
+    title: str = ""
+
+
 @dataclass
 class SymmetrySpec:
     """A program, and a group acting on it, to be reduced to one variable per

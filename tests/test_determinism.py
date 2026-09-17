@@ -86,6 +86,10 @@ IN_PROCESS = [
     "amgm.py", "ramsey.py", "sweep_orbits.py", "setfamily_sweep.py",
     "sos_quartic.py", "parametric_orbits.py",
     "first_moment.py", "first_entry.py", "ratio_window.py", "walkthrough.py",
+    # `reduce` walks a dict of generators and `matrix` builds transforms whose
+    # row order depends on which pivot came first; both are places where an
+    # iteration order that follows string hashing would show up here.
+    "symmetry_reduction.py", "integer_matrix.py",
 ]
 
 
@@ -170,6 +174,7 @@ CROSS_PROCESS = [
     ("amgm.py", "prove", []),
     ("setfamily_sweep.py", "sweep", ["--witnesses"]),
     ("parametric_orbits.py", "parametric", []),
+    ("integer_matrix.py", "matrix", []),
 ]
 
 

@@ -1326,6 +1326,32 @@ async def doctor() -> dict:
 
 
 @mcp.tool(description=(
+    "MATRIX: exact integer linear algebra -- rank, determinant, Hermite and "
+    "Smith normal form -- with the unimodular transforms carried alongside "
+    "their inverses, so every answer is checkable by integer matrix "
+    "MULTIPLICATION rather than by repeating the elimination. `U.A = H` with "
+    "`U.U_inv = I` proves U is unimodular, so A and H have the same row "
+    "lattice; H's shape then gives the rank and its diagonal the determinant, "
+    "up to the sign of det(U), which is known to be +1 or -1 and is settled "
+    "exactly by one determinant modulo an odd prime. Smith adds a column "
+    "transform and a checked divisibility chain, which is what makes the "
+    "invariant factors -- and so the torsion of Z^n / A Z^m -- a finite "
+    "checkable fact. `rows` and `cols` on the spec select a submatrix first, "
+    "which is how you ask about a MINOR. Entries must be integers: 2.5 is "
+    "refused rather than rounded."))
+@_guard
+async def matrix(spec_path: str | None = None, spec_source: str | None = None,
+                 timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import MatrixSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), MatrixSpec)
+    res = await _off(algebra.integer_matrix, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "REDUCE: quotient a linear program by a group acting on it, with the "
     "averaging argument CHECKED rather than asserted. Every write-up that "
     "says 'averaging over the automorphism group, an optimal solution may be "

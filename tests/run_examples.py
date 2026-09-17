@@ -32,6 +32,7 @@ CASES = [
     ("core_matrix.py", "core", []),
     ("hypothesis_audit.py", "audit", []),
     ("symmetry_reduction.py", "reduce", []),
+    ("integer_matrix.py", "matrix", []),
     ("farkas_linear.py", "farkas", []),
     ("farkas_nonlinear.py", "farkas", ["--nonlinear"]),
     ("farkas_named_square.py", "farkas", ["--nonlinear"]),

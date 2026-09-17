@@ -244,6 +244,18 @@ def cmd_reduce(args):
     return rc
 
 
+def cmd_matrix(args):
+    from .engines import algebra
+    from .spec import MatrixSpec, load_spec
+
+    spec = load_spec(args.spec, MatrixSpec)
+    res = algebra.integer_matrix(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        print("  " + t("verify.lattice.scope"))
+    return rc
+
+
 def cmd_audit(args):
     from .engines import smt
     from .spec import Spec, load_spec
@@ -1747,6 +1759,11 @@ def build_parser():
     sp.add_argument("spec", help=".py file returning a SymmetrySpec")
     sp.set_defaults(func=cmd_reduce)
 
+
+    sp = add("matrix", "exact integer linear algebra: rank, determinant, "
+                       "Hermite and Smith, with the transforms")
+    sp.add_argument("spec", help=".py file returning a MatrixSpec")
+    sp.set_defaults(func=cmd_matrix)
     sp = add("audit", "does each hypothesis earn its place: drop it and "
                       "hunt a counterexample")
     sp.add_argument("spec", help=".py file returning a Spec")

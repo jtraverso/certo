@@ -715,6 +715,29 @@ def symmetry_reduction_certificate(sense, generators, orbits, system,
     )
 
 
+def integer_matrix_certificate(question, matrix, result, title="") -> Certificate:
+    """An exact answer about an integer matrix, with the transforms that
+    make it checkable by multiplication instead of by elimination.
+
+    `U . A = H` with `U . U_inv = I` says U is unimodular, so A and H have the
+    same row lattice; H's shape then gives the rank, and its diagonal gives
+    the determinant up to `det(U)`. That last sign is the only quantity not
+    settled by a product of integers, and it does not need to be recomputed
+    over Z: it is known to be +1 or -1, and those are distinct modulo any odd
+    prime.
+
+    Smith carries a second transform on the columns and a diagonal whose
+    divisibility chain is checked, which is what makes the invariant factors
+    -- and so the torsion of the quotient group -- a finite checkable fact.
+    """
+    payload = {"question": question, "matrix": matrix, "title": title}
+    payload.update(result)
+    return Certificate(
+        kind="integer_matrix", solver_free=True, payload=payload,
+        note_key="cert.note.integer_matrix",
+    )
+
+
 def hypothesis_audit_certificate(rows, counts, goal_smt2, hypotheses_smt2,
                                  title="") -> Certificate:
     """Per hypothesis: needed and why, redundant, or not settled.
@@ -1336,6 +1359,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "first_moment": _verify_first_moment,
         "symmetry_reduction": _verify_symmetry_reduction,
         "hypothesis_audit": _verify_hypothesis_audit,
+        "integer_matrix": _verify_integer_matrix,
         "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
@@ -1851,6 +1875,73 @@ def _same_system(a, b) -> bool:
         return False
     key = lambda c: (tuple(sorted(c[1].items())), c[2], c[3])  # noqa: E731
     return sorted(map(key, a["cons"])) == sorted(map(key, b["cons"]))
+
+
+def _verify_integer_matrix(cert, limits) -> VerifyReport:
+    """Every claim as integer multiplication, and the one sign as a modulus."""
+    from . import lattice
+
+    p = cert.payload
+    A = lattice.parse(p["matrix"])
+    n, m = lattice.shape(A)
+    smith = p["question"] == "smith"
+    checks = []
+
+    U, U_inv = lattice.parse(p["u"]), lattice.parse(p["u_inv"])
+    checks.append((t("verify.lattice.unimodular"),
+                   lattice.is_identity(lattice.multiply(U, U_inv))
+                   and lattice.is_identity(lattice.multiply(U_inv, U)),
+                   t("verify.lattice.inverse", n=lattice.shape(U)[0])))
+
+    sign = lattice.unimodular_sign(U)
+    if smith:
+        V, V_inv = lattice.parse(p["v"]), lattice.parse(p["v_inv"])
+        checks.append((t("verify.lattice.unimodular_v"),
+                       lattice.is_identity(lattice.multiply(V, V_inv))
+                       and lattice.is_identity(lattice.multiply(V_inv, V)),
+                       t("verify.lattice.inverse", n=lattice.shape(V)[0])))
+        normal = lattice.parse(p["s"])
+        checks.append((t("verify.lattice.transform_two"),
+                       lattice.multiply(lattice.multiply(U, A), V) == normal,
+                       t("verify.lattice.equation", eq="U.A.V = S")))
+        checks.append((t("verify.lattice.smith_shape"),
+                       lattice.is_smith(normal, p["invariants"]),
+                       t("verify.lattice.invariants",
+                         values=", ".join(map(str, p["invariants"])) or "-")))
+        sign *= lattice.unimodular_sign(V)
+        diag = [normal[i][i] for i in range(min(n, m))]
+        rank = sum(1 for d in diag if d)
+    else:
+        normal = lattice.parse(p["h"])
+        checks.append((t("verify.lattice.transform"),
+                       lattice.multiply(U, A) == normal,
+                       t("verify.lattice.equation", eq="U.A = H")))
+        checks.append((t("verify.lattice.hermite_shape"),
+                       lattice.is_hermite(normal, p["pivots"]),
+                       t("verify.lattice.pivots", n=len(p["pivots"]))))
+        diag = [normal[i][i] for i in range(min(n, m))]
+        rank = len(p["pivots"])
+
+    checks.append((t("verify.lattice.sign"), sign in (1, -1)
+                   and sign == p["det_u"] * (p.get("det_v", 1) if smith else 1),
+                   t("verify.lattice.sign_is", sign=sign)))
+
+    checks.append((t("verify.lattice.rank"), rank == p["rank"],
+                   t("verify.lattice.rank_is", r=rank, n=n, m=m)))
+
+    if n == m:
+        want = sign
+        for d in diag:
+            want *= d
+        checks.append((t("verify.lattice.determinant"), want == p["det"],
+                       t("verify.lattice.det_is", d=want)))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "integer_matrix", True, checks=checks,
+        warnings=[t("verify.lattice.scope")],
+        method_key="verify.lattice.method",
+        detail=t("verify.lattice.detail", question=p["question"], n=n, m=m),
+    )
 
 
 def _verify_hypothesis_audit(cert, limits) -> VerifyReport:

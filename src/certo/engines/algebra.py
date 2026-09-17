@@ -30,7 +30,7 @@ from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
                            family_extremum_certificate,
                            first_entry_certificate,
-                           symmetry_reduction_certificate,
+                           integer_matrix_certificate, symmetry_reduction_certificate,
                            first_moment_certificate,
                            ratio_bound_certificate,
                            integer_peak_certificate,
@@ -46,6 +46,7 @@ ENGINE_PARAM = "certo/weak-duality"
 ENGINE_COVER = "certo/counting"
 ENGINE_SOS = "certo/sos"
 ENGINE_NUM = "certo/pratt"
+ENGINE_LATTICE = "certo/unimodular"
 
 
 def _poly(expr, variables):
@@ -227,6 +228,49 @@ def moment(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
                            threshold=str(out["threshold"]),
                            n=len(out["terms"])),
                   meta={"expectation": shown, "exists": out["concludes"]})
+
+
+def integer_matrix(spec, limits: Limits | None = None,
+                   spec_path: str = "") -> Result:
+    """rank, determinant, Hermite or Smith, exactly, with the transforms."""
+    from ..lattice import NotAnIntegerMatrix, analyse, parse, shape
+
+    t0 = time.perf_counter()
+    try:
+        A = parse(spec.matrix)
+        if spec.rows is not None:
+            A = [A[i] for i in spec.rows]
+        if spec.cols is not None:
+            A = [[row[j] for j in spec.cols] for row in A]
+        if not A or not A[0]:
+            raise NotAnIntegerMatrix(t("lattice.empty", name="submatrix"))
+        out = analyse(A, spec.question)
+    except (NotAnIntegerMatrix, IndexError) as e:
+        return Result("matrix", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_LATTICE, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    n, m = shape(A)
+    payload = {k: v for k, v in out.items() if k != "question"}
+    cert = integer_matrix_certificate(
+        question=out["question"], matrix=A, result=payload,
+        title=spec.title).stamp(spec_path or None)
+
+    if spec.question in ("det", "determinant"):
+        detail = t("engine.lattice.det", d=out["det"], n=n)
+    elif spec.question == "rank":
+        detail = t("engine.lattice.rank", r=out["rank"], n=n, m=m)
+    elif spec.question == "smith":
+        detail = t("engine.lattice.smith", r=out["rank"],
+                   values=", ".join(map(str, out["invariants"])) or "-")
+    else:
+        detail = t("engine.lattice.hermite", r=out["rank"], n=n, m=m)
+
+    return Result("matrix", Status.UNSAT, Verdict.PROVED, ENGINE_LATTICE, ms,
+                  cert, detail=detail,
+                  meta={"rank": out["rank"], "determinant": out.get("det"),
+                        "rows": n, "cols": m,
+                        "invariants": out.get("invariants")})
 
 
 def reduce_symmetry(spec, limits: Limits | None = None,

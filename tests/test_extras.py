@@ -1944,6 +1944,270 @@ def test_every_command_answers_a_question_in_the_catalogue():
     assert not missing, missing
 
 
+# --- exact integer linear algebra, checked by multiplication ---------------
+
+
+def _matrix(entries, question="hermite", **kw):
+    from certo import MatrixSpec
+    from certo.engines import algebra
+
+    return algebra.integer_matrix(
+        MatrixSpec(matrix=entries, question=question, **kw), LIM)
+
+
+def _laplace(M):
+    """A determinant nobody in `lattice` had a hand in."""
+    n = len(M)
+    if n == 1:
+        return M[0][0]
+    return sum((-1) ** j * M[0][j] *
+               _laplace([[M[i][k] for k in range(n) if k != j]
+                         for i in range(1, n)])
+               for j in range(n))
+
+
+def test_the_transforms_do_what_the_certificate_says_they_do():
+    """Not 'the answer looks right' -- the two identities the answer RESTS on,
+    checked by multiplying integers."""
+    from certo import lattice
+
+    A = [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+    r = _matrix(A, "smith")
+    assert r.verdict is Verdict.PROVED
+    p = r.certificate.payload
+
+    assert p["invariants"] == [2, 6, 12]
+    assert lattice.multiply(lattice.multiply(p["u"], A), p["v"]) == p["s"]
+    assert lattice.is_identity(lattice.multiply(p["u"], p["u_inv"]))
+    assert lattice.is_identity(lattice.multiply(p["v"], p["v_inv"]))
+
+    # the invariant factors multiply to the index, which is |det|
+    assert 2 * 6 * 12 == abs(_laplace(A)) == 144
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+
+def test_determinants_agree_with_laplace_on_matrices_nobody_chose():
+    """Random matrices against an expansion with no shared code. An exact
+    method that is wrong is wrong silently, which is the whole hazard."""
+    import random
+
+    rng = random.Random(20260917)
+    for _ in range(40):
+        n = rng.randint(1, 4)
+        hi = rng.choice([1, 5, 60])
+        A = [[rng.randint(-hi, hi) for _ in range(n)] for _ in range(n)]
+        r = _matrix(A, "det")
+        assert r.verdict is Verdict.PROVED
+        assert r.certificate.payload["det"] == _laplace(A), A
+        assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_rank_is_exact_and_not_a_threshold():
+    """The third row is the sum of the first two, which no epsilon decides."""
+    r = _matrix([[2, 4, 6, 8], [1, 3, 5, 7], [3, 7, 11, 15]], "rank")
+    assert r.meta["rank"] == 2 and r.meta["rows"] == 3 and r.meta["cols"] == 4
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+    # a singular square matrix has determinant 0 and says so
+    r = _matrix([[1, 2, 3], [4, 5, 6], [7, 8, 9]], "det")
+    assert r.certificate.payload["det"] == 0
+    assert r.certificate.payload["rank"] == 2
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_minor_is_the_same_question_on_a_submatrix():
+    A = [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+    r = _matrix(A, "det", rows=[0, 1], cols=[0, 1])
+    assert r.certificate.payload["det"] == 36 == _laplace([[2, 4], [-6, 6]])
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_forged_matrix_certificate_does_not_verify():
+    """Every payload field a forger would reach for, and the check on it.
+    A field that can be edited without failing a check is a field that is
+    not carrying its weight."""
+    import copy
+
+    base = json.loads(json.dumps(
+        _matrix([[2, 4, 4], [-6, 6, 12], [10, -4, -16]],
+                "smith").certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    assert not bent(lambda p: p.__setitem__("det", 143))
+    assert not bent(lambda p: p.__setitem__("rank", 2))
+    assert not bent(lambda p: p.__setitem__("invariants", [1, 12, 12]))
+    assert not bent(lambda p: p.__setitem__("det_u", -p["det_u"]))
+    assert not bent(lambda p: p.__setitem__("det_v", -p["det_v"]))
+    assert not bent(lambda p: p["s"][0].__setitem__(0, 1))
+    assert not bent(lambda p: p["u"][0].__setitem__(0, p["u"][0][0] + 1))
+    assert not bent(lambda p: p["u_inv"][0].__setitem__(0, 0))
+    assert not bent(lambda p: p["v"][0].__setitem__(0, p["v"][0][0] + 1))
+    assert not bent(lambda p: p["matrix"][0].__setitem__(0, 3))
+
+
+def test_a_transform_that_is_not_unimodular_is_caught_by_its_own_inverse():
+    """The load-bearing check: without `U.U_inv = I` a SCALED transform would
+    pass everything else and multiply the determinant by whatever it likes."""
+    import copy
+
+    from certo import lattice
+
+    base = json.loads(json.dumps(
+        _matrix([[3, 1], [5, 2]], "hermite").certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    d = copy.deepcopy(base)
+    p = d["payload"]
+    p["u"] = [[2 * v for v in row] for row in p["u"]]
+    p["h"] = lattice.multiply(p["u"], p["matrix"])
+    p["det"] = p["det"] * 4                    # consistent with the new H
+    rep = verify(Certificate.from_dict(d), LIM)
+    assert not rep.ok
+    assert any(not ok for _label, ok, _detail in rep.checks)
+
+
+def test_the_sign_is_decided_and_not_assumed():
+    """`U.U_inv = I` leaves the sign of det(U) free, and that sign IS the sign
+    of det(A). One determinant modulo an odd prime settles it -- exactly,
+    because there were only ever two candidates."""
+    from certo import lattice
+
+    for A in ([[0, 1], [1, 0]], [[1, 0], [0, 1]], [[2, 1], [7, 4]],
+              [[0, 0, 1], [0, 1, 0], [1, 0, 0]]):
+        out = lattice.hermite(A)
+        assert lattice.unimodular_sign(out["u"]) == out["det_u"]
+        assert out["det_u"] in (1, -1)
+        got = out["det_u"]
+        for i in range(len(A)):
+            got *= out["h"][i][i]
+        assert got == _laplace(A), A
+
+    # a matrix that is not unimodular gets no sign at all
+    assert lattice.unimodular_sign([[2, 0], [0, 1]]) == 0
+
+
+def test_a_matrix_that_is_not_one_is_refused_rather_than_repaired():
+    from fractions import Fraction
+
+    r = _matrix([[1, 2], [3]], "rank")
+    assert r.verdict is Verdict.INCONCLUSIVE and "rectangular" in r.detail
+
+    # 2.5 must not become 2: a matrix quietly rounded is a different matrix
+    r = _matrix([[2.5, 1], [0, 1]], "det")
+    assert r.verdict is Verdict.INCONCLUSIVE and "not an integer" in r.detail
+
+    # but an integer written as a fraction is an integer
+    r = _matrix([[Fraction(4, 2), 1], [0, 1]], "det")
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.payload["det"] == 2
+
+    # the determinant of a rectangle is not a thing
+    r = _matrix([[1, 2, 3], [4, 5, 6]], "det")
+    assert r.verdict is Verdict.INCONCLUSIVE and "square" in r.detail
+
+
+# --- a missing message key is invisible ------------------------------------
+
+
+def _catalogues():
+    import json
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "src/certo/locales"
+    return {p.stem: json.loads(p.read_text(encoding="utf-8"))
+            for p in sorted(root.glob("*.json"))}
+
+
+def _keys_used():
+    """Every literal key handed to `t(...)`, with the file it came from."""
+    import ast
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "src/certo"
+    out = {}
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            fn = node.func
+            name = getattr(fn, "id", None) or getattr(fn, "attr", None)
+            if name not in ("t", "_t"):
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                out.setdefault(first.value, set()).add(path.name)
+    return out
+
+
+def test_every_message_key_the_code_asks_for_exists():
+    """`t()` falls back to the KEY when it is missing, so a typo ships as a
+    line of output reading `verify.matrix.detail` and nobody notices. That is
+    exactly what `core_matrix` was printing until a name collision made it
+    fail loudly instead."""
+    en = _catalogues()["en"]
+    missing = {k: sorted(v) for k, v in _keys_used().items() if k not in en}
+    assert not missing, missing
+
+
+def test_the_languages_carry_the_same_keys_and_the_same_placeholders():
+    """A message translated with a different `{placeholder}` raises KeyError
+    at the moment somebody switches language, which is the worst possible
+    moment."""
+    import re
+
+    cats = _catalogues()
+    en = cats["en"]
+    for lang, table in cats.items():
+        if lang == "en":
+            continue
+        assert set(table) == set(en), {
+            "only in " + lang: sorted(set(table) - set(en))[:5],
+            "only in en": sorted(set(en) - set(table))[:5]}
+        for key, text in table.items():
+            want = set(re.findall(r"\{(\w+)\}", en[key]))
+            got = set(re.findall(r"\{(\w+)\}", text))
+            assert got == want, (lang, key, sorted(want), sorted(got))
+
+
+def test_a_message_is_called_with_the_arguments_it_declares():
+    """The collision that made this whole family of tests necessary: one key
+    used by two verifiers, each passing different placeholders. The second
+    one raises KeyError the first time it runs -- in `verify`, on a stored
+    certificate, long after the change that caused it."""
+    import ast
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "src/certo"
+    en = _catalogues()["en"]
+    bad = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func,
+                                                             "attr", None)
+            if name not in ("t", "_t"):
+                continue
+            key = node.args[0]
+            if not (isinstance(key, ast.Constant)
+                    and isinstance(key.value, str) and key.value in en):
+                continue
+            if any(kw.arg is None for kw in node.keywords):   # **something
+                continue
+            passed = {kw.arg for kw in node.keywords}
+            want = set(re.findall(r"\{(\w+)\}", en[key.value]))
+            if want - passed:
+                bad.append((path.name, node.lineno, key.value,
+                            sorted(want - passed)))
+    assert not bad, bad
+
+
 # --- a level cannot be crossed silently ------------------------------------
 
 
