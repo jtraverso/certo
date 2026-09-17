@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "certo"
-version = "0.5.2"
+version = "0.6.0"
 description = "A laboratory for supporting mathematical proofs (CLI + MCP): decide, enumerate, optimise, synthesise and certify."
 requires-python = ">=3.11"
 dependencies = ["z3-solver>=4.12", "pulp>=2.7"]

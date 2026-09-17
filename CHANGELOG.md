@@ -6,82 +6,15 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
-### `certo cover`: is this really a clique partition, and how large?
+## [0.6.0] — 2026-09-17
 
-Somebody hands you a clique partition and says it has 47 parts. Two things
-have to be true and neither is visible by looking: every part really is a
-clique, and every edge is covered EXACTLY once — not zero times, which makes
-it not a cover, and not twice, which makes the count a lie. Checking both is
-counting: no solver, no search, no trust in whatever produced it.
+**Schema unchanged: `SCHEMA_VERSION` stays 4.** Three new certificate kinds
+and one optional payload field, which are the two shapes the freeze permits.
+A 0.5 certificate verifies here and one from here verifies there, minus the
+kinds and the field it will not know to look at.
 
-```
-$ certo verify out/clique_partition.json
-VALID  exact_cover certificate (checked by counting, no solver)
-  [ok] every element of the universe is covered  (0 missed: -)
-  [ok] and covered exactly once  (0 covered more than once: -)
-  [ok] every part really is a clique of the graph  (0 parts are not)
-```
-
-The general object is an exact cover — a universe and parts, each element in
-exactly one — and a clique partition is that with the edge set as the universe.
-So the machinery is written once and the graph case adds the check a cover
-cannot make: that a part's edges really are ALL the edges among its vertices.
-
-Three failures, reported as three different things. A part that is not a
-clique is a statement about the graph, so the run stops **inconclusive** with
-the offending pairs named and writes no certificate. An edge covered twice or
-zero times is **REFUTED**, named, and in the first case told that `exact=False`
-would make the same data valid — an at-least cover is a weaker and reasonable
-claim, recorded as a different one rather than left for a reader to assume.
-
-**It is an upper bound.** That the size is minimum is a different statement,
-and the exact rational dual from `opt` on the same universe is a lower bound
-for it; where the two meet the number is proved, which is the pairing
-`opt --gap` already makes for packings. Finding a minimum cover is NP-hard and
-deliberately not what this does.
-
-Built from a real audit that sends a graph plus a partition, and a graph plus
-dual weights, to an external service for checking. The difference in model is
-the point: a certificate carries its own check, so the same audit does not
-need the service to still be running in six months.
-
-
-### Local loads: named regions a packing has to respect
-
-A packing certificate proved an optimum and could not say the thing an
-argument usually needs next: *and the design holds the bounds I put on each
-region, by this much, and that one cost me this.*
-
-`PackingSpec(loads=[("within_A", {...}, "<=", 2)])` declares them, and they
-become rows like any other — so the dual prices them for free:
-
-```
-2 declared loads, and what the design does to them:
-  within_A         2 <= 2   BINDING
-                   costs 1 per unit of bound -- relaxing it buys that much
-  within_B         3 <= 5   slack 2
-```
-
-That second column is the point: a binding region with a shadow price is doing
-work, one with slack is along for the ride, and knowing which is which is what
-tells you where to spend effort tightening an argument.
-
-A capacity is part of the ENCODING; a load is part of the ARGUMENT. They are
-declared separately for that reason, and reported apart.
-
-The certificate carries each load's coefficients, bound, achieved value and
-slack, as an **optional payload field** — which the frozen schema allows.
-`verify` recomputes the achieved value from the primal rather than believing
-the declared one, so a certificate that understates what a region used fails.
-
-Senses `<=`, `>=` and `==`; the last is exact preservation. A weight on an
-item that is not in the packing, or a load name colliding with a resource, is
-refused rather than accepted quietly — the first makes a row silently weaker
-than intended and the second makes two prices indistinguishable in the dual.
-
-Taken from a real model whose constraints read `within-A load <= N_A`
-alongside a parity condition and a divisibility one.
-
+Three new commands, all of them built against a real instance rather than in
+the abstract, and one negative result kept because it corrects the backlog.
 
 ### `certo parametric`: the finite-to-infinite jump
 
@@ -124,7 +57,6 @@ p = 6, another across 7..9, a third from 10 — which is exactly the shape this
 certifies. Reproducing that slice symbolically and certifying it was how the
 command got its interface.
 
-
 ### `certo eliminate`: remove a variable, keep the condition
 
 `ideal` says what follows from a system. This is the other question people ask
@@ -165,6 +97,104 @@ Three things it is careful about:
 not there, and a degree of zero in the eliminated variable are all caught by
 comparing integers, before any determinant is computed.
 
+### `certo cover`: is this really a clique partition, and how large?
+
+Somebody hands you a clique partition and says it has 47 parts. Two things
+have to be true and neither is visible by looking: every part really is a
+clique, and every edge is covered EXACTLY once — not zero times, which makes
+it not a cover, and not twice, which makes the count a lie. Checking both is
+counting: no solver, no search, no trust in whatever produced it.
+
+```
+$ certo verify out/clique_partition.json
+VALID  exact_cover certificate (checked by counting, no solver)
+  [ok] every element of the universe is covered  (0 missed: -)
+  [ok] and covered exactly once  (0 covered more than once: -)
+  [ok] every part really is a clique of the graph  (0 parts are not)
+```
+
+The general object is an exact cover — a universe and parts, each element in
+exactly one — and a clique partition is that with the edge set as the universe.
+So the machinery is written once and the graph case adds the check a cover
+cannot make: that a part's edges really are ALL the edges among its vertices.
+
+Three failures, reported as three different things. A part that is not a
+clique is a statement about the graph, so the run stops **inconclusive** with
+the offending pairs named and writes no certificate. An edge covered twice or
+zero times is **REFUTED**, named, and in the first case told that `exact=False`
+would make the same data valid — an at-least cover is a weaker and reasonable
+claim, recorded as a different one rather than left for a reader to assume.
+
+**It is an upper bound.** That the size is minimum is a different statement,
+and the exact rational dual from `opt` on the same universe is a lower bound
+for it; where the two meet the number is proved, which is the pairing
+`opt --gap` already makes for packings. Finding a minimum cover is NP-hard and
+deliberately not what this does.
+
+Built from a real audit that sends a graph plus a partition, and a graph plus
+dual weights, to an external service for checking. The difference in model is
+the point: a certificate carries its own check, so the same audit does not
+need the service to still be running in six months.
+
+### One thing that was tried and does not work
+
+The backlog said the fix for `SetFamily.canonical()` refusing on symmetric
+families was "individualisation-refinement, the way nauty does it". It was
+implemented and verified correct — 400 random families agreed exactly with the
+exhaustive reference, 120 families relabelled twelve ways each gave one form —
+and then measured:
+
+| | individualisation-refinement | exhaustive |
+|---|---|---|
+| K7 as a family | 157 ms | 89 ms |
+| K8 as a family | 1809 ms | 2041 ms |
+| 1-factorisation of K6 | still refuses | still refuses |
+
+Refinement splits a cell only when its points differ by an isomorphism
+invariant, and a vertex-transitive object has none — so on exactly the
+families that hit the cap, it degenerates to the brute force it was meant to
+replace. The real content of nauty is automorphism pruning; refinement is the
+cheap part around it.
+
+Reverted rather than shipped. The backlog now says that instead, along with
+the measurement that the cap bites far earlier than it claimed: a
+1-factorisation of K6 is fifteen points and five blocks and hits it.
+
+### Local loads: named regions a packing has to respect
+
+A packing certificate proved an optimum and could not say the thing an
+argument usually needs next: *and the design holds the bounds I put on each
+region, by this much, and that one cost me this.*
+
+`PackingSpec(loads=[("within_A", {...}, "<=", 2)])` declares them, and they
+become rows like any other — so the dual prices them for free:
+
+```
+2 declared loads, and what the design does to them:
+  within_A         2 <= 2   BINDING
+                   costs 1 per unit of bound -- relaxing it buys that much
+  within_B         3 <= 5   slack 2
+```
+
+That second column is the point: a binding region with a shadow price is doing
+work, one with slack is along for the ride, and knowing which is which is what
+tells you where to spend effort tightening an argument.
+
+A capacity is part of the ENCODING; a load is part of the ARGUMENT. They are
+declared separately for that reason, and reported apart.
+
+The certificate carries each load's coefficients, bound, achieved value and
+slack, as an **optional payload field** — which the frozen schema allows.
+`verify` recomputes the achieved value from the primal rather than believing
+the declared one, so a certificate that understates what a region used fails.
+
+Senses `<=`, `>=` and `==`; the last is exact preservation. A weight on an
+item that is not in the packing, or a load name colliding with a resource, is
+refused rather than accepted quietly — the first makes a row silently weaker
+than intended and the second makes two prices indistinguishable in the dual.
+
+Taken from a real model whose constraints read `within-A load <= N_A`
+alongside a parity condition and a divisibility one.
 
 ## [0.5.2] — 2026-09-17
 

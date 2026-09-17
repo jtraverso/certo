@@ -2128,7 +2128,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veintiocho comandos y treinta tipos de certificado, y la forma de un
+Veintiocho comandos y treinta y dos tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

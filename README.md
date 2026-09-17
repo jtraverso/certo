@@ -2085,7 +2085,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Twenty-eight commands and thirty certificate kinds, and the shape of a
+Twenty-eight commands and thirty-two certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```
