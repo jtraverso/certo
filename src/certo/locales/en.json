@@ -771,7 +771,7 @@
   "cli.loads.header": "{n} declared loads, and what the design does to them:",
   "cli.loads.binding": "BINDING",
   "cli.loads.slack": "slack {slack}",
-  "cli.loads.price": "costs {price} per unit of bound -- relaxing it buys that much",
+  "cli.loads.price": "moving the bound up by one changes the optimum by {price}",
   "verify.lp.load": "load `{name}` holds, and at the declared value",
   "verify.lp.load_detail": "{got} {sense} {bound}, slack {slack}",
   "cert.note.exact_cover": "every element of the universe in exactly one part",
@@ -800,5 +800,11 @@
   "verify.cover.detail": "{parts} parts covering {n} elements {kind}",
   "verify.cover.exactly": "exactly once each",
   "verify.cover.atleast": "at least once each",
-  "verify.cover.not_minimum": "this says the cover is VALID and how large it is. It does not say it is the smallest: for that, pair it with an exact dual from `opt` on the same universe."
+  "verify.cover.not_minimum": "this says the cover is VALID and how large it is. It does not say it is the smallest: for that, pair it with an exact dual from `opt` on the same universe.",
+  "cli.loads.degenerate": "binding, and priced at zero: the bound is touched but moving it buys nothing here",
+  "cli.selfcheck.failed": "!! SELF-CHECK FAILED: certo produced a {kind} certificate that its own verifier rejects. This is a bug in certo, not in your spec, and the result above must not be relied on.",
+  "cli.selfcheck.report": "   Please report it: https://github.com/jtraverso/certo/issues",
+  "engine.bb.optimal_min": "MINIMUM {value}, PROVED: {nodes} nodes, {leaves} of them closed by a certificate (searched as a maximisation of the negated objective, which the certificate records)",
+  "engine.bb.stopped_nodes": "STOPPED at {limit} nodes, so optimality is NOT established. Best design {value}, best bound {bound}, gap {gap}, after {nodes} nodes.",
+  "engine.bb.stopped_clock": "STOPPED after {limit} ms, so optimality is NOT established. Best design {value}, best bound {bound}, gap {gap}, after {nodes} nodes."
 }

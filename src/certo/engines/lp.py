@@ -43,6 +43,8 @@ def _load_report(spec, x, duals_by_name):
     """
     from .. import exact
 
+    from ..certificate import normalised_rows
+
     names = getattr(spec, "load_names", None) or []
     if not names:
         return None
@@ -68,7 +70,16 @@ def _load_report(spec, x, duals_by_name):
             "slack": exact.serialize(achieved - bound if sense == "=="
                                      else slack),
             "binding": (achieved == bound),
-            "dual": exact.serialize(duals_by_name.get(n, 0)),
+            # d(optimum)/d(bound), which is the number anyone wants and is
+            # NOT simply the dual of a row called `n`. `as_leq_system` renames
+            # a `>=` row to `n_geq` and negates it, and splits an `==` into
+            # two; looking up the original name found nothing and reported a
+            # shadow price of zero on a constraint that was costing you.
+            "dual": exact.serialize(
+                sum((sign * exact.to_fraction(duals_by_name.get(rn, 0))
+                     for rn, sign in normalised_rows(n, sense)),
+                    exact.to_fraction(0))),
+            "rows": [rn for rn, _ in normalised_rows(n, sense)],
         })
     return out
 

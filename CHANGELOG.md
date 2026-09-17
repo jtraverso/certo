@@ -6,6 +6,66 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Fixed: two defects a user found by running `verify` on our own output
+
+**A `mixed_design` certificate was rejected by its own verifier whenever the
+model had a `>=` or `==` constraint.** Reported as "all variables discrete, so
+the residual LP is empty", and the empty residual turned out to be incidental:
+the trigger is the constraint SENSE, and it bit mixed models with continuous
+variables just as hard.
+
+`LPSpec.as_leq_system` renames a `>=` row to `name_geq` and negates it, and
+splits an `==` into `name_le` and `name_ge`. The equivalence check looked up
+the ORIGINAL name in a table keyed by the normalised ones, missed, and called
+a perfectly good certificate invalid. That mapping now lives in one place,
+`certificate.normalised_rows`, and both consumers use it by name.
+
+**A `>=` load reported a shadow price of zero.** Same root cause, different
+consumer: the load reporter looked up `quota_A` while the row was
+`quota_A_geq`. It now sums the normalised rows with their signs, so the number
+is `d(optimum)/d(bound)` — for a binding `>=` quota that is negative, because
+raising the floor costs you, and the message says which direction it means.
+The rows it came from travel in the payload.
+
+### Added: `--self-check`, which would have caught both
+
+After producing a certificate, run the real verifier on it. **Solver-free
+certificates are checked by default** — the check is arithmetic and costs
+nothing — and anything needing a solver is opt-in via `--self-check`.
+
+A failure is not a warning: the exit code says invalid, and the message says
+plainly that this is a bug in certo rather than in the user's spec. Both
+defects above reproduce as an immediate, loud failure under it.
+
+This is the class of bug a test suite does not catch on its own, and it is
+worth naming: every test fed verification a certificate the producer had
+built, so producer and verifier agreed because both were wrong in the same
+place.
+
+### Added: branch and bound accepts a minimisation
+
+It refused with "negate the objective yourself". The transformation is exact
+and mechanical, and making the user do it leaves their certificate describing
+a formulation nobody posed — which is the one thing a certificate must not do.
+
+The tree still searches `max -c.x`, because that is what was actually done,
+and the payload records **both**: `sense` is what was searched,
+`original_sense` and `original_optimum` are what was asked. The screen shows
+the minimum in the user's own sign.
+
+### Added: `--wall-timeout-ms`, and a stopped search that says what it knows
+
+`--timeout-ms` bounds each solver call, not the search, and a nine-minute run
+under a four-minute flag is a fair thing to be annoyed about. `--wall-timeout-ms`
+is a budget for the whole branch and bound.
+
+On expiry — by clock or by nodes — the result now carries the **best design,
+the best bound, the gap and the node count**, and no certificate of
+optimality. A search that runs out always knew all four; returning
+INCONCLUSIVE with none of them made an instance a hole rather than a partial
+result.
+
+
 ## [0.6.0] — 2026-09-17
 
 **Schema unchanged: `SCHEMA_VERSION` stays 4.** Three new certificate kinds

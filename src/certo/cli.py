@@ -147,6 +147,11 @@ def emit(res: Result, args) -> int:
             print("  " + t("cli.certificate.none"))
         print("  " + t("cli.engine", engine=res.engine, ms=res.elapsed_ms))
 
+    # Self-verification. A certificate that fails its own checker is a bug in
+    # certo, never a result, and saying so here is the difference between
+    # finding that out now and finding it out in somebody's audit.
+    selfcheck = _self_check(res, args)
+
     out = getattr(args, "cert", None)
     if out and res.certificate is not None:
         Path(out).write_text(
@@ -167,7 +172,41 @@ def emit(res: Result, args) -> int:
         if not getattr(args, "json", False):
             print("  " + t("cli.ledger.logged", path=path))
 
+    if selfcheck is False:
+        return 1
     return 0 if res.status.conclusive else 2
+
+
+def _self_check(res, args):
+    """Run the real verifier over what we just produced. None = not run.
+
+    Solver-free certificates are checked by default because the check is
+    arithmetic; anything else is opt-in, since re-running a search on every
+    invocation is a cost nobody asked for.
+    """
+    cert = res.certificate
+    if cert is None:
+        return None
+    want = getattr(args, "self_check", None)
+    if want is False:
+        return None
+    if want is None and not cert.solver_free:
+        return None
+
+    rep = verify_cert(cert, limits_from(args))
+    res.meta["self_check"] = "ok" if rep.ok else "FAILED"
+    if rep.ok:
+        return True
+
+    # Loud, and on stderr: this is certo failing, not the user's spec.
+    print(t("cli.selfcheck.failed", kind=cert.kind), file=sys.stderr)
+    for name, ok, detail in rep.checks:
+        if not ok:
+            print("    [XX] {}{}".format(
+                name, "  ({})".format(detail) if detail else ""),
+                file=sys.stderr)
+    print(t("cli.selfcheck.report"), file=sys.stderr)
+    return False
 
 
 def limits_from(args) -> Limits:
@@ -485,6 +524,10 @@ def print_loads(cert):
         if ld.get("dual") and ld["dual"] != "0":
             print("    {:<16} {}".format(
                 "", t("cli.loads.price", price=ld["dual"])))
+        elif ld["binding"]:
+            # Binding and priced at zero is a real and confusing state:
+            # degeneracy. Saying so beats leaving a blank where a number was.
+            print("    {:<16} {}".format("", t("cli.loads.degenerate")))
 
 
 def cmd_sos(args):
@@ -548,7 +591,8 @@ def cmd_mixed(args):
         from .engines import bb
 
         res = bb.prove_optimal(spec, limits_from(args), spec_path=args.spec,
-                               max_nodes=args.max_nodes)
+                               max_nodes=args.max_nodes,
+                               wall_ms=args.wall_timeout_ms)
     else:
         res = mixed.mixed(spec, limits_from(args), spec_path=args.spec,
                           target=target, freeze=freeze)
@@ -1283,6 +1327,15 @@ def build_parser():
     common.add_argument("--log", nargs="?", const="-", metavar="FILE",
                         help="append this run to the audit ledger "
                              "(default: ./ledger.jsonl)")
+    common.add_argument("--self-check", action="store_true", default=None,
+                        dest="self_check",
+                        help="re-verify the certificate before reporting a "
+                             "result. Solver-free certificates are checked "
+                             "this way anyway; this also covers the ones that "
+                             "need a solver")
+    common.add_argument("--no-self-check", action="store_false",
+                        dest="self_check",
+                        help="skip it even for solver-free certificates")
     common.add_argument("--note", help="note to store with the ledger entry")
     common.add_argument("--tag", action="append", metavar="TAG",
                         help="repeatable tag for the ledger entry")
@@ -1352,6 +1405,14 @@ def build_parser():
                          "every leaf certified and the tree checked to cover "
                          "the integer domain. Exponential, and it says so "
                          "rather than returning the incumbent when it runs out")
+    sp.add_argument("--wall-timeout-ms", type=int, default=None,
+                    dest="wall_timeout_ms", metavar="MS",
+                    help="a budget for the WHOLE branch-and-bound search. "
+                         "`--timeout-ms` is per solver call, which is a "
+                         "different thing and does not bound the search. On "
+                         "expiry: the best design, the best bound, the gap "
+                         "and the node count, and NO certificate of "
+                         "optimality")
     sp.add_argument("--max-nodes", type=int, default=5000, dest="max_nodes",
                     help="node budget for --prove-optimal (default 5000)")
     sp.add_argument("--freeze", metavar="FILE",

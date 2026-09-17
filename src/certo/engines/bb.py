@@ -68,8 +68,39 @@ def _node_lp(spec, fixed):
     return out, const
 
 
+def _negated(spec):
+    """`min c.x` as `max -c.x`, with everything else untouched."""
+    import copy
+
+    from .. import exact
+
+    out = copy.copy(spec)
+    out.sense = "max"
+    out.obj = {v: -exact.to_fraction(c) for v, c in spec.obj.items()}
+    return out
+
+
+def _partial(nodes, seen, incumbent, best_bound, minimising):
+    """What a stopped search knows. Not a certificate -- a status report.
+
+    An exhausted budget is not "no answer": there is a design, a bound, a node
+    count and therefore a gap, and every one of them tells the user whether to
+    raise the budget or change the model.
+    """
+    from .. import exact
+
+    sign = -1 if minimising else 1
+    out = {"nodes_opened": seen,
+           "incumbent": exact.serialize(sign * incumbent),
+           "closed": len(nodes)}
+    if best_bound is not None:
+        out["best_bound"] = exact.serialize(sign * best_bound)
+        out["gap"] = exact.serialize(abs(best_bound - incumbent))
+    return out
+
+
 def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
-                  max_nodes: int = 5_000) -> Result:
+                  max_nodes: int = 5_000, wall_ms=None) -> Result:
     from . import lp, mixed
 
     lim = limits or Limits()
@@ -81,9 +112,13 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
     if not spec.discrete:
         return Result("bb", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE, ENGINE,
                       ms(), None, detail=t("engine.bb.no_discrete"))
-    if spec.sense != "max":
-        return Result("bb", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE, ENGINE,
-                      ms(), None, detail=t("engine.bb.only_max"))
+    # A minimisation is searched as `max -c.x`. Exact and mechanical, and
+    # doing it here rather than telling the user to is what keeps the
+    # certificate describing the problem they wrote: the payload records the
+    # maximisation that was searched AND the minimum in their own sign.
+    minimising = spec.sense == "min"
+    if minimising:
+        spec = _negated(spec)
     for v in spec.discrete:
         if _values(spec, v) is None:
             return Result("bb", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
@@ -104,15 +139,25 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
     order = list(spec.discrete)
     nodes, stack = [], [({}, 0)]
     seen = 0
+    best_bound = None
 
     while stack:
         fixed, depth = stack.pop()
         seen += 1
-        if seen > max_nodes:
+        over_nodes = seen > max_nodes
+        over_clock = wall_ms is not None and ms() > wall_ms
+        if over_nodes or over_clock:
+            part = _partial(nodes, seen - 1, incumbent, best_bound, minimising)
             return Result("bb", Status.RESOURCE_EXHAUSTED,
                           Verdict.INCONCLUSIVE, ENGINE, ms(), None,
-                          detail=t("engine.bb.budget", n=max_nodes,
-                                   value=exact.serialize(incumbent)))
+                          detail=t("engine.bb.stopped_clock" if over_clock
+                                   else "engine.bb.stopped_nodes",
+                                   limit=wall_ms if over_clock else max_nodes,
+                                   value=part["incumbent"],
+                                   bound=part.get("best_bound", "?"),
+                                   gap=part.get("gap", "?"),
+                                   nodes=part["nodes_opened"]),
+                          meta=dict(part, stopped=True))
 
         node_spec, const = _node_lp(spec, fixed)
         res = lp.opt(node_spec, lim)
@@ -150,6 +195,10 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
                 incumbent_cert = _design(spec, fixed, lim)
             continue
 
+        # The best bound still open anywhere: with it, a stopped search can
+        # report a GAP rather than just a design.
+        best_bound = bound if best_bound is None else max(best_bound, bound)
+
         var = remaining[0]
         vals = _values(spec, var)
         nodes.append({"fixed": key, "why": "branch", "on": var,
@@ -163,14 +212,23 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
     cert = branch_bound_certificate(
         incumbent=exact.serialize(incumbent), incumbent_cert=incumbent_cert,
         nodes=nodes, order=order, sense=spec.sense, title=spec.title,
+        # The tree searched a maximisation. When the user wrote a
+        # minimisation, BOTH go in: hiding the negation would leave the
+        # certificate describing a problem nobody posed.
+        original_sense="min" if minimising else spec.sense,
+        original_optimum=exact.serialize(-incumbent if minimising
+                                         else incumbent),
     ).stamp(spec_path or None)
 
     closed = sum(1 for n in nodes if n["why"] != "branch")
+    # Back into the sign the user wrote. The tree is over `max -c.x` and the
+    # certificate says so; the number on screen is their minimum.
+    shown = exact.serialize(-incumbent if minimising else incumbent)
     return Result(
         "bb", Status.UNSAT, Verdict.PROVED, ENGINE, ms(), cert,
-        detail=t("engine.bb.optimal", value=exact.serialize(incumbent),
-                 nodes=len(nodes), leaves=closed),
-        meta={"optimum": exact.serialize(incumbent), "nodes": len(nodes),
+        detail=t("engine.bb.optimal_min" if minimising else "engine.bb.optimal",
+                 value=shown, nodes=len(nodes), leaves=closed),
+        meta={"optimum": shown, "minimising": minimising, "nodes": len(nodes),
               "closed": closed,
               "by_bound": sum(1 for n in nodes if n["why"] == "bound"),
               "infeasible": sum(1 for n in nodes if n["why"] == "infeasible"),

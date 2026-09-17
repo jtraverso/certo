@@ -771,7 +771,7 @@
   "cli.loads.header": "{n} cargas declaradas, y qué les hace el diseño:",
   "cli.loads.binding": "ACTIVA",
   "cli.loads.slack": "holgura {slack}",
-  "cli.loads.price": "cuesta {price} por unidad de cota --relajarla compra eso—",
+  "cli.loads.price": "subir la cota en uno cambia el óptimo en {price}",
   "verify.lp.load": "la carga `{name}` se cumple, y en el valor declarado",
   "verify.lp.load_detail": "{got} {sense} {bound}, holgura {slack}",
   "cert.note.exact_cover": "cada elemento del universo en exactamente una parte",
@@ -800,5 +800,11 @@
   "verify.cover.detail": "{parts} partes cubriendo {n} elementos {kind}",
   "verify.cover.exactly": "exactamente una vez cada uno",
   "verify.cover.atleast": "al menos una vez cada uno",
-  "verify.cover.not_minimum": "esto dice que el recubrimiento es VÁLIDO y cómo de grande es. No dice que sea el más pequeño: para eso, emparéjalo con un dual exacto de `opt` sobre el mismo universo."
+  "verify.cover.not_minimum": "esto dice que el recubrimiento es VÁLIDO y cómo de grande es. No dice que sea el más pequeño: para eso, emparéjalo con un dual exacto de `opt` sobre el mismo universo.",
+  "cli.loads.degenerate": "activa, y con precio cero: la cota se toca pero moverla no compra nada aquí",
+  "cli.selfcheck.failed": "!! LA AUTO-COMPROBACIÓN FALLÓ: certo produjo un certificado {kind} que su propio verificador rechaza. Esto es un bug de certo, no de tu spec, y no hay que fiarse del resultado de arriba.",
+  "cli.selfcheck.report": "   Repórtalo, por favor: https://github.com/jtraverso/certo/issues",
+  "engine.bb.optimal_min": "MÍNIMO {value}, DEMOSTRADO: {nodes} nodos, {leaves} cerrados con certificado (buscado como maximización del objetivo negado, cosa que el certificado registra)",
+  "engine.bb.stopped_nodes": "PARADO en {limit} nodos, así que la optimalidad NO está establecida. Mejor diseño {value}, mejor cota {bound}, gap {gap}, tras {nodes} nodos.",
+  "engine.bb.stopped_clock": "PARADO tras {limit} ms, así que la optimalidad NO está establecida. Mejor diseño {value}, mejor cota {bound}, gap {gap}, tras {nodes} nodos."
 }

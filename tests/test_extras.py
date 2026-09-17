@@ -4035,6 +4035,150 @@ def test_a_forged_part_is_caught_by_re_deriving_its_edges():
     assert not verify(Certificate.from_dict(d), LIM).ok
 
 
+
+# --- 0.6 defects, each pinned by the case that found it -------------------
+
+
+def _mixed_with(sense_row, all_discrete=True):
+    from certo import LPSpec
+    from certo.engines import mixed
+
+    lp = LPSpec(sense="max", title="t")
+    lp.variable("a", 0, 1, kind="binary")
+    lp.variable("b", 0, 1, kind="binary")
+    if not all_discrete:
+        lp.variable("w", 0, None)
+    lp.objective({"a": 3, "b": 2, **({} if all_discrete else {"w": 1})})
+    lp.constraint({"a": 1, "b": 1}, "<=", 1, name="cap")
+    lp.constraint({"a": 1, "b": 1}, sense_row, 1, name="quota")
+    if not all_discrete:
+        lp.constraint({"w": 6}, "<=", 1, name="w_cap")
+    return mixed.mixed(lp, LIM)
+
+
+def test_a_mixed_certificate_survives_a_ge_or_eq_row():
+    """The 0.6 P0. Reported as "all variables discrete"; the trigger was the
+    row SENSE, and it bit mixed models too.
+
+    `as_leq_system` renames a `>=` row to `name_geq` and negates it, and
+    splits an `==` into `name_le` and `name_ge`. The equivalence check looked
+    up the ORIGINAL name in a table keyed by the normalised ones, missed, and
+    called a perfectly good certificate invalid.
+    """
+    for sense in ("<=", ">=", "=="):
+        for all_discrete in (True, False):
+            r = _mixed_with(sense, all_discrete)
+            assert r.certificate is not None, (sense, all_discrete)
+            rep = verify(_roundtrip(r.certificate), LIM)
+            assert rep.ok, (sense, all_discrete,
+                            [c for c in rep.checks if not c[1]])
+
+
+def test_normalised_rows_is_the_one_place_that_mapping_lives():
+    from certo.certificate import normalised_rows
+
+    assert normalised_rows("q", "<=") == [("q", 1)]
+    assert normalised_rows("q", ">=") == [("q_geq", -1)]
+    assert normalised_rows("q", "==") == [("q_le", 1), ("q_ge", -1)]
+
+
+def test_a_ge_load_reports_the_shadow_price_it_actually_has():
+    """The 0.6 P1: the row is renamed, the reporter looked up the old name,
+    and a quota that was costing you showed a price of zero."""
+    from certo import PackingSpec
+    from certo.engines import lp
+
+    # cheap A-items and valuable B-items compete for the same resources, so a
+    # quota forcing A costs you B -- and the price says how much.
+    spec = PackingSpec(
+        items=[("a0", ("s0",), 1), ("a1", ("s1",), 1),
+               ("b0", ("s0",), 5), ("b1", ("s1",), 5)],
+        capacities=1,
+        loads=[("quota_A", {"a0": 1, "a1": 1}, ">=", 2)])
+    r = lp.opt(spec.to_lp(), LIM)
+    ld = r.certificate.payload["loads"][0]
+
+    assert ld["binding"] is True
+    assert ld["rows"] == ["quota_A_geq"]
+    # Forcing one more A means dropping one B: 1 gained, 5 lost.
+    assert Fraction(ld["dual"]) == -4
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_branch_and_bound_accepts_a_minimisation_and_keeps_the_sign():
+    """Refusing it left the user negating by hand, and their certificate then
+    described a formulation nobody posed."""
+    from certo import LPSpec
+    from certo.engines import bb
+
+    lp_spec = LPSpec(sense="min", title="set cover")
+    for v in ("a", "b", "c"):
+        lp_spec.variable(v, 0, 1, kind="binary")
+    lp_spec.objective({"a": 2, "b": 3, "c": 4})
+    lp_spec.constraint({"a": 1, "b": 1}, ">=", 1, name="cover1")
+    lp_spec.constraint({"b": 1, "c": 1}, ">=", 1, name="cover2")
+
+    r = bb.prove_optimal(lp_spec, LIM)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["optimum"] == "3"          # b alone covers both
+    assert r.meta["minimising"] is True
+
+    p = r.certificate.payload
+    # Both formulations, because the tree really did search the negated one.
+    assert p["sense"] == "max" and p["original_sense"] == "min"
+    assert p["incumbent"] == "-3" and p["original_optimum"] == "3"
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_stopped_search_says_what_it_knows_instead_of_nothing():
+    """INCONCLUSIVE with no incumbent, bound or gap made an instance a hole."""
+    from certo import PackingSpec
+    from certo.engines import bb
+
+    # A 5-cycle: the matching relaxation is half-integral (5/2) and the
+    # integer answer is 2, so the search really does have to branch.
+    items = [("e{}".format(i), ("v{}".format(i), "v{}".format((i + 1) % 5)), 1)
+             for i in range(5)]
+    spec = PackingSpec(items=items, capacities=1, integer=True).to_lp()
+
+    r = bb.prove_optimal(spec, LIM, max_nodes=1)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.status is Status.RESOURCE_EXHAUSTED
+    assert r.certificate is None              # optimality is NOT established
+    assert r.meta["stopped"] is True
+    # All four things a stopped search knows, and the gap is real.
+    assert r.meta["incumbent"] == "2"
+    assert r.meta["best_bound"] == "5/2"
+    assert r.meta["gap"] == "1/2"
+    assert r.meta["nodes_opened"] == 1
+    assert "NOT established" in r.detail
+
+    # And with room, the same instance proves it.
+    full = bb.prove_optimal(spec, LIM, max_nodes=500)
+    assert full.verdict is Verdict.PROVED and full.meta["optimum"] == "2"
+
+
+def test_self_check_refuses_to_report_a_certificate_verify_rejects():
+    """The fix that would have caught both P0s before anyone ran verify."""
+    import argparse
+
+    from certo import cli
+
+    r = _mixed_with(">=")
+    args = argparse.Namespace(
+        json=False, cert=None, log=None, note="", tag=None, spec=None,
+        self_check=True, timeout_ms=20_000, rlimit=20_000_000,
+        max_memory_mb=2048, seed=0)
+    assert cli._self_check(r, args) is True
+    assert r.meta["self_check"] == "ok"
+
+    # A certificate that has been tampered with must not pass.
+    r.certificate.payload["achieved"] = "999"
+    r.meta.pop("self_check", None)
+    assert cli._self_check(r, args) is False
+    assert r.meta["self_check"] == "FAILED"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

@@ -756,7 +756,8 @@ def farkas_ray_certificate(A, b, y, names) -> Certificate:
 
 
 def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
-                             title="") -> Certificate:
+                             title="", original_sense=None,
+                             original_optimum=None) -> Certificate:
     """The optimum, and the account of every design that was not taken.
 
     To say "no design does better" you have to account for all of them. Each
@@ -770,6 +771,12 @@ def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
         kind="branch_bound", solver_free=False,
         payload={"incumbent": incumbent, "incumbent_cert": incumbent_cert,
                  "nodes": nodes, "order": order, "sense": sense,
+                 # Optional, which the frozen schema allows. `sense` is what
+                 # was SEARCHED; these say what was ASKED, when the two differ
+                 # because a minimisation was negated to get here.
+                 "original_sense": original_sense or sense,
+                 "original_optimum": original_optimum
+                 if original_optimum is not None else incumbent,
                  "title": title},
         note_key="cert.note.branch_bound",
     )
@@ -1628,6 +1635,26 @@ def _verify_mixed_design(cert, limits) -> VerifyReport:
     )
 
 
+#: How `LPSpec.as_leq_system` renames and flips a row when it normalises to
+#: `A x <= b`. Reading this wrong is how a certificate for a perfectly good
+#: design came out INVALID: the check looked up the original name in a table
+#: keyed by the normalised one, missed, and reported a mismatch that was not
+#: there. Every consumer of a normalised row set needs this mapping, so it
+#: lives in one place and is used by name.
+def normalised_rows(name, sense):
+    """The rows `as_leq_system` produces for one declared constraint.
+
+    Returns [(row name, sign)], where the sign is what the original
+    coefficients were multiplied by. An equality becomes TWO rows and both
+    have to agree, which is the case the old code did not have at all.
+    """
+    if sense == "<=":
+        return [(name, 1)]
+    if sense == ">=":
+        return [(name + "_geq", -1)]
+    return [(name + "_le", 1), (name + "_ge", -1)]
+
+
 def _residual_matches(p, assign, sub) -> bool:
     """Is the sub-certificate's system the original one, frozen at `assign`?"""
     from fractions import Fraction
@@ -1641,21 +1668,20 @@ def _residual_matches(p, assign, sub) -> bool:
     by_name = dict(zip(names, zip(A, b)))
 
     for row in p["system"]:
-        if row["name"] not in by_name:
-            return False
-        got_row, got_rhs = by_name[row["name"]]
         moved = sum((exact.to_fraction(c) * assign[v]
                      for v, c in row["coeffs"].items() if v in assign),
                     Fraction(0))
         want_rhs = exact.to_fraction(row["rhs"]) - moved
-        # `as_leq_system` flips a >= row, so compare up to that sign.
-        flip = -1 if row["sense"] == ">=" else 1
-        if got_rhs != flip * want_rhs:
-            return False
-        for j, v in enumerate(var_names):
-            want = exact.to_fraction(row["coeffs"].get(v, 0)) * flip
-            if got_row[j] != want:
+        for rname, flip in normalised_rows(row["name"],
+                                           row.get("sense", "<=")):
+            if rname not in by_name:
                 return False
+            got_row, got_rhs = by_name[rname]
+            if got_rhs != flip * want_rhs:
+                return False
+            for j, v in enumerate(var_names):
+                if got_row[j] != exact.to_fraction(row["coeffs"].get(v, 0)) * flip:
+                    return False
     return True
 
 
