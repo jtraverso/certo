@@ -250,6 +250,7 @@ BY_QUESTION = (
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
+        ("commands.q.exists", "exists"),
     )),
     ("commands.group.every", (
         ("commands.q.sweep", "sweep"),
@@ -592,6 +593,19 @@ def cmd_cover(args):
                          detail=bounds["stopped_detail"]))
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
+    return rc
+
+
+def cmd_exists(args):
+    from .engines import algebra
+    from .spec import CoverSpec, load_spec
+
+    spec = load_spec(args.spec, CoverSpec)
+    res = algebra.exists(spec, limits_from(args), spec_path=args.spec,
+                         max_parts=args.max_parts)
+    rc = emit(res, args)
+    if not args.json and res.verdict.name == "PROVED":
+        print("  " + t("cli.exists.scope"))
     return rc
 
 
@@ -1674,6 +1688,14 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("exists", "does a cover exist at all -- and when it does not, "
+                       "the refutation that says so")
+    sp.add_argument("spec", help=".py file returning a CoverSpec")
+    sp.add_argument("--max-parts", type=int, default=None, metavar="K",
+                    dest="max_parts",
+                    help="ask whether one exists using at most K parts")
+    sp.set_defaults(func=cmd_exists)
 
     sp = add("peak", "the best INTEGER choice for a family of concave "
                      "quadratics, and the value there")

@@ -918,5 +918,17 @@
   "verify.orbits.witness_counts": "{n} testigos; órbitas a las que les faltan: {names}",
   "verify.orbits.witnessed": "cada miembro ES el representante reetiquetado, re-aplicando la permutación guardada",
   "verify.orbits.reapplied": "{n} re-aplicados, {skipped} llevados pero no decodificables, fallan: {names}",
-  "verify.orbits.one_way": "lo que muestran los testigos es que los miembros de una órbita son el MISMO objeto reetiquetado. No muestran que dos representantes distintos sean objetos distintos --eso necesita que el etiquetado sea invariante por isomorfismo, que es la parte que certo no calculó y no puede comprobar."
+  "verify.orbits.one_way": "lo que muestran los testigos es que los miembros de una órbita son el MISMO objeto reetiquetado. No muestran que dos representantes distintos sean objetos distintos --eso necesita que el etiquetado sea invariante por isomorfismo, que es la parte que certo no calculó y no puede comprobar.",
+  "exists.empty_universe": "el universo está vacío: no hay nada que cubrir, así que la pregunta no tiene contenido",
+  "exists.foreign": "{n} partes candidatas cubren elementos fuera del universo ({names}): una parte que se sale no es parte de este problema",
+  "exists.negative_cap": "un tope de {k} partes no es una pregunta que nada pueda responder",
+  "engine.exists.no_candidates": "di de qué se puede construir el recubrimiento: `candidates` (o `parts`). Sin eso no hay nada sobre lo que buscar, y suponer todo subconjunto respondería una pregunta que nadie hizo",
+  "engine.exists.found": "EXISTE un recubrimiento: {n} partes elegidas de {total} candidatas, y se certifica contando, no por el solver que lo encontró",
+  "engine.exists.none": "NO existe recubrimiento exacto sobre estas {n} partes candidatas, para un universo de {universe}. La refutación DRAT lo dice; no necesita solver para re-comprobarse",
+  "engine.exists.none_atleast": "NO existe recubrimiento sobre estas {n} partes candidatas, para un universo de {universe}. La refutación DRAT lo dice; no necesita solver para re-comprobarse",
+  "commands.q.exists": "¿Existe alguno siquiera --y si no, puedes demostrarlo?",
+  "cli.exists.scope": "esto dice que no existe recubrimiento USANDO ESTAS CANDIDATAS. Eso es lo mismo que 'no existe ninguno' exactamente cuando las candidatas son toda parte que se podría haber usado, lo cual es un hecho del spec",
+  "drup.steps": "{rup} pasos RUP, {rat} RAT, {dels} borrados",
+  "drup.bad_step": "el paso {k} no es ni RUP ni RAT: {lits}",
+  "drup.no_empty": "la prueba no deriva la cláusula vacía"
 }

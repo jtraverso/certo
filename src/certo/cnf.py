@@ -81,6 +81,48 @@ class CNF:
         lits = list(lits)
         return self.at_least_one(lits).at_most_one(lits)
 
+    def at_most_k(self, lits, k: int) -> "CNF":
+        """A lo sumo `k` de `lits`. Contador secuencial: O(n*k) clausulas.
+
+        El encaje pairwise de "a lo sumo k" es C(n, k+1), no cuadratico: con
+        35 literales y k=6 son 6.724.520 clausulas, que es donde se descubrio.
+        Este es el codificador secuencial de Sinz, con s[i][j] leyendose "de
+        los primeros i literales hay al menos j verdaderos".
+
+        Las auxiliares llevan el nombre del contador, no un numero, para que
+        una prueba DRAT sobre esta formula se pueda leer.
+        """
+        lits = list(lits)
+        if k < 0:
+            raise ValueError("un tope negativo no es una restriccion")
+        if k == 0:
+            for x in lits:
+                self.add(-x)
+            return self
+        if k >= len(lits):
+            return self                     # no restringe nada
+        if k == 1:
+            return self.at_most_one(lits)
+
+        n = len(lits)
+        tag = self._aux
+        self._aux += 1
+        s = [[self.var("__count{}_{}_{}".format(tag, i, j))
+              for j in range(k)] for i in range(n - 1)]
+
+        self.add(-lits[0], s[0][0])
+        for j in range(1, k):
+            self.add(-s[0][j])
+        for i in range(1, n - 1):
+            self.add(-lits[i], s[i][0])
+            self.add(-s[i - 1][0], s[i][0])
+            for j in range(1, k):
+                self.add(-lits[i], -s[i - 1][j - 1], s[i][j])
+                self.add(-s[i - 1][j], s[i][j])
+            self.add(-lits[i], -s[i - 1][k - 1])
+        self.add(-lits[n - 1], -s[n - 2][k - 1])
+        return self
+
     def implies(self, a, b) -> "CNF":
         return self.add(-a, b)
 

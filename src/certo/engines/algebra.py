@@ -137,6 +137,87 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
     return out
 
 
+def exists(spec, limits: Limits | None = None, spec_path: str = "",
+           backend: str = "internal", max_parts=None) -> Result:
+    """Does a cover exist at all? And when it does not, the refutation.
+
+    Two answers, two certificates, and neither of them trusts the solver. A
+    model is handed to `cover`'s own verifier, which checks it by counting; a
+    refutation is a DRAT proof, checked by unit propagation.
+    """
+    from ..existence import NotEncodable, encode
+    from . import sat
+
+    t0 = time.perf_counter()
+    candidates = spec.candidates if spec.candidates is not None else spec.parts
+    if candidates is None:
+        return Result("exists", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_COVER, 0.0, None,
+                      detail=t("engine.exists.no_candidates"))
+    universe = [u for u in spec.universe]
+    if spec.cliques:
+        # Vertex sets, so the parts are the edges they span -- the same
+        # reading `cover --cliques` uses, and the reason a triangle is three
+        # edges here rather than three vertices.
+        from ..cover import clique_parts
+
+        candidates, _report = clique_parts(universe, candidates, spec.max_size)
+
+    try:
+        cnf, parts = encode(universe, candidates, exact=spec.exact,
+                            max_parts=max_parts, title=spec.title)
+    except NotEncodable as e:
+        return Result("exists", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_COVER, 0.0, None, detail=str(e))
+
+    got = sat.cases(cnf, limits, backend=backend)
+    ms = (time.perf_counter() - t0) * 1000
+    meta = {"universe": len(universe), "candidates": len(parts),
+            "vars": cnf.nvars, "clauses": len(cnf.clauses),
+            "exact": bool(spec.exact)}
+    if max_parts is not None:
+        meta["max_parts"] = max_parts
+
+    if got.verdict is Verdict.INCONCLUSIVE:
+        return Result("exists", got.status, Verdict.INCONCLUSIVE, got.engine,
+                      ms, None, detail=got.detail, meta=meta)
+
+    if got.verdict is Verdict.SATISFIABLE:
+        # The solver's model is a SUGGESTION. What is certified is the cover
+        # it names, checked by counting -- the same verifier a hand-written
+        # cover goes through.
+        chosen = [parts[i] for i in _chosen(cnf, got)]
+        from ..spec import CoverSpec
+
+        found = cover(CoverSpec(universe=universe, parts=chosen,
+                                exact=spec.exact, title=spec.title),
+                      limits, spec_path)
+        return Result("exists", Status.SAT, Verdict.SATISFIABLE,
+                      found.engine, ms, found.certificate,
+                      detail=t("engine.exists.found", n=len(chosen),
+                               total=len(parts)),
+                      meta={**meta, "parts": len(chosen)})
+
+    # No cover exists over these candidates, and the DRAT proof says so.
+    return Result("exists", Status.UNSAT, Verdict.PROVED, got.engine, ms,
+                  got.certificate,
+                  detail=t("engine.exists.none" if spec.exact
+                           else "engine.exists.none_atleast",
+                           n=len(parts), universe=len(universe)),
+                  meta={**meta, **got.meta})
+
+
+def _chosen(cnf, got) -> list:
+    """Which candidate indices the model selected."""
+    payload = got.certificate.payload if got.certificate else {}
+    out = []
+    for v in payload.get("true_vars") or []:
+        name = cnf.name_of(v)
+        if name.startswith("part_"):
+            out.append(int(name[5:]))
+    return sorted(out)
+
+
 def peak(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
     """The best integer choice, for every parameter value at once."""
     from ..peak import NotAPeak, certify

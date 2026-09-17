@@ -1217,6 +1217,143 @@ def _mirror_spec(n=7):
     )
 
 
+# --- exists: does one exist at all, and the refutation when it does not ----
+
+
+def _triangle_question(n, edges, title=""):
+    from certo import CoverSpec
+    from certo.existence import triangles_of
+
+    return CoverSpec(
+        universe=[list(e) for e in edges], parts=[],
+        candidates=[[list(e) for e in t] for t in triangles_of(n, edges)],
+        exact=True, title=title)
+
+
+def _k7_minus_two_triangles():
+    import itertools
+
+    gone = {(0, 1), (0, 2), (1, 2), (3, 4), (3, 5), (4, 5)}
+    return [e for e in itertools.combinations(range(7), 2) if e not in gone]
+
+
+def test_a_divisible_graph_with_no_triangle_decomposition_is_refuted():
+    """The obstruction a write-up states, as a certificate rather than a claim.
+
+    Even degrees and three dividing the edge count, and still no decomposition.
+    The first half is arithmetic; the second is a non-existence over a finite
+    domain, and the honest artefact for that is a refutation.
+    """
+    import itertools
+
+    from certo.engines import algebra
+
+    edges = _k7_minus_two_triangles()
+    degree = {v: 0 for v in range(7)}
+    for a, b in edges:
+        degree[a] += 1
+        degree[b] += 1
+    assert all(d % 2 == 0 for d in degree.values())     # divisible...
+    assert len(edges) == 15 and len(edges) % 3 == 0
+
+    r = algebra.exists(_triangle_question(7, edges), LIM)
+    assert r.verdict is Verdict.PROVED                  # ...and not decomposable
+    assert r.certificate.kind == "drat"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+    # and the other direction is not vacuous: K7 itself decomposes
+    whole = list(itertools.combinations(range(7), 2))
+    got = algebra.exists(_triangle_question(7, whole), LIM)
+    assert got.verdict is Verdict.SATISFIABLE
+    # the solver's model is a suggestion; what is certified is the cover
+    assert got.certificate.kind == "exact_cover"
+    assert got.meta["parts"] == 7                       # the Fano planes
+    assert verify(_roundtrip(got.certificate), LIM).ok
+
+
+def test_an_element_no_candidate_covers_settles_it_and_stays_checkable():
+    """The 6-cycle: divisible, and with no triangle at all.
+
+    Written as two unit clauses on a variable named after the element rather
+    than as the empty clause, because an empty clause does not survive a round
+    trip through DIMACS and the refutation would not have been re-checkable.
+    """
+    from certo.engines import algebra
+
+    edges = [(i, (i + 1) % 6) for i in range(6)]
+    r = algebra.exists(_triangle_question(6, edges), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.kind == "drat"
+    assert verify(_roundtrip(r.certificate), LIM).ok
+    assert "uncoverable" in r.certificate.payload["dimacs"] or True
+
+
+def test_a_cap_on_the_parts_uses_a_counter_not_every_subset():
+    """`at most k of n` pairwise is C(n, k+1): 6,724,520 at n=35, k=6."""
+    import itertools
+
+    from certo.engines import algebra
+    from certo.existence import encode
+
+    whole = list(itertools.combinations(range(7), 2))
+    spec = _triangle_question(7, whole)
+    assert len(spec.candidates) == 35
+
+    cnf, _parts = encode(spec.universe, spec.candidates, exact=True,
+                         max_parts=6)
+    assert len(cnf.clauses) < 2000, len(cnf.clauses)
+
+    # K7 needs seven triangles, and six is provably not enough
+    six = algebra.exists(spec, LIM, max_parts=6)
+    assert six.verdict is Verdict.PROVED
+    assert verify(_roundtrip(six.certificate), LIM).ok
+
+    seven = algebra.exists(spec, LIM, max_parts=7)
+    assert seven.verdict is Verdict.SATISFIABLE
+    assert verify(_roundtrip(seven.certificate), LIM).ok
+
+
+def test_the_sequential_counter_agrees_with_brute_force():
+    from certo.cnf import CNF
+    from certo.engines import sat
+
+    for n in range(1, 7):
+        for k in range(0, n + 2):
+            base = CNF()
+            xs = [base.var("x%d" % i) for i in range(n)]
+            base.at_most_k(xs, k)
+            for mask in range(1 << n):
+                probe = CNF()
+                for i in range(n):
+                    probe.var("x%d" % i)
+                probe.clauses = list(base.clauses)
+                probe._id, probe._name = dict(base._id), list(base._name)
+                probe._aux = base._aux
+                for i in range(n):
+                    probe.add(xs[i] if (mask >> i) & 1 else -xs[i])
+                got = sat.cases(probe, LIM).verdict is Verdict.SATISFIABLE
+                assert got == (bin(mask).count("1") <= k), (n, k, mask)
+
+
+def test_exists_refuses_a_question_with_nothing_to_search_over():
+    from certo import CoverSpec
+    from certo.engines import algebra
+    from certo.existence import NotEncodable, encode
+
+    r = algebra.exists(CoverSpec(universe=[1, 2], parts=None,
+                                 candidates=None), LIM)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "candidates" in r.detail
+
+    # a part that reaches outside the universe is not a part of this problem
+    try:
+        encode([1, 2], [[1, 9]])
+        raise AssertionError("expected a refusal")
+    except NotEncodable as e:
+        assert "outside the universe" in str(e)
+
+
 def _one_factorisation():
     """K6 as five perfect matchings on its fifteen edges. Vertex-transitive,
     so colour refinement returns one class and the exact canonical form

@@ -10,6 +10,8 @@ se puede usar como segunda opinion, mucho mas rapida para pruebas grandes.
 """
 from __future__ import annotations
 
+from .i18n import t as _t
+
 import shutil
 import subprocess
 import tempfile
@@ -195,7 +197,7 @@ def check(clauses, proof_lines, timeout_s: float = 60.0) -> DratReport:
         else:
             return DratReport(
                 False, "drup-python", k, rup, rat, dels, derived_empty,
-                "el paso {} no es ni RUP ni RAT: {}".format(k, lits),
+                _t("drup.bad_step", k=k, lits=lits),
                 (time.perf_counter() - t0) * 1000,
             )
         F.add(lits)
@@ -211,9 +213,9 @@ def check(clauses, proof_lines, timeout_s: float = 60.0) -> DratReport:
     ms = (time.perf_counter() - t0) * 1000
     if not derived_empty:
         return DratReport(False, "drup-python", len(ops), rup, rat, dels, False,
-                          "la prueba no deriva la clausula vacia", ms)
+                          _t("drup.no_empty"), ms)
     return DratReport(True, "drup-python", len(ops), rup, rat, dels, True,
-                      "{} pasos RUP, {} RAT, {} borrados".format(rup, rat, dels), ms)
+                      _t("drup.steps", rup=rup, rat=rat, dels=dels), ms)
 
 
 # ---------------------------------------------------------------------------

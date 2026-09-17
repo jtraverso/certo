@@ -918,5 +918,17 @@
   "verify.orbits.witness_counts": "{n} witnesses; orbits missing some: {names}",
   "verify.orbits.witnessed": "each member IS the representative relabelled, by re-applying the stored permutation",
   "verify.orbits.reapplied": "{n} re-applied, {skipped} carried but not decodable, failing: {names}",
-  "verify.orbits.one_way": "what the witnesses show is that members of an orbit are the SAME object relabelled. They do not show that two different representatives are different objects -- that needs the labelling to be isomorphism-invariant, which is the part certo did not compute and cannot check."
+  "verify.orbits.one_way": "what the witnesses show is that members of an orbit are the SAME object relabelled. They do not show that two different representatives are different objects -- that needs the labelling to be isomorphism-invariant, which is the part certo did not compute and cannot check.",
+  "exists.empty_universe": "the universe is empty: there is nothing to cover, so the question has no content",
+  "exists.foreign": "{n} candidate parts cover elements outside the universe ({names}): a part that reaches outside is not a part of this problem",
+  "exists.negative_cap": "a cap of {k} parts is not a question anything can answer",
+  "engine.exists.no_candidates": "say what the cover may be built FROM: `candidates` (or `parts`). Without it there is nothing to search over, and assuming every subset would answer a question nobody asked",
+  "engine.exists.found": "a cover EXISTS: {n} parts chosen from {total} candidates, and it is certified by counting rather than by the solver that found it",
+  "engine.exists.none": "NO exact cover exists over these {n} candidate parts, for a universe of {universe}. The DRAT refutation says so; it needs no solver to re-check",
+  "engine.exists.none_atleast": "NO cover exists over these {n} candidate parts, for a universe of {universe}. The DRAT refutation says so; it needs no solver to re-check",
+  "commands.q.exists": "Does one exist at all -- and if not, can you prove it?",
+  "cli.exists.scope": "this says no cover exists USING THESE CANDIDATES. That is the same as 'none exists' exactly when the candidates are every part that could have been used, which is a fact about the spec",
+  "drup.steps": "{rup} RUP steps, {rat} RAT, {dels} deletions",
+  "drup.bad_step": "step {k} is neither RUP nor RAT: {lits}",
+  "drup.no_empty": "the proof does not derive the empty clause"
 }
