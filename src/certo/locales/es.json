@@ -906,5 +906,8 @@
   "verify.peak.detail": "el máximo entero es {value}, alcanzado en {argmax}, para todo {floor}",
   "verify.peak.scope": "este es el máximo sobre la variable ENTERA, para todo valor del parámetro en o por encima del piso. No dice nada por debajo, y se asume que los parámetros mismos son enteros -- eso es lo que hace entero al maximizador.",
   "commands.q.peak": "Lo resolví para n = 1..40. ¿Qué entero es el mejor para TODO n?",
-  "cli.peak.scope": "y esa es toda elección entera con {floor} -- no una muestra"
+  "cli.peak.scope": "y esa es toda elección entera con {floor} -- no una muestra",
+  "verify.bb.tied": "el dual de cada nodo se comprueba contra el problema PROPIO de ese nodo, derivado de la raíz",
+  "verify.bb.derived": "{n} nodos cerrados, cada uno reconstruido desde el sistema raíz",
+  "verify.bb.untied": "este certificado es anterior a que se llevara el sistema raíz, así que el certificado de cada nodo se comprobó por su cuenta y NADA lo ata al subproblema de ese nodo. Un certificado de otro nodo pasaría. Vuelve a correr la búsqueda para obtener uno atado."
 }

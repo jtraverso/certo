@@ -819,22 +819,61 @@ def farkas_ray_certificate(A, b, y, names) -> Certificate:
     )
 
 
+def _tree_is_exact(nodes, incumbent_cert) -> bool:
+    """Does every node close by arithmetic alone, and the incumbent with it?"""
+    if not incumbent_cert or not incumbent_cert.get("solver_free"):
+        return False
+    for n in nodes:
+        why = n.get("why")
+        if why == "branch":
+            continue
+        if why == "infeasible":
+            if not n.get("ray"):
+                return False
+            continue
+        if n.get("dual") is None or n.get("bound") is None:
+            return False
+    return True
+
+
 def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
                              title="", original_sense=None,
-                             original_optimum=None) -> Certificate:
+                             original_optimum=None, system=None) -> Certificate:
     """The optimum, and the account of every design that was not taken.
 
-    To say "no design does better" you have to account for all of them. Each
-    node here is closed by a certificate -- an exact dual bounding its subtree
-    below the incumbent, a Farkas ray showing it is empty, or the residual LP
-    of a fully fixed design -- and the tree is checked to COVER the integer
-    domain, node by node. A tree with a missing child is a proof that some
-    designs were never looked at, and it reads exactly like a complete one.
+    To say "no design does better" you have to account for all of them, and
+    each one has to be accounted for BY SOMETHING ABOUT IT. Two halves, and
+    the second is the one that is easy to lose:
+
+      COVERAGE. A branching node's children are all present, checked node by
+      node. A tree with a missing child is a proof that some designs were
+      never looked at, and it reads exactly like a complete one.
+
+      IDENTITY. Each node's linear program is DERIVED from the root system and
+      that node's own fixings, and the dual it carries is checked against the
+      derived program. It is not stored: a certificate for a node's relaxation
+      is a valid certificate for some linear program and says nothing about
+      which node it belongs to, so storing one lets a cheap subtree's
+      certificate close an expensive subtree. A tree with two node
+      certificates exchanged used to verify.
+
+    `system` carries the root problem once, which is where the identity check
+    gets its second operand -- and, incidentally, most of the size: what a
+    node holds is its fixings, its bound and the two vectors that close it.
+
+    A certificate written before `system` existed has nodes that cannot be
+    tied to anything, and `verify` says so in a warning rather than quietly
+    checking less than it appears to.
     """
     return Certificate(
-        kind="branch_bound", solver_free=False,
+        kind="branch_bound",
+        # Every node closes by exact rational arithmetic over a system derived
+        # from the root, and so does the incumbent. Computed, not declared:
+        # a node that could not be closed exactly never reaches here.
+        solver_free=bool(system) and _tree_is_exact(nodes, incumbent_cert),
         payload={"incumbent": incumbent, "incumbent_cert": incumbent_cert,
                  "nodes": nodes, "order": order, "sense": sense,
+                 "system": system,
                  # Optional, which the frozen schema allows. `sense` is what
                  # was SEARCHED; these say what was ASKED, when the two differ
                  # because a minimisation was negated to get here.
@@ -1927,11 +1966,80 @@ def _verify_farkas_ray(cert, limits) -> VerifyReport:
     )
 
 
+def _node_closes(root, node, incumbent):
+    """Does this node close ITS OWN problem? Returns (ok, reason).
+
+    The node's linear program is rebuilt from the root system and the node's
+    fixings -- by the same function the producer used, so there is no second
+    reading of it -- and then the stored vectors are checked against THAT.
+    A dual belonging to another node no longer fits, because the matrix it is
+    checked against is not the one it came from.
+    """
+    from . import exact, tree
+
+    fixed = tree.fixings(node["fixed"])
+    try:
+        node_spec, const = tree.restrict(root, fixed)
+        A, b, c = _leq_parts(node_spec)
+    except (KeyError, ValueError, TypeError):
+        return False, "bad"
+
+    if node["why"] == "infeasible":
+        ray = node.get("ray")
+        if ray is None:
+            return False, "open"
+        y = exact.parse_all(ray)
+        if len(y) != len(A):
+            return False, "bad"
+        # y >= 0, A^T y >= 0, b.y < 0: the subtree is empty.
+        if any(v < 0 for v in y):
+            return False, "bad"
+        for j in range(len(c)):
+            if sum(A[i][j] * y[i] for i in range(len(A))) < 0:
+                return False, "bad"
+        return (sum(bi * yi for bi, yi in zip(b, y)) < 0), "bad"
+
+    if node.get("dual") is None or node.get("bound") is None:
+        return False, "open"
+    x = exact.parse_all(node.get("primal") or [])
+    y = exact.parse_all(node["dual"])
+    if len(y) != len(A) or len(x) != len(c):
+        return False, "bad"
+    if any(v < 0 for v in y) or any(v < 0 for v in x):
+        return False, "bad"
+    # dual feasible: A^T y >= c, so b.y bounds the relaxation from above
+    for j in range(len(c)):
+        if sum(A[i][j] * y[i] for i in range(len(A))) < c[j]:
+            return False, "bad"
+    # primal feasible, so the two values bracket the optimum
+    for i in range(len(A)):
+        if sum(A[i][j] * x[j] for j in range(len(c))) > b[i]:
+            return False, "bad"
+    value = sum(bi * yi for bi, yi in zip(b, y))
+    if sum(cj * xj for cj, xj in zip(c, x)) != value:
+        return False, "bad"
+    # and the bound the node claims is that value plus what the fixings pay
+    if const + value != exact.to_fraction(node["bound"]):
+        return False, "bad"
+    # closing on a bound means the subtree cannot beat what is already held
+    return exact.to_fraction(node["bound"]) <= incumbent, "bad"
+
+
+def _leq_parts(node_spec):
+    """`max c.x, A x <= b, x >= 0` for a node, the same way the producer saw it."""
+    from . import exact
+
+    A, b, c, _names = node_spec.as_leq_system()
+    return ([[exact.to_fraction(v) for v in row] for row in A],
+            [exact.to_fraction(v) for v in b],
+            [exact.to_fraction(v) for v in c])
+
+
 def _verify_branch_bound(cert, limits) -> VerifyReport:
     """Every leaf closed, and the tree covering everything it should."""
     from fractions import Fraction
 
-    from . import exact
+    from . import exact, tree
 
     p = cert.payload
     incumbent = exact.to_fraction(p["incumbent"])
@@ -1954,6 +2062,14 @@ def _verify_branch_bound(cert, limits) -> VerifyReport:
         checks.append((t("verify.bb.incumbent"), rep.ok and reached == incumbent,
                        t("verify.lp.declared", value=p["incumbent"])))
 
+    # The root problem, from which every node's problem is DERIVED. Without
+    # it a node's certificate is a certificate for some linear program and
+    # nothing says which -- so an easy subtree's dual closes a hard one.
+    system = p.get("system")
+    root = tree.spec_of(system) if system else None
+    if root is None:
+        warnings.append(t("verify.bb.untied"))
+
     # Every node is closed, or branches and its children are all present.
     bad_close, missing, open_nodes = [], [], []
     for n in nodes:
@@ -1964,26 +2080,34 @@ def _verify_branch_bound(cert, limits) -> VerifyReport:
                 if _node_id(child) not in by_key:
                     missing.append("{}={}".format(n["on"], val))
             continue
-        if why == "infeasible":
-            if n.get("cert") is None:
-                open_nodes.append(_node_id(n["fixed"]) or "root")
-                continue
-            r = verify(Certificate.from_dict(n["cert"]), limits)
-            if not r.ok:
-                bad_close.append(_node_id(n["fixed"]) or "root")
+
+        where = _node_id(n["fixed"]) or "root"
+        if root is not None:
+            ok, why_not = _node_closes(root, n, incumbent)
+            if why_not == "open":
+                open_nodes.append(where)
+            elif not ok:
+                bad_close.append(where)
             continue
-        # bound and leaf both close by an exact dual that must not exceed the
-        # incumbent -- otherwise the subtree was pruned on a false promise.
-        if n.get("cert") is None or n.get("bound") is None:
-            open_nodes.append(_node_id(n["fixed"]) or "root")
+
+        # Older certificates: the nested form, checked on its own terms. The
+        # warning above says what that does not establish.
+        if n.get("cert") is None or (why != "infeasible"
+                                     and n.get("bound") is None):
+            open_nodes.append(where)
             continue
         r = verify(Certificate.from_dict(n["cert"]), limits)
-        if not r.ok or exact.to_fraction(n["bound"]) > incumbent:
-            bad_close.append(_node_id(n["fixed"]) or "root")
+        if not r.ok or (why != "infeasible"
+                        and exact.to_fraction(n["bound"]) > incumbent):
+            bad_close.append(where)
 
     checks.append((t("verify.bb.covered"), not missing,
                    t("verify.bb.missing", names=", ".join(missing[:3]) or "-",
                      n=len(missing))))
+    if root is not None:
+        checks.append((t("verify.bb.tied"), not bad_close,
+                       t("verify.bb.derived", n=sum(
+                           1 for n in nodes if n["why"] != "branch"))))
     checks.append((t("verify.bb.closed"), not bad_close and not open_nodes,
                    t("verify.bb.open", names=", ".join(
                        (bad_close + open_nodes)[:3]) or "-",
@@ -1993,7 +2117,11 @@ def _verify_branch_bound(cert, limits) -> VerifyReport:
     for n in nodes:
         kinds[n["why"]] = kinds.get(n["why"], 0) + 1
     return VerifyReport(
-        all(c[1] for c in checks), "branch_bound", False, checks=checks,
+        all(c[1] for c in checks), "branch_bound",
+        # Not hardcoded any more. A tied tree closes every node by exact
+        # rational arithmetic over a system it derives itself, which is the
+        # whole point of carrying the root system.
+        bool(cert.solver_free), checks=checks,
         warnings=warnings,
         detail=t("verify.bb.detail", value=p["incumbent"], n=len(nodes),
                  bound=kinds.get("bound", 0), inf=kinds.get("infeasible", 0),

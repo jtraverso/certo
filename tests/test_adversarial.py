@@ -109,6 +109,13 @@ def _mutate(value):
     if isinstance(value, list) and value:
         return value[:-1]
     if isinstance(value, dict) and value:
+        # A NESTED CERTIFICATE. Mutating its first key changes the schema
+        # number or the kind label, which is not an interesting forgery -- the
+        # claim lives in the payload, so go in and change that instead.
+        # Without this, a field holding a whole sub-certificate looks unchecked
+        # when it is checked thoroughly.
+        if "payload" in value and isinstance(value["payload"], dict)                 and value["payload"]:
+            return dict(value, payload=_mutate(value["payload"]))
         k = next(iter(value))
         return {kk: (_mutate(vv) if kk == k else vv)
                 for kk, vv in value.items()}
@@ -233,6 +240,30 @@ def test_resultant():
                          equations=[t ** 3 + s * t + 1, t * t - s],
                          eliminate="t")
     _report("resultant", probe(algebra.eliminate(spec, LIM).certificate))
+
+
+def test_branch_bound():
+    """The kind that was missing from this suite, and had a hole.
+
+    A node's dual used to be a whole nested certificate, checked on its own
+    terms -- so a dual for an easy subtree closed a hard one and the tree
+    verified. The node's problem is derived from the root system now, and this
+    exists so that stays true.
+    """
+    from certo import LPSpec
+    from certo.engines import bb
+
+    W, V = [7, 8, 9, 5, 6, 11, 4, 13], [9, 11, 13, 6, 8, 16, 5, 19]
+    lp = LPSpec(sense="max", title="knapsack")
+    for i in range(len(W)):
+        lp.variable("x%d" % i, 0, 1, kind="integer")
+    lp.objective({"x%d" % i: V[i] for i in range(len(W))})
+    lp.constraint({"x%d" % i: W[i] for i in range(len(W))}, "<=", 30, name="cap")
+    lp.constraint({"x%d" % i: 1 for i in range(len(W))}, "<=", 4, name="count")
+
+    cert = bb.prove_optimal(lp, LIM, max_nodes=20_000).certificate
+    assert cert.solver_free is True
+    _report("branch_bound", probe(cert))
 
 
 def test_integer_peak():

@@ -2555,6 +2555,122 @@ def test_a_gap_from_a_design_says_nu_is_not_proved_optimal():
                for w in rep.warnings)
 
 
+def _branching_ilp(n_items=8, cap=30, count=4):
+    """A small ILP that genuinely branches: 29 nodes, all three closing kinds."""
+    from certo import LPSpec
+
+    W = [7, 8, 9, 5, 6, 11, 4, 13][:n_items]
+    V = [9, 11, 13, 6, 8, 16, 5, 19][:n_items]
+    lp = LPSpec(sense="max", title="knapsack")
+    for i in range(n_items):
+        lp.variable("x%d" % i, 0, 1, kind="integer")
+    lp.objective({"x%d" % i: V[i] for i in range(n_items)})
+    lp.constraint({"x%d" % i: W[i] for i in range(n_items)}, "<=", cap,
+                  name="cap")
+    lp.constraint({"x%d" % i: 1 for i in range(n_items)}, "<=", count,
+                  name="count")
+    return lp
+
+
+def test_a_nodes_dual_must_close_that_nodes_own_subproblem():
+    """The hole this replaced: a certificate for one node closing another.
+
+    A dual for a node's relaxation is a valid dual for SOME linear program and
+    nothing in it says which node it came from. Trees used to store one per
+    node and check it on its own terms, so exchanging two of them verified --
+    which means an expensive subtree could be closed by a cheap one's
+    certificate, and "no design does better" was not established.
+
+    Now the node's program is DERIVED from the root system and the node's own
+    fixings, and the dual is checked against that.
+    """
+    import copy
+
+    from certo.certificate import Certificate
+    from certo.engines import bb
+
+    r = bb.prove_optimal(_branching_ilp(), LIM, max_nodes=20_000)
+    assert r.verdict is Verdict.PROVED and r.meta["optimum"] == "43"
+    base = json.loads(json.dumps(r.certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    nodes = base["payload"]["nodes"]
+    closed = [i for i, n in enumerate(nodes) if n["why"] == "bound"]
+    assert len(closed) >= 2, "need two closed nodes to exchange"
+    a, b = closed[0], closed[-1]
+    assert nodes[a]["bound"] != nodes[b]["bound"]
+
+    swapped = copy.deepcopy(base)
+    ns = swapped["payload"]["nodes"]
+    ns[a]["dual"] = copy.deepcopy(ns[b]["dual"])
+    ns[a]["primal"] = copy.deepcopy(ns[b]["primal"])
+    ns[a]["bound"] = ns[b]["bound"]
+    assert not verify(Certificate.from_dict(swapped), LIM).ok
+
+    # and the root system is not decoration either
+    bent = copy.deepcopy(base)
+    bent["payload"]["system"]["cons"][0][3] = "60"
+    assert not verify(Certificate.from_dict(bent), LIM).ok
+
+
+def test_a_tied_tree_closes_every_node_without_a_solver():
+    """Three closing kinds, all arithmetic, and the flag says so."""
+    from certo.engines import bb
+
+    r = bb.prove_optimal(_branching_ilp(), LIM, max_nodes=20_000)
+    cert = r.certificate
+    kinds = {n["why"] for n in cert.payload["nodes"]}
+    assert kinds == {"branch", "bound", "infeasible"}
+
+    assert cert.solver_free is True          # computed, not declared
+    rep = verify(_roundtrip(cert), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("derived from the root" in n for n, ok, _ in rep.checks)
+
+    # The root system is written once; a node carries its fixings, its bound
+    # and the two vectors that close it, and nothing else.
+    per_node = len(json.dumps(cert.payload["nodes"])) / len(cert.payload["nodes"])
+    assert per_node < 300, per_node
+    assert set(cert.payload["nodes"][0]) <= {
+        "fixed", "why", "bound", "dual", "primal", "ray", "on", "values"}
+
+
+def test_an_older_tree_still_verifies_and_is_told_what_it_does_not_establish():
+    """The schema is frozen, so a 0.6 tree must still check -- and must say
+    that nothing ties its nodes to their subproblems."""
+    from certo.certificate import Certificate, branch_bound_certificate
+    from certo.engines import bb, lp
+
+    r = bb.prove_optimal(_branching_ilp(4, 15, 2), LIM, max_nodes=20_000)
+    root = _branching_ilp(4, 15, 2)
+
+    # Rebuild the tree in the old shape: a whole nested certificate per node,
+    # and no root system at all.
+    from certo import tree as _tree
+    legacy = []
+    for n in r.certificate.payload["nodes"]:
+        if n["why"] == "branch":
+            legacy.append(dict(n))
+            continue
+        node_spec, _const = _tree.restrict(root, _tree.fixings(n["fixed"]))
+        got = lp.opt(node_spec, LIM)
+        old = {"fixed": n["fixed"], "why": n["why"], "bound": n.get("bound")}
+        old["cert"] = (got.certificate.to_dict() if got.certificate
+                       else lp.infeasible_certificate(node_spec, LIM).to_dict())
+        legacy.append(old)
+
+    cert = branch_bound_certificate(
+        incumbent=r.certificate.payload["incumbent"],
+        incumbent_cert=r.certificate.payload["incumbent_cert"],
+        nodes=legacy, order=r.certificate.payload["order"],
+        sense=r.certificate.payload["sense"])
+    assert cert.solver_free is False          # no root system, so not tied
+    rep = verify(Certificate.from_dict(json.loads(json.dumps(cert.to_dict()))),
+                 LIM)
+    assert rep.ok, [c for c in rep.checks if not c[1]]
+    assert any("NOTHING ties it" in w for w in rep.warnings)
+
+
 def test_branch_and_bound_proves_the_integral_optimum():
     """The whole point: nu = 7 stops being a design and becomes the optimum."""
     from certo import PackingSpec

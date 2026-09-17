@@ -35,6 +35,7 @@ from ..certificate import branch_bound_certificate
 from ..i18n import t
 from ..limits import Limits
 from ..status import Result, Status, Verdict
+from ..tree import system_of
 
 ENGINE = "certo/branch-and-bound"
 
@@ -49,23 +50,29 @@ def _values(spec, var):
 
 
 def _node_lp(spec, fixed):
-    """The relaxation at a node: the fixed variables gone, the rest free."""
-    from ..spec import LPSpec
+    """The relaxation at a node. ONE definition, shared with `verify`.
 
-    out = LPSpec(sense=spec.sense, title=spec.title)
-    free = [v for v in spec.var_names if v not in fixed]
-    for v in free:
-        lo, hi = spec.bounds[v]
-        out.variable(v, lo, hi)
-    out.objective({v: c for v, c in spec.obj.items() if v in set(free)})
-    const = sum((exact.to_fraction(spec.obj.get(v, 0)) * Fraction(val)
-                 for v, val in fixed.items()), Fraction(0))
-    for name, coeffs, sense, rhs in spec.cons:
-        moved = sum((exact.to_fraction(c) * Fraction(fixed[v])
-                     for v, c in coeffs.items() if v in fixed), Fraction(0))
-        rest = {v: c for v, c in coeffs.items() if v not in fixed}
-        out.constraint(rest, sense, exact.to_fraction(rhs) - moved, name=name)
-    return out, const
+    It lives in `tree` rather than here because the verifier derives every
+    node's problem with it too. Two readings of "the node's LP" is exactly the
+    gap a forged tree fits through, and the producer and the verifier
+    disagreeing is the failure mode this project has already had once.
+    """
+    from ..tree import restrict
+
+    return restrict(spec, fixed)
+
+
+def _closed(key, why, bound, cert):
+    """A node closed by an exact dual: the two vectors, not the whole thing.
+
+    The dual and the primal are what close it. Everything else in an `lp_dual`
+    certificate -- the matrix, the right-hand side, the objective, the names --
+    is the node's LP, which is derived from the root system rather than stored,
+    so carrying a copy would be carrying an UNCHECKED copy.
+    """
+    p = cert.payload
+    return {"fixed": key, "why": why, "bound": exact.serialize(bound),
+            "dual": list(p["dual"]), "primal": list(p["primal"] or [])}
 
 
 def _negated(spec):
@@ -168,7 +175,10 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
             # Infeasible: the subtree is empty, and the ray says why.
             ray = lp.infeasible_certificate(node_spec, lim)
             nodes.append({"fixed": key, "why": "infeasible",
-                          "cert": ray.to_dict() if ray else None})
+                          # The ray alone. The system it refutes is derived
+                          # from the root, so a ray for another node's LP does
+                          # not fit here.
+                          "ray": (list(ray.payload["y"]) if ray else None)})
             continue
 
         if not res.meta.get("exact"):
@@ -180,16 +190,12 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
 
         if bound <= incumbent:
             # Nothing in this subtree beats what we already have.
-            nodes.append({"fixed": key, "why": "bound",
-                          "bound": exact.serialize(bound),
-                          "cert": res.certificate.to_dict()})
+            nodes.append(_closed(key, "bound", bound, res.certificate))
             continue
 
         if not remaining:
             # Every discrete variable fixed: this LP IS that design's answer.
-            nodes.append({"fixed": key, "why": "leaf",
-                          "bound": exact.serialize(bound),
-                          "cert": res.certificate.to_dict()})
+            nodes.append(_closed(key, "leaf", bound, res.certificate))
             if bound > incumbent:
                 incumbent = bound
                 incumbent_cert = _design(spec, fixed, lim)
@@ -212,6 +218,7 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
     cert = branch_bound_certificate(
         incumbent=exact.serialize(incumbent), incumbent_cert=incumbent_cert,
         nodes=nodes, order=order, sense=spec.sense, title=spec.title,
+        system=system_of(spec),
         # The tree searched a maximisation. When the user wrote a
         # minimisation, BOTH go in: hiding the negation would leave the
         # certificate describing a problem nobody posed.

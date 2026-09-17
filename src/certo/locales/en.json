@@ -906,5 +906,8 @@
   "verify.peak.detail": "the integer maximum is {value}, attained at {argmax}, for all {floor}",
   "verify.peak.scope": "this is the maximum over the INTEGER variable, for every parameter value at or above the floor. It says nothing below it, and the parameters themselves are assumed integral -- that is what makes the maximiser one.",
   "commands.q.peak": "I solved it for n = 1..40. Which integer is best for EVERY n?",
-  "cli.peak.scope": "and that is every integer choice with {floor} -- not a sample of them"
+  "cli.peak.scope": "and that is every integer choice with {floor} -- not a sample of them",
+  "verify.bb.tied": "each node's dual is checked against that node's OWN problem, derived from the root",
+  "verify.bb.derived": "{n} closed nodes, each rebuilt from the root system",
+  "verify.bb.untied": "this certificate predates the root system being carried, so each node's certificate was checked on its own terms and NOTHING ties it to that node's subproblem. A certificate belonging to a different node would pass. Re-run the search to get one that is tied."
 }

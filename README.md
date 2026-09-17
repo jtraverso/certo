@@ -104,12 +104,23 @@ user had **four** Lean modules like it.
 
 ```
 $ certo verify out/optimal.json
-VALID  branch_bound certificate (verified with a solver)
+VALID  branch_bound certificate (verified without a solver)
   [ok] no node appears twice  (0 duplicates)
   [ok] the incumbent design exists and attains the optimum  (declared 7)
   [ok] every branch has all its children  (0 missing: -)
+  [ok] each node's dual is checked against that node's OWN problem, derived
+       from the root  (1 closed nodes, each rebuilt from the root system)
   [ok] every leaf is closed by a certificate  (0 not closed: -)
 ```
+
+That fourth line is newer than the others and is the one that makes the rest
+mean anything. A dual for a node's relaxation is a valid dual for **some**
+linear program, and nothing in it says which node it came from — so a tree
+that stored one per node and checked each on its own terms accepted two of
+them **exchanged**, and an expensive subtree closed by a cheap one's
+certificate read exactly like a complete proof. Each node's program is derived
+from the root system and that node's own fixings now, by the same function the
+search used, and the dual is checked against that.
 
 Months later, on the artefact alone, with the warnings repeated — a vacuous
 proof keeps saying it is vacuous, a sweep keeps saying what it did not
