@@ -23,6 +23,27 @@ class Status(str, Enum):
         return self in (Status.UNSAT, Status.SAT)
 
 
+#: z3's own words for why it stopped, in words that do not blame the reader.
+#: "canceled" is what it says when a timeout or an rlimit fires, and a user
+#: seeing it reasonably wonders what they cancelled.
+_REASONS = {
+    "canceled": "reason.limit",
+    "cancelled": "reason.limit",
+    "timeout": "reason.timeout",
+    "max. memory exceeded": "reason.memory",
+    "smt tactic failed to show goal to be sat/unsat": "reason.fragment",
+    "(incomplete (theory arithmetic))": "reason.arith",
+}
+
+
+def readable_reason(raw) -> str:
+    """A solver's stop reason, said in a way a reader can act on."""
+    from .i18n import t
+
+    key = _REASONS.get(str(raw).strip().lower())
+    return t(key) if key else str(raw)
+
+
 class Verdict(str, Enum):
     PROVED = "proved"
     REFUTED = "refuted"

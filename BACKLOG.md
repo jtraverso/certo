@@ -49,6 +49,12 @@ Last updated: 2026-09-17. Four items that were waiting for a real instance now h
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
+| ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
+| ✅ | **A `>=` load priced at zero** *(user feedback P1)* | Same root cause, other consumer. Now `d(optimum)/d(bound)`, summed over the normalised rows with their signs — negative for a binding `>=`, because raising a floor costs you — with the direction stated and the source rows in the payload. |
+| ✅ | **Minimisation in branch and bound** *(user feedback P1)* | Refusing it left the user negating by hand and their certificate describing a formulation nobody posed. The tree still searches `max -c.x` because that is what happens, and the payload records both what was searched and what was asked. |
+| ✅ | **`--wall-timeout-ms`, and a stopped search that reports** *(user feedback P1)* | `--timeout-ms` bounds a solver call, not the search. On expiry by clock or nodes: best design, best bound, gap, node count, and no certificate of optimality. A search that runs out always knew all four. |
+| ✅ | **A solver's stop reason, in words** *(user feedback)* | z3 says "canceled", which reads as if the user cancelled it. Now named as the limit it was, with the lever to raise and a hint about dividing out a common power — which in the report turned a 10 s timeout into 12 ms. |
 | ✅ | **`certo cover`: exact covers and clique partitions** | Every element of a universe in exactly one part, checked by counting; with `cliques=True` the parts are vertex sets and each is refused unless every pair among them is an edge. Three failures reported as three different things, because a non-clique part is a statement about the graph and a doubled edge is one about the cover. An upper bound with an artefact attached: pair it with `opt`'s exact dual for the lower one. |
 | ✅ | **Local loads in a packing certificate** *(user feedback P1)* | Named regions with bounds, declared apart from resource capacities because a capacity is part of the encoding and a load is part of the argument. They become rows, so the dual prices them: a binding region reports its shadow price, a slack one reports that it is not what constrains the answer. The certificate carries each load's coefficients so `verify` recomputes the achieved value rather than believing it. Built to the shape of the corpus model, `within-A load <= N_A`. |
 | ✅ | **`certo parametric`: a bound for every parameter value** *(P1)* | Weak duality, symbolically: `y >= 0` with `A(p)ᵀy >= c(p)` bounds `opt(p)` for every `p` at once, and each dual-feasibility row is certified on a ray by substituting `p = p0 + u` and reading the coefficient signs. Turns "checked for p = 5..12" into "holds for every p >= 10". Built against the corpus instance whose duals are piecewise constant with thresholds; on a reproduced slice one dual read at p = 10 gives the EXACT optimum at 10, 11, 15 and 30. The shift is sufficient and not necessary, so a failure emits no certificate and says the route failed rather than that the bound is false. |
@@ -136,7 +142,74 @@ verifies *without* a solver. It does not.
 
 ## P1 — next
 
-**Empty.** Everything from the user reports has landed, and the two items that were waiting for a real instance were built against one. What is left is P2, and every item there wants a case that has not come up yet.
+Everything here comes from the 0.6 field report, and the two P0s it named are
+already fixed.
+
+### 1. `certo order` exists and nobody found it *(user feedback)*
+
+The report asks for "a mode that takes an expression plus an assignment of
+orders and returns the exponent of `n` with a certificate", calls it **the one
+function I would ask for in 0.7**, and says they did it by hand in Python
+three times in one session.
+
+**That is `certo order`, and it shipped in 0.5.0.** It is in the command
+table, in the routing table keyed on the question, and has its own README
+section and example.
+
+So this is not a missing feature; it is a discovery failure, and a worse
+problem than a missing feature because the work was done and did not reach
+anyone. Worth attacking directly rather than by adding another table:
+
+* `lint` on a spec whose expression has symbols with declared magnitudes could
+  say so;
+* a `prove` that returns SAT on a bound involving a growth parameter could
+  name `order` the way vacuity names the clash — the tool is already good at
+  pointing at the next command, and that is what worked for `cover -> opt`;
+* the phrase people search for is "asymptotic" or "decays", and the word
+  "order" appears nowhere near either in the help.
+
+### 2. `CoverSpec.to_lp` and `cover --optimize` *(user feedback)*
+
+Today `cover` certifies a partition you have and `opt` optimises a relaxation
+written separately, and the user rebuilds the LP by hand in between. A
+canonical conversion — `to_lp(integral=False)` for the relaxation,
+`to_lp(integral=True)` for the physical minimum — plus
+
+    certo cover spec.py --optimize --prove-optimal
+
+would bundle the `exact_cover` upper bound, the relaxation's exact dual, and
+the branch-and-bound tree when it finishes. When it does not, it returns
+incumbent, lower bound and gap **labelled as inconclusive**, which the search
+can now do since 0.6.1.
+
+The reason this is P1 rather than a convenience: the same report shows someone
+reading a valid cover as an optimal one, and a fractional optimum as an
+integral cost. A command that produces both halves together is the fix for a
+misreading, not a shortcut.
+
+### 3. `verify --spec` and `certo --version` *(user feedback)*
+
+The certificate already stores `spec_path` and `spec_sha256`, and `status`
+already reports staleness. What is missing is the direct form:
+
+    certo verify cert.json --spec spec.py     # fail if the hash differs
+
+so nobody verifies an old certificate believing it describes the file in front
+of them. And `certo --version` currently reads as a missing subcommand; it
+should print the version, the commit when available, and the maximum
+certificate schema.
+
+### 4. A compact, solver-free branch-and-bound certificate *(user feedback)*
+
+63 nodes cost 842 KB, and the certificate is `solver_free: false`. Both are
+honest and both are worth improving:
+
+* document exactly what needs a solver during `verify`, and what each leaf
+  stores;
+* inherit bounds and decisions from the parent instead of repeating the node's
+  whole state, which on a mid-sized tree is most of the bytes;
+* a `--fully-checkable` mode that stores an exact dual or Farkas ray at every
+  leaf, larger but solver-free, for archival.
 
 ---
 
@@ -282,7 +355,7 @@ local commits; **pushing to the public repository is not automatic** and is
 asked for each time. Each release bumps the version, writes its section of
 [CHANGELOG.md](CHANGELOG.md), and is tagged.
 
-Current: **0.6.0**. The certificate schema has been **frozen** since 0.4.0 and `SCHEMA_VERSION` is still 4: everything since has been an optional field or a command that emits no certificate.
+Current: **0.6.1**. The certificate schema has been **frozen** since 0.4.0 and `SCHEMA_VERSION` is still 4: everything since has been an optional field or a command that emits no certificate.
 
 Frozen means an existing payload's fields do not move: no renames, no
 removals, no changes of meaning. What stays allowed, permanently:

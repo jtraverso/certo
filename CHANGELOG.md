@@ -6,7 +6,17 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
-### Fixed: two defects a user found by running `verify` on our own output
+## [0.6.1] — 2026-09-17
+
+**Schema unchanged: `SCHEMA_VERSION` stays 4.** Two optional payload fields on
+`branch_bound`, and fixes.
+
+Everything here comes from one field report, written after using 0.6.0 on a
+real formalisation. Two defects it found, the fix for the class they belong
+to, and three things it asked for.
+
+
+### Fixed: two defects, found by running `verify` on our own output
 
 **A `mixed_design` certificate was rejected by its own verifier whenever the
 model had a `>=` or `==` constraint.** Reported as "all variables discrete, so
@@ -41,6 +51,31 @@ This is the class of bug a test suite does not catch on its own, and it is
 worth naming: every test fed verification a certificate the producer had
 built, so producer and verifier agreed because both were wrong in the same
 place.
+
+### Also: a solver's stop reason, said in words
+
+z3 says `canceled` when a timeout or an rlimit fires, and the report is right
+that this reads as if the user had cancelled something. Known reasons are now
+named as what they are, with the lever to raise:
+
+```
+inconclusive (timeout): the work or time limit was reached -- raise --rlimit
+or --timeout-ms, or simplify the statement. A common one: divide out a power
+that appears on both sides.
+```
+
+That last hint is from the same report: a `prove` on an inequality with a
+symbolic `n^6` timed out at 10 s, and dividing out the common power settled it
+in 12 ms.
+
+### Also: the `ParametricSpec` docstring showed terms it does not accept
+
+It wrote `objective={"x": one, "y": p - 5}`, which reads as z3 — and a
+`z3.RealVal(3)` raises a `TypeError` naming no argument. Coefficients are
+`Poly` over the parameter ring, or z3 terms in the parameter symbols, and the
+docstring now builds them that way and says why a bare rational cannot work:
+it has no ring to live in, and guessing one would be guessing which parameters
+the problem has.
 
 ### Added: branch and bound accepts a minimisation
 

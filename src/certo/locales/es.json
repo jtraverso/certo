@@ -806,5 +806,10 @@
   "cli.selfcheck.report": "   Repórtalo, por favor: https://github.com/jtraverso/certo/issues",
   "engine.bb.optimal_min": "MÍNIMO {value}, DEMOSTRADO: {nodes} nodos, {leaves} cerrados con certificado (buscado como maximización del objetivo negado, cosa que el certificado registra)",
   "engine.bb.stopped_nodes": "PARADO en {limit} nodos, así que la optimalidad NO está establecida. Mejor diseño {value}, mejor cota {bound}, gap {gap}, tras {nodes} nodos.",
-  "engine.bb.stopped_clock": "PARADO tras {limit} ms, así que la optimalidad NO está establecida. Mejor diseño {value}, mejor cota {bound}, gap {gap}, tras {nodes} nodos."
+  "engine.bb.stopped_clock": "PARADO tras {limit} ms, así que la optimalidad NO está establecida. Mejor diseño {value}, mejor cota {bound}, gap {gap}, tras {nodes} nodos.",
+  "reason.limit": "se alcanzó el límite de trabajo o de tiempo --sube --rlimit o --timeout-ms, o simplifica el enunciado. Uno frecuente: dividir una potencia que aparece en los dos lados",
+  "reason.timeout": "se agotó el reloj --sube --timeout-ms, o simplifica",
+  "reason.memory": "se agotó la memoria --sube --max-memory-mb, o simplifica",
+  "reason.fragment": "el enunciado queda fuera del fragmento que z3 decide; `farkas` o `sos` pueden encajar mejor",
+  "reason.arith": "esta aritmética no está en un fragmento decidible; `farkas --nonlinear` o `sos` pueden encajar mejor"
 }

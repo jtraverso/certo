@@ -806,5 +806,10 @@
   "cli.selfcheck.report": "   Please report it: https://github.com/jtraverso/certo/issues",
   "engine.bb.optimal_min": "MINIMUM {value}, PROVED: {nodes} nodes, {leaves} of them closed by a certificate (searched as a maximisation of the negated objective, which the certificate records)",
   "engine.bb.stopped_nodes": "STOPPED at {limit} nodes, so optimality is NOT established. Best design {value}, best bound {bound}, gap {gap}, after {nodes} nodes.",
-  "engine.bb.stopped_clock": "STOPPED after {limit} ms, so optimality is NOT established. Best design {value}, best bound {bound}, gap {gap}, after {nodes} nodes."
+  "engine.bb.stopped_clock": "STOPPED after {limit} ms, so optimality is NOT established. Best design {value}, best bound {bound}, gap {gap}, after {nodes} nodes.",
+  "reason.limit": "the work or time limit was reached -- raise --rlimit or --timeout-ms, or simplify the statement. A common one: divide out a power that appears on both sides",
+  "reason.timeout": "the clock ran out -- raise --timeout-ms, or simplify",
+  "reason.memory": "memory ran out -- raise --max-memory-mb, or simplify",
+  "reason.fragment": "the statement is outside the fragment z3 decides; `farkas` or `sos` may fit it better",
+  "reason.arith": "the arithmetic here is not in a decidable fragment; `farkas --nonlinear` or `sos` may fit it better"
 }

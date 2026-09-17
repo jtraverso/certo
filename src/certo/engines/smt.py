@@ -14,7 +14,8 @@ from ..certificate import (core_matrix_certificate, model_certificate,
                            unsat_core_certificate)
 from ..limits import Limits
 from ..i18n import t
-from ..status import Result, Status, Verdict, classify_unknown
+from ..status import (Result, Status, Verdict, classify_unknown,
+                      readable_reason)
 
 ENGINE = "z3:" + z3.get_version_string()
 
@@ -201,7 +202,7 @@ def prove(spec, limits: Limits | None = None) -> Result:
     return Result(
         "prove", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
         detail=t("engine.inconclusive", status=st.value,
-                 reason=s.reason_unknown()),
+                 reason=readable_reason(s.reason_unknown())),
     )
 
 
@@ -262,7 +263,7 @@ def check(spec, limits: Limits | None = None,
                       meta=_constant_meta(constant))
     return Result("check", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
                   detail=t("engine.inconclusive", status=st.value,
-                           reason=s.reason_unknown()),
+                           reason=readable_reason(s.reason_unknown())),
                   meta=_constant_meta(constant))
 
 
@@ -317,7 +318,7 @@ def _hypotheses_only(spec, lim, t0) -> Result:
                       meta={"hypotheses_only": True, "clash": clash})
     return Result("check", st, Verdict.INCONCLUSIVE, ENGINE, ms, None,
                   detail=t("engine.inconclusive", status=st.value,
-                           reason=s.reason_unknown()),
+                           reason=readable_reason(s.reason_unknown())),
                   meta={"hypotheses_only": True})
 
 

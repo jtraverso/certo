@@ -776,12 +776,23 @@ class CoverSpec:
 class ParametricSpec:
     """An LP whose data are POLYNOMIALS in a parameter, and a dual to check.
 
+        from certo.polynomials import Poly
+
+        RING = ("p",)
+        p = Poly.var(RING, "p")
+        K = lambda c: Poly.const(RING, c)      # a constant IN THE RING
+
         ParametricSpec(
-            parameters={"p": 10},                 # name -> lower bound
-            objective={"x": one, "y": p - 5},
-            constraints=[("cap", {"x": one, "y": one}, "<=", p * p)],
+            parameters={"p": 10},              # name -> lower bound
+            objective={"x": K(1), "y": p - K(5)},
+            constraints=[("cap", {"x": K(1), "y": K(1)}, "<=", p * p)],
             dual={"cap": Fraction(1, 3)},
         )
+
+    Coefficients are `Poly` over the parameter ring, or z3 terms in the
+    parameter symbols. A bare `z3.RealVal(3)` is neither and raises: it has no
+    ring to live in, and guessing one would be guessing which parameters the
+    problem has.
 
     Certifies `opt(p) <= b(p).y` for EVERY `p` at or above the bound, which is
     the jump a finite sweep cannot make. Coefficients are z3 terms in the
