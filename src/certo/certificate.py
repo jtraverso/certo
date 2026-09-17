@@ -685,6 +685,62 @@ def first_moment_certificate(terms, expectation, threshold, relation, counts,
     )
 
 
+def symmetry_reduction_certificate(sense, generators, orbits, system,
+                                   quotient, title="") -> Certificate:
+    """The quotient program has the same optimum, and here is why.
+
+    "Averaging over the automorphism group, an optimal solution may be assumed
+    constant on each orbit" is the sentence, and it is a bridge in every
+    write-up that uses it. Its three hypotheses are finite:
+
+        the action permutes the variables
+        the constraint set is invariant under every generator
+        the objective is invariant
+
+    With those, the feasible region is convex and every image of a feasible
+    point is feasible, so the average over the group is feasible; the
+    objective is invariant and linear, so the average has the same value; and
+    the average is constant on orbits. So an optimal solution constant on
+    orbits exists, and the quotient loses nothing.
+
+    Both the original system and the quotient travel, so verification rebuilds
+    the quotient rather than believing it -- the same reason a branch-and-bound
+    node derives its own linear program.
+    """
+    return Certificate(
+        kind="symmetry_reduction", solver_free=True,
+        payload={"sense": sense, "generators": generators, "orbits": orbits,
+                 "system": system, "quotient": quotient, "title": title},
+        note_key="cert.note.symmetry_reduction",
+    )
+
+
+def hypothesis_audit_certificate(rows, counts, goal_smt2, hypotheses_smt2,
+                                 title="") -> Certificate:
+    """Per hypothesis: needed and why, redundant, or not settled.
+
+    `core` says which hypotheses an unsat core NEEDED, which catches a theorem
+    stated with slack. This catches the opposite and more expensive mistake --
+    a theorem stated TOO STRONGLY, formalised, and only then found to be about
+    a smaller class than the paper claims.
+
+    The WITNESS is the content of a `needed` verdict. It says not only that a
+    hypothesis matters but HOW, which is what tells somebody whether they
+    wrote the right one, and checking it is evaluation rather than search:
+    substitute, and the kept hypotheses must hold while the goal must not.
+
+    WHAT IT DOES NOT SAY, repeated on every verification: that the hypothesis
+    set is MINIMAL. Dropping them one at a time says nothing about dropping
+    two, and a pair can be jointly redundant with neither redundant alone.
+    """
+    return Certificate(
+        kind="hypothesis_audit", solver_free=False,
+        payload={"rows": rows, "counts": counts, "goal_smt2": goal_smt2,
+                 "hypotheses_smt2": hypotheses_smt2, "title": title},
+        note_key="cert.note.hypothesis_audit",
+    )
+
+
 def ratio_bound_certificate(parameters, left, right, relation, difference,
                             region=None, title="") -> Certificate:
     """`f/g <= h/k` for every parameter at or above the floor. No solver.
@@ -1278,6 +1334,8 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "resultant": _verify_resultant,
         "first_entry": _verify_first_entry,
         "first_moment": _verify_first_moment,
+        "symmetry_reduction": _verify_symmetry_reduction,
+        "hypothesis_audit": _verify_hypothesis_audit,
         "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
@@ -1740,6 +1798,93 @@ def _verify_first_moment(cert, limits) -> VerifyReport:
         detail=t("verify.moment.detail_exists" if p["concludes"]
                  else "verify.moment.detail", value=str(declared),
                  rel=p["relation"], threshold=str(threshold)),
+    )
+
+
+def _verify_symmetry_reduction(cert, limits) -> VerifyReport:
+    """Re-check the three hypotheses, and rebuild the quotient."""
+    from . import symmetry, tree
+
+    p = cert.payload
+    root = tree.spec_of(p["system"])
+    checks = []
+
+    bad = []
+    for name, perm in sorted(p["generators"].items()):
+        try:
+            symmetry.check_generator(root, name, perm)
+        except symmetry.NotSymmetric as e:
+            bad.append("{}: {}".format(name, e))
+    checks.append((t("verify.symmetry.generators"), not bad,
+                   t("verify.symmetry.offenders",
+                     n=len(p["generators"]),
+                     names="; ".join(bad[:2]) or "-")))
+
+    got = symmetry.orbits(list(root.var_names), p["generators"])
+    declared = [sorted(o) for o in p["orbits"]]
+    checks.append((t("verify.symmetry.orbits"),
+                   sorted(got) == sorted(declared),
+                   t("verify.symmetry.counts", n=len(declared),
+                     vars=len(root.var_names))))
+
+    # The quotient is REBUILT, not believed.
+    want = tree.system_of(symmetry.quotient(root, got))
+    checks.append((t("verify.symmetry.quotient"),
+                   _same_system(want, p["quotient"]),
+                   t("verify.symmetry.reduced",
+                     v=len(want["var_names"]), r=len(want["cons"]))))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "symmetry_reduction", True, checks=checks,
+        warnings=[t("verify.symmetry.scope")],
+        method_key="verify.symmetry.method",
+        detail=t("verify.symmetry.detail", vars=len(root.var_names),
+                 orbits=len(declared)),
+    )
+
+
+def _same_system(a, b) -> bool:
+    """Two programs as data, compared where order does not matter."""
+    if a["sense"] != b["sense"] or set(a["var_names"]) != set(b["var_names"]):
+        return False
+    if a["obj"] != b["obj"] or a["bounds"] != b["bounds"]:
+        return False
+    key = lambda c: (tuple(sorted(c[1].items())), c[2], c[3])  # noqa: E731
+    return sorted(map(key, a["cons"])) == sorted(map(key, b["cons"]))
+
+
+def _verify_hypothesis_audit(cert, limits) -> VerifyReport:
+    """Re-run every witness against the formulas it claims to break."""
+    from . import audit as _audit
+
+    p = cert.payload
+    rows = p["rows"]
+    counts = {v: sum(1 for r in rows if r["verdict"] == v)
+              for v in ("needed", "redundant", "unknown")}
+    checks = [(t("verify.audit.counts"), counts == p["counts"],
+               t("verify.audit.tally", needed=counts["needed"],
+                 redundant=counts["redundant"], unknown=counts["unknown"]))]
+
+    got = _audit.recheck(p, limits)
+    checks.append((t("verify.audit.witnesses"), not got["bad"],
+                   t("verify.audit.reapplied", n=got["checked"],
+                     bad=", ".join(got["bad"][:3]) or "-")))
+
+    # Every `needed` verdict must actually carry its witness: one without is a
+    # claim with nothing behind it.
+    missing = [r["hypothesis"] for r in rows
+               if r["verdict"] == "needed" and not r.get("witness")]
+    checks.append((t("verify.audit.every_witness"), not missing,
+                   ", ".join(missing[:3]) or "-"))
+
+    warnings = [t("verify.audit.not_minimal")]
+    if counts["unknown"]:
+        warnings.append(t("verify.audit.unknown", n=counts["unknown"]))
+    return VerifyReport(
+        all(c[1] for c in checks), "hypothesis_audit", False, checks=checks,
+        warnings=warnings, method_key="verify.audit.method",
+        detail=t("verify.audit.detail", needed=counts["needed"],
+                 redundant=counts["redundant"], unknown=counts["unknown"]),
     )
 
 

@@ -1576,6 +1576,374 @@ def test_weak_duality_is_what_bounds_the_losers():
     assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
 
 
+# --- does each hypothesis earn its place? ----------------------------------
+
+
+def _audit(build):
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    spec = Spec()
+    build(spec, z3)
+    return smt.audit(spec, LIM)
+
+
+def test_a_hypothesis_doing_no_work_is_named_redundant():
+    """The mistake `core` cannot catch: a theorem stated too strongly."""
+    def build(spec, z3):
+        n, m = z3.Ints("n m")
+        spec.assume("n_large", n >= 5)
+        spec.assume("m_bounded", m <= n - 2)
+        spec.assume("noise", z3.Bool("noise"))
+        spec.claim(m <= n)
+
+    r = _audit(build)
+    assert r.verdict is Verdict.SATISFIABLE
+    # `m_bounded` alone gives `m <= n`, so the other two do no work
+    assert set(r.meta["redundant_names"]) == {"n_large", "noise"}
+    assert r.meta["needed"] == 1 and r.meta["unknown"] == 0
+
+
+def test_every_needed_verdict_carries_the_assignment_that_breaks_it():
+    """The witness is the content: knowing a hypothesis matters is worth
+    little, knowing HOW it matters is what tells you if you wrote the right
+    one."""
+    def build(spec, z3):
+        n, m = z3.Ints("n m")
+        spec.assume("n_large", n >= 5)
+        spec.assume("m_positive", m >= 1)
+        spec.assume("m_bounded", m <= n - 2)
+        spec.claim(z3.And(m >= 1, m + 2 <= n, n >= 5))
+
+    r = _audit(build)
+    assert r.meta["needed"] == 3 and r.meta["redundant"] == 0
+    rows = r.certificate.payload["rows"]
+    assert all(row["witness"] for row in rows if row["verdict"] == "needed")
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("does NOT say the hypothesis set is minimal" in w
+               for w in rep.warnings)
+
+
+def test_a_forged_witness_does_not_verify():
+    """Checking is evaluation: substitute, and the kept hypotheses must hold
+    while the goal must not."""
+    import copy
+
+    from certo.certificate import Certificate
+
+    def build(spec, z3):
+        n, m = z3.Ints("n m")
+        spec.assume("n_large", n >= 5)
+        spec.assume("m_positive", m >= 1)
+        spec.assume("m_bounded", m <= n - 2)
+        spec.claim(z3.And(m >= 1, m + 2 <= n, n >= 5))
+
+    base = json.loads(json.dumps(_audit(build).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a witness that does not break the goal
+    assert not bent(lambda p: p["rows"][0]["witness"].update({"n": ["Int", "9"],
+                                                             "m": ["Int", "2"]}))
+    # a `needed` verdict with nothing behind it
+    assert not bent(lambda p: p["rows"].__setitem__(
+        0, dict(p["rows"][0], witness=None)))
+    # a tally that does not match the rows
+    assert not bent(lambda p: p["counts"].__setitem__("needed", 9))
+
+
+def test_unknown_is_never_folded_into_the_other_two():
+    """Not finding a counterexample is not the absence of one, and a report
+    that counted `unknown` as `needed` would say the theorem is tight when
+    nobody checked."""
+    from certo.audit import NEEDED, REDUNDANT, UNKNOWN
+
+    assert len({NEEDED, REDUNDANT, UNKNOWN}) == 3
+
+    def build(spec, z3):
+        n = z3.Int("n")
+        spec.assume("positive", n >= 1)
+        spec.claim(n >= 0)
+
+    r = _audit(build)
+    counts = r.certificate.payload["counts"]
+    assert set(counts) == {"needed", "redundant", "unknown"}
+    assert sum(counts.values()) == len(r.certificate.payload["rows"])
+
+
+def test_a_spec_with_nothing_to_drop_is_refused():
+    from certo.audit import NotAuditable, audit
+
+    import z3
+
+    from certo import Spec
+
+    empty = Spec()
+    empty.claim(z3.BoolVal(True))
+    try:
+        audit(empty, LIM)
+        raise AssertionError("expected a refusal")
+    except NotAuditable as e:
+        assert "no hypotheses" in str(e)
+
+    goalless = Spec()
+    goalless.assume("h", z3.Int("n") >= 1)
+    try:
+        audit(goalless, LIM)
+        raise AssertionError("expected a refusal")
+    except NotAuditable as e:
+        assert "no claim" in str(e)
+
+
+# --- averaging over the group, checked instead of asserted -----------------
+
+
+def _triangle_cover(n=7):
+    """Cover every edge of K_n by triangles: the shape five write-ups start
+    from AFTER saying "by symmetry"."""
+    import itertools
+
+    from certo import LPSpec
+
+    p = LPSpec(sense="min", title="triangle cover of K{}".format(n))
+    tris = [t for t in itertools.combinations(range(n), 3)]
+    for t in tris:
+        p.variable("t{}_{}_{}".format(*t), 0, 1)
+    p.objective({"t{}_{}_{}".format(*t): 1 for t in tris})
+    for e in itertools.combinations(range(n), 2):
+        row = {"t{}_{}_{}".format(*t): 1 for t in tris
+               if e[0] in t and e[1] in t}
+        p.constraint(row, ">=", 1, name="e{}_{}".format(*e))
+    return p, tris
+
+
+def _full_symmetric(tris, n=7):
+    """S_n acting on the vertices, as two generators on the triangles."""
+    def induced(sigma):
+        return {"t{}_{}_{}".format(*t):
+                "t{}_{}_{}".format(*sorted(sigma[v] for v in t))
+                for t in tris}
+
+    swap = {v: v for v in range(n)}
+    swap[0], swap[1] = 1, 0
+    cycle = {v: (v + 1) % n for v in range(n)}
+    return {"swap01": induced(swap), "cycle": induced(cycle)}
+
+
+def _reduce(lp, generators, title=""):
+    from certo import SymmetrySpec
+    from certo.engines import algebra
+
+    return algebra.reduce_symmetry(
+        SymmetrySpec(lp=lp, generators=generators, title=title), LIM)
+
+
+def test_the_quotient_has_the_optimum_the_original_has():
+    """The claim the whole command makes, checked against the thing it is
+    about: solve BOTH exactly and compare. If averaging lost anything, these
+    two numbers would differ."""
+    from certo.engines import lp as lpe
+
+    prog, tris = _triangle_cover()
+    r = _reduce(prog, _full_symmetric(tris), "K7 under S7")
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["variables"] == 35 and r.meta["orbits"] == 1
+    assert r.meta["rows"] == 21 and r.meta["reduced_rows"] == 1
+
+    from certo import tree
+    quotient = tree.spec_of(r.certificate.payload["quotient"])
+    assert lpe.opt(prog, LIM).meta["objective"] == \
+        lpe.opt(quotient, LIM).meta["objective"]
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("nothing about what that optimum is" in w for w in rep.warnings)
+
+
+def test_each_hypothesis_of_the_averaging_argument_refuses_by_name():
+    """A wrong group does not give a weaker reduction, it gives a WRONG one,
+    so every generator is checked and every refusal says which hypothesis
+    failed and where."""
+    from certo import LPSpec
+
+    def base(hi_y=1, rhs2=1, obj_z=1):
+        p = LPSpec(sense="max")
+        p.variable("x", 0, 1)
+        p.variable("y", 0, hi_y)
+        p.variable("z", 0, 1)
+        p.objective({"x": 1, "y": 1, "z": obj_z})
+        p.constraint({"x": 1, "y": 1}, "<=", 1, name="c1")
+        p.constraint({"y": 1, "z": 1}, "<=", rhs2, name="c2")
+        return p
+
+    swap_xz = {"x": "z", "z": "x", "y": "y"}
+
+    # the honest case first, so the refusals below are not passing by accident
+    ok = _reduce(base(), {"g": swap_xz})
+    assert ok.verdict is Verdict.PROVED
+    assert [sorted(o) for o in ok.certificate.payload["orbits"]] == \
+        [["x", "z"], ["y"]]
+
+    def refused(lp, perm, fragment):
+        r = _reduce(lp, {"g": perm})
+        assert r.verdict is Verdict.INCONCLUSIVE, fragment
+        assert r.certificate is None
+        assert fragment in r.detail, r.detail
+        return r
+
+    # not a bijection: x and z both land on z
+    refused(base(), {"x": "z", "z": "z", "y": "y"}, "not a permutation")
+    # the objective moves
+    refused(base(obj_z=5), swap_xz, "moves the objective")
+    # the bounds move
+    refused(base(hi_y=5), {"x": "y", "y": "x", "z": "z"}, "moves the bounds")
+    # the row leaves the constraint set: c1 has rhs 1, its image would need 2
+    refused(base(rhs2=2), swap_xz, "outside the constraint set")
+    # and no group at all
+    r = _reduce(base(), {})
+    assert r.verdict is Verdict.INCONCLUSIVE and "no generators" in r.detail
+
+
+def test_a_forged_reduction_does_not_verify():
+    """Three ways to lie about a quotient, and the check that catches each."""
+    import copy
+
+    from certo import LPSpec
+
+    prog = LPSpec(sense="max", title="two orbits, not one")
+    for v in ("x", "y", "z"):
+        prog.variable(v, 0, 1)
+    prog.objective({"x": 1, "y": 1, "z": 1})
+    prog.constraint({"x": 1, "y": 1}, "<=", 1, name="c1")
+    prog.constraint({"y": 1, "z": 1}, "<=", 1, name="c2")
+
+    r = _reduce(prog, {"g": {"x": "z", "z": "x", "y": "y"}})
+    base = json.loads(json.dumps(r.certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+    assert len(base["payload"]["orbits"]) == 2
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a generator that is not an automorphism, smuggled in beside a real one
+    assert not bent(lambda p: p["generators"].__setitem__(
+        "fake", {"x": "y", "y": "x", "z": "z"}))
+    # orbits coarser than the generators give -- claiming a bigger group, and
+    # a bigger group is a smaller quotient, which is the whole incentive
+    assert not bent(lambda p: p.__setitem__("orbits", [["x", "y", "z"]]))
+    # a quotient with fewer rows than the substitution produces
+    assert not bent(lambda p: p["quotient"]["cons"].clear())
+    # a quotient whose objective was quietly scaled down
+    assert not bent(lambda p: p["quotient"].__setitem__(
+        "obj", {k: "1" for k in p["quotient"]["obj"]}))
+
+
+def test_the_orbits_are_derived_and_not_taken_on_faith():
+    """The quotient is REBUILT from the system and the orbits, for the same
+    reason a branch-and-bound node derives its own program: a payload nobody
+    recomputes is a payload anybody can edit."""
+    from certo import symmetry, tree
+
+    prog, tris = _triangle_cover(4)
+    cert = _reduce(prog, _full_symmetric(tris, 4)).certificate
+    p = cert.payload
+
+    root = tree.spec_of(p["system"])
+    got = symmetry.orbits(list(root.var_names), p["generators"])
+    rebuilt = tree.system_of(symmetry.quotient(root, got))
+    assert rebuilt["cons"] == p["quotient"]["cons"]
+    assert rebuilt["obj"] == p["quotient"]["obj"]
+
+
+def test_a_reduction_and_its_digest_survive_a_round_trip():
+    prog, tris = _triangle_cover(5)
+    cert = _reduce(prog, _full_symmetric(tris, 5)).certificate
+    again = _roundtrip(cert)
+    assert again.digest() == cert.digest()
+    assert again.kind == "symmetry_reduction" and again.solver_free
+
+
+# --- the README table is a surface that drifts -----------------------------
+
+
+def _subcommands():
+    """Every subcommand, aliases folded into the name they alias."""
+    import argparse
+
+    from certo.cli import build_parser
+
+    sub = [a for a in build_parser()._actions
+           if isinstance(a, argparse._SubParsersAction)][0]
+    seen, names = set(), []
+    for name, parser in sub.choices.items():
+        if id(parser) not in seen:
+            seen.add(id(parser))
+            names.append(name)
+    return names
+
+
+def test_every_command_is_in_the_readme_table_and_the_count_is_right():
+    """This table went stale quietly: it said twenty-eight, it listed
+    twenty-nine, and the CLI had thirty-nine. A reader looking for `audit`
+    concluded it did not exist. A number nobody recomputes is a number that
+    is wrong."""
+    import re
+
+    NUMBER = {28: "twenty-eight", 29: "twenty-nine", 30: "thirty",
+              31: "thirty-one", 32: "thirty-two", 33: "thirty-three",
+              34: "thirty-four", 35: "thirty-five", 36: "thirty-six",
+              37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
+              40: "forty", 41: "forty-one", 42: "forty-two",
+              43: "forty-three", 44: "forty-four", 45: "forty-five"}
+
+    readme = (pathlib.Path(__file__).resolve().parent.parent
+              / "README.md").read_text(encoding="utf-8")
+    head = re.search(r"^## The ([a-z-]+) commands$", readme, re.M)
+    assert head, "the commands section was renamed"
+    block = readme.split(head.group(0), 1)[1].split("\nCommon options", 1)[0]
+    listed = re.findall(r"^\| `([a-z]+)`", block, re.M)
+
+    commands = set(_subcommands())
+    assert set(listed) == commands, {
+        "missing from the README": sorted(commands - set(listed)),
+        "in the README but not a command": sorted(set(listed) - commands)}
+    assert len(listed) == len(set(listed)), "a command is listed twice"
+    assert head.group(1) == NUMBER[len(listed)], (
+        "the heading says {}, the table has {}".format(head.group(1),
+                                                       len(listed)))
+
+
+def test_every_command_answers_a_question_in_the_catalogue():
+    """`certo commands` is how somebody who does not know the names finds
+    one. A command missing from it ships invisible -- which has happened."""
+    import io
+    from contextlib import redirect_stdout
+
+    from certo.cli import main
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["commands"])
+    text = buf.getvalue()
+
+    # navigation commands are how you GET here, and listing them would be
+    # circular; everything that answers a mathematical question is listed
+    NAVIGATION = {"ask", "commands", "repro", "check"}
+    missing = [c for c in _subcommands()
+               if c not in NAVIGATION and "certo " + c not in text]
+    assert not missing, missing
+
+
 # --- a level cannot be crossed silently ------------------------------------
 
 

@@ -30,6 +30,7 @@ from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
                            family_extremum_certificate,
                            first_entry_certificate,
+                           symmetry_reduction_certificate,
                            first_moment_certificate,
                            ratio_bound_certificate,
                            integer_peak_certificate,
@@ -226,6 +227,38 @@ def moment(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
                            threshold=str(out["threshold"]),
                            n=len(out["terms"])),
                   meta={"expectation": shown, "exists": out["concludes"]})
+
+
+def reduce_symmetry(spec, limits: Limits | None = None,
+                    spec_path: str = "") -> Result:
+    """Check the group, then quotient the program by its orbits."""
+    from ..symmetry import NotSymmetric, certify
+    from ..tree import system_of
+
+    t0 = time.perf_counter()
+    lp = spec.lp.to_lp() if hasattr(spec.lp, "to_lp") else spec.lp
+    try:
+        out = certify(lp, spec.generators)
+    except NotSymmetric as e:
+        return Result("reduce", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = symmetry_reduction_certificate(
+        sense=lp.sense, generators=out["generators"], orbits=out["orbits"],
+        system=system_of(lp), quotient=system_of(out["quotient"]),
+        title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("reduce", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM, ms,
+                  cert,
+                  detail=t("engine.symmetry.proved",
+                           v=out["variables"], o=out["reduced_variables"],
+                           r=out["rows"], rr=out["reduced_rows"]),
+                  meta={"variables": out["variables"],
+                        "orbits": out["reduced_variables"],
+                        "rows": out["rows"],
+                        "reduced_rows": out["reduced_rows"]})
 
 
 def ratio(spec, limits: Limits | None = None, spec_path: str = "") -> Result:

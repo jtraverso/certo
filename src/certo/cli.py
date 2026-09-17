@@ -232,6 +232,39 @@ def limits_from(args) -> Limits:
 from .routing import BY_QUESTION  # noqa: E402  (the table moved)
 
 
+def cmd_reduce(args):
+    from .engines import algebra
+    from .spec import SymmetrySpec, load_spec
+
+    spec = load_spec(args.spec, SymmetrySpec)
+    res = algebra.reduce_symmetry(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        print("  " + t("verify.symmetry.scope"))
+    return rc
+
+
+def cmd_audit(args):
+    from .engines import smt
+    from .spec import Spec, load_spec
+
+    spec = load_spec(args.spec, Spec)
+    res = smt.audit(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        for row in res.certificate.payload["rows"]:
+            mark = {"needed": "[needed]", "redundant": "[REDUNDANT]",
+                    "unknown": "[unknown]"}[row["verdict"]]
+            line = "  {:<12} {}".format(mark, row["hypothesis"])
+            if row["verdict"] == "needed":
+                w = row["witness"] or {}
+                line += "   " + t("cli.audit.witness", values=", ".join(
+                    "{}={}".format(k, v[1]) for k, v in sorted(w.items())[:5]))
+            print(line)
+        print("  " + t("verify.audit.not_minimal"))
+    return rc
+
+
 def cmd_ask(args):
     """One entry point: load the spec, and let its type pick the command.
 
@@ -1708,6 +1741,16 @@ def build_parser():
                     help="add products and squares of the hypotheses first "
                          "(this is exactly what nlinarith does)")
     sp.set_defaults(func=cmd_farkas)
+
+    sp = add("reduce", "quotient a program by a group acting on it, with the "
+                       "averaging argument checked")
+    sp.add_argument("spec", help=".py file returning a SymmetrySpec")
+    sp.set_defaults(func=cmd_reduce)
+
+    sp = add("audit", "does each hypothesis earn its place: drop it and "
+                      "hunt a counterexample")
+    sp.add_argument("spec", help=".py file returning a Spec")
+    sp.set_defaults(func=cmd_audit)
 
     sp = add("ask", "one entry point: load a spec and run whatever command "
                     "its type asks for")

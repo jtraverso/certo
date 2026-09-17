@@ -375,13 +375,14 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-eight commands
+## The thirty-nine commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
 | `prove` | Negate the claim, look for `unsat` | Z3 | unsat core, or counterexample |
 | `check` | Satisfiability; `--hypotheses-only` asks if the regime is non-empty | Z3 | model, or core |
 | `core` | MUS: which hypotheses are needed | Z3 | minimal core |
+| `audit` | Does every hypothesis earn its place, or is the theorem overstated? | Z3 | **verdict per hypothesis, each with the assignment that breaks it** |
 | `farkas` | `linarith` / `nlinarith`, with the multipliers | exact LP | **Farkas certificate**, solver-free |
 | `compose` | Assemble lemmas into one proof, checking the join | Z3 | **proof**: every lemma, its certificate, and the link |
 | `induct` | Base cases + a step, and the check that the chain joins | Z3 | **induction**: both halves, and the two numbers that matter |
@@ -394,6 +395,12 @@ and what to expect.
 | `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
 | `parametric` | A bound for EVERY value of a parameter, from a dual you already have -- packing from above, cover from below | weak duality, symbolic | **y and the shifted residuals**, solver-free |
 | `peak` | The best INTEGER choice for a family of concave quadratics, and the value there | exact, no search | **the maximiser and two step inequalities**, solver-free |
+| `reduce` | "By symmetry": the three hypotheses of the averaging argument, checked | exact, no search | **generators, orbits and the quotient**, solver-free |
+| `family` | The largest of ten thousand linear programs, and why nothing beats it | exact LP | **the winner and a dual for the rest**, solver-free |
+| `ratio` | A fraction inequality for EVERY n | exact polynomials | **the cleared numerator and the sign of the denominator**, solver-free |
+| `moment` | Is the expected number of bad events below one, so a good object exists? | exact rationals | **the moment and the mass it leaves over**, solver-free |
+| `entry` | Where a sequence first crosses a line, and by how little | exact rationals | **the prefix and the two terms that bracket it**, solver-free |
+| `exists` | Does one exist at all, and the refutation when it does not | own CDCL | model, or DRAT proof |
 | `cover` | Is this an exact cover? A clique partition is one case | counting | **the universe and the parts**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
@@ -405,6 +412,9 @@ and what to expect.
 | `lint` | Check a spec before spending the compute on it | — | — |
 | `status` | Where a proof stands: proved, owed, hollow, stale | — | — |
 | `doctor` | What this install can do, and what each gap costs | — | — |
+| `ask` | One entry point: load a spec and run whatever it asks for (`what` is the same command) | — | whatever the command produces |
+| `commands` | Which command answers which question | — | — |
+| `repro` | Bundle spec, certificates, versions and hashes for a referee | — | the bundle |
 | `verify` | Re-verify a stored certificate | — | — |
 | `export` | Spec to SMT-LIB2/DIMACS, or a counterexample to Lean | — | — |
 | `ledger` | Audit log of what was run | — | — |

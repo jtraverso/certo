@@ -322,6 +322,44 @@ def _hypotheses_only(spec, lim, t0) -> Result:
                   meta={"hypotheses_only": True})
 
 
+def audit(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """Drop each hypothesis in turn and hunt a counterexample to what remains."""
+    from ..audit import NotAuditable, audit as run
+    from ..audit import NEEDED, REDUNDANT, UNKNOWN
+    from ..certificate import hypothesis_audit_certificate
+    from .. import z3util
+
+    t0 = time.perf_counter()
+    try:
+        out = run(spec, limits)
+    except NotAuditable as e:
+        return Result("audit", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = hypothesis_audit_certificate(
+        rows=out["rows"], counts=out["counts"],
+        goal_smt2=z3util.smt2(spec.goal),
+        hypotheses_smt2={n: z3util.smt2(f) for n, f in spec.assumptions},
+        title=spec.title,
+    ).stamp(spec_path or None)
+
+    c = out["counts"]
+    if out["redundant"]:
+        detail = t("engine.audit.redundant", n=len(out["redundant"]),
+                   names=", ".join(out["redundant"][:4]),
+                   needed=c[NEEDED])
+    elif c[UNKNOWN]:
+        detail = t("engine.audit.unknown", n=c[UNKNOWN], needed=c[NEEDED])
+    else:
+        detail = t("engine.audit.all_needed", n=c[NEEDED])
+    return Result("audit", Status.SAT, Verdict.SATISFIABLE, ENGINE, ms, cert,
+                  detail=detail,
+                  meta={"needed": c[NEEDED], "redundant": c[REDUNDANT],
+                        "unknown": c[UNKNOWN],
+                        "redundant_names": out["redundant"]})
+
+
 def core(spec, limits: Limits | None = None) -> Result:
     """MUS: which hypotheses are actually needed. This is "simplify"."""
     res = prove(spec, limits)

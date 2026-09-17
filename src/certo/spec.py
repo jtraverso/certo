@@ -949,6 +949,36 @@ class EntrySpec:
 
 
 @dataclass
+class SymmetrySpec:
+    """A program, and a group acting on it, to be reduced to one variable per
+    orbit.
+
+        SymmetrySpec(
+            lp=my_lp,                                  # an LPSpec
+            generators={"swap": {"x1": "x2", "x2": "x1"}},
+        )
+
+    The sentence "averaging over the automorphism group, an optimal solution
+    may be assumed constant on each orbit" is a bridge in every write-up that
+    uses it. Its three hypotheses are finite checks given a generating set:
+    the action permutes the variables, the constraint set is invariant, and
+    the objective is invariant. With those, the quotient is arithmetic.
+
+    WHERE THE GROUP COMES FROM is not certo's problem. nauty computes it; this
+    CHECKS it. A generator that is not an automorphism is refused by name,
+    because a wrong group does not give a weaker reduction -- it gives a wrong
+    one.
+
+    Each generator is a dict mapping variable to variable; it must be a
+    bijection of the whole variable set. The identity may be omitted.
+    """
+
+    lp: object                       # an LPSpec, or anything with `to_lp`
+    generators: dict                 # name -> {var: var}
+    title: str = ""
+
+
+@dataclass
 class MomentSpec:
     """The first moment, exactly, and the existence it buys.
 

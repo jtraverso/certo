@@ -1326,6 +1326,57 @@ async def doctor() -> dict:
 
 
 @mcp.tool(description=(
+    "REDUCE: quotient a linear program by a group acting on it, with the "
+    "averaging argument CHECKED rather than asserted. Every write-up that "
+    "says 'averaging over the automorphism group, an optimal solution may be "
+    "assumed constant on each orbit' is using a bridge; its three hypotheses "
+    "are finite checks given a generating set -- the action permutes the "
+    "variables, the constraint set is invariant, the objective is invariant. "
+    "With those, the feasible region is convex so the average of an optimum "
+    "is feasible, the objective is invariant so it has the same value, and it "
+    "is constant on orbits by construction. The quotient has one variable per "
+    "orbit with coefficients summed. WHERE THE GROUP COMES FROM is not "
+    "certo's job -- nauty computes it, this checks it -- and a generator that "
+    "is not an automorphism is REFUSED by name, because a wrong group does "
+    "not give a weaker reduction, it gives a wrong one."))
+@_guard
+async def reduce(spec_path: str | None = None, spec_source: str | None = None,
+                 timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import SymmetrySpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), SymmetrySpec)
+    res = await _off(algebra.reduce_symmetry, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "AUDIT: does each hypothesis earn its place? Drops each one in turn and "
+    "hunts a counterexample to what remains. `core` answers the other half -- "
+    "which hypotheses an unsat core NEEDED -- and catches a theorem stated "
+    "with slack. This catches the opposite and more expensive mistake: a "
+    "theorem stated TOO STRONGLY, formalised, and only then found to be about "
+    "a smaller class than claimed. Three answers per hypothesis and they are "
+    "different: NEEDED with a witness assignment that shows HOW it matters, "
+    "REDUNDANT so the theorem can be stated without it, and UNKNOWN when the "
+    "budget ran out -- never folded into the others, because not finding a "
+    "counterexample is not the absence of one. Run it BEFORE formalising. It "
+    "does NOT prove the hypothesis set is minimal: dropping them one at a "
+    "time says nothing about dropping two."))
+@_guard
+async def audit(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import smt
+    from .spec import Spec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), Spec)
+    res = await _off(smt.audit, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "ASK: one entry point. Give it a spec file and it runs whatever command "
     "that spec's TYPE asks for, reporting which one it chose so the answer "
     "stays traceable to a command you can run directly. Use it when you have "

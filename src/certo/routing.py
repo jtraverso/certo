@@ -35,11 +35,12 @@ SPEC_OF = {
     "sweep": "SweepSpec", "cases": "CNFSpec", "shrink": "SweepSpec",
     "ideal": "IdealSpec", "eliminate": "EliminateSpec", "sos": "SOSSpec",
     "number": "NumberSpec", "compose": "ProofSpec", "lint": "*",
+    "audit": "*", "reduce": "SymmetrySpec",
 }
 
 #: Which commands leave a certificate that re-checks with NO solver.
 SOLVER_FREE = {
-    "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
+    "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
     "cover", "ideal", "eliminate", "sos", "number", "order", "bounds",
     "cases",
 }
@@ -54,6 +55,7 @@ BY_QUESTION = (
     ("commands.group.sane", (
         ("commands.q.regime", "check --hypotheses-only"),
         ("commands.q.lint", "lint"),
+        ("commands.q.audit", "audit"),
         ("commands.q.status", "status"),
         ("commands.q.doctor", "doctor"),
     )),
@@ -63,6 +65,7 @@ BY_QUESTION = (
         ("commands.q.bisect", "bisect"),
         ("commands.q.bounds", "bounds"),
         ("commands.q.order", "order"),
+        ("commands.q.reduce", "reduce"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
         ("commands.q.entry", "entry"),
@@ -76,6 +79,7 @@ BY_QUESTION = (
         ("commands.q.cases", "cases"),
         ("commands.q.shrink", "shrink"),
         ("commands.q.witnesses", "sweep --witnesses"),
+        ("commands.q.enum", "enum"),
     )),
     ("commands.group.algebra", (
         ("commands.q.ideal", "ideal"),
@@ -164,6 +168,7 @@ RUNNERS = {
     "entry": ("certo.engines.algebra", "entry"),
     "moment": ("certo.engines.algebra", "moment"),
     "ratio": ("certo.engines.algebra", "ratio"),
+    "reduce": ("certo.engines.algebra", "reduce_symmetry"),
     "family": ("certo.engines.algebra", "family_max"),
     # `CoverSpec` answers two questions: `cover` checks one you have, and
     # `exists` asks whether any does. `ask` takes the first as the default,

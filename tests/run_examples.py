@@ -30,6 +30,8 @@ CASES = [
     ("amgm.py", "prove", []),
     ("pigeonhole.py", "cases", []),
     ("core_matrix.py", "core", []),
+    ("hypothesis_audit.py", "audit", []),
+    ("symmetry_reduction.py", "reduce", []),
     ("farkas_linear.py", "farkas", []),
     ("farkas_nonlinear.py", "farkas", ["--nonlinear"]),
     ("farkas_named_square.py", "farkas", ["--nonlinear"]),
