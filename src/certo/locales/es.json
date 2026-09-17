@@ -909,5 +909,14 @@
   "cli.peak.scope": "y esa es toda elección entera con {floor} -- no una muestra",
   "verify.bb.tied": "el dual de cada nodo se comprueba contra el problema PROPIO de ese nodo, derivado de la raíz",
   "verify.bb.derived": "{n} nodos cerrados, cada uno reconstruido desde el sistema raíz",
-  "verify.bb.untied": "este certificado es anterior a que se llevara el sistema raíz, así que el certificado de cada nodo se comprobó por su cuenta y NADA lo ata al subproblema de ese nodo. Un certificado de otro nodo pasaría. Vuelve a correr la búsqueda para obtener uno atado."
+  "verify.bb.untied": "este certificado es anterior a que se llevara el sistema raíz, así que el certificado de cada nodo se comprobó por su cuenta y NADA lo ata al subproblema de ese nodo. Un certificado de otro nodo pasaría. Vuelve a correr la búsqueda para obtener uno atado.",
+  "orbits.both": "declara `canonicalize` o `labelling`, no ambos: uno pide que se le crea y el otro pide que se le compruebe, y correr los dos dejaría sin saber de cuál salieron las órbitas",
+  "orbits.no_relabel": "un etiquetado suministrado necesita un item que se pueda reetiquetar --una `n` y un `relabelled(perm)`-- y {got} no tiene ninguno",
+  "orbits.not_a_permutation": "el etiquetado no es una permutación de los {n} puntos del conjunto base ({got} entradas dadas): un mapa que no es biyección renombra el objeto en otro distinto en vez de en el mismo",
+  "orbits.no_witness": "no hay permutación guardada para {id}",
+  "verify.orbits.all_witnessed": "cada miembro de cada órbita lleva su permutación",
+  "verify.orbits.witness_counts": "{n} testigos; órbitas a las que les faltan: {names}",
+  "verify.orbits.witnessed": "cada miembro ES el representante reetiquetado, re-aplicando la permutación guardada",
+  "verify.orbits.reapplied": "{n} re-aplicados, {skipped} llevados pero no decodificables, fallan: {names}",
+  "verify.orbits.one_way": "lo que muestran los testigos es que los miembros de una órbita son el MISMO objeto reetiquetado. No muestran que dos representantes distintos sean objetos distintos --eso necesita que el etiquetado sea invariante por isomorfismo, que es la parte que certo no calculó y no puede comprobar."
 }

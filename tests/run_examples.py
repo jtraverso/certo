@@ -62,6 +62,7 @@ CASES = [
     ("sweep_certified_lp.py", "sweep", []),
     ("sweep_orbits.py", "sweep", []),
     ("setfamily_sweep.py", "sweep", ["--witnesses"]),
+    ("orbits_witnessed.py", "sweep", []),
     ("shrink_nonchordal.py", "shrink", []),
     ("bisect_constant.py", "bisect", []),
     ("bisect_ramsey.py", "bisect", []),

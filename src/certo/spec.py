@@ -322,6 +322,14 @@ class SweepSpec:
     # is what a coloured, rooted or otherwise decorated sweep has, and for a
     # sweep over a family the enumerator did not produce.
     canonicalize: object = None
+    # `labelling(item) -> {source: label}`: the ALTERNATIVE to `canonicalize`,
+    # and a different bargain. `canonicalize` hands over a form and asks to be
+    # believed; `labelling` hands over the permutation, certo applies it, and
+    # the form is what comes out -- so the orbit carries a witness anyone can
+    # re-apply instead of a claim. Use it when the canonical labelling comes
+    # from a tool built for it: certo's own canonical form refuses outright on
+    # a vertex-transitive object. Declaring both is refused.
+    labelling: object = None
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +468,14 @@ class DomainSpec:
     describe: object = None              # callable(item) -> str, optional
     reduce: object = None                # callable(item) -> iterable, or a name
     canonicalize: object = None          # callable(item) -> hashable orbit key
+    # `labelling(item) -> {source: label}`: the ALTERNATIVE to `canonicalize`,
+    # and a different bargain. `canonicalize` hands over a form and asks to be
+    # believed; `labelling` hands over the permutation, certo applies it, and
+    # the form is what comes out -- so the orbit carries a witness anyone can
+    # re-apply instead of a claim. Use it when the canonical labelling comes
+    # from a tool built for it: certo's own canonical form refuses outright on
+    # a vertex-transitive object. Declaring both is refused.
+    labelling: object = None
     worst: str = "min"
     title: str = ""
 

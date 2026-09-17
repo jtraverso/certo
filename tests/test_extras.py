@@ -1217,6 +1217,148 @@ def _mirror_spec(n=7):
     )
 
 
+def _one_factorisation():
+    """K6 as five perfect matchings on its fifteen edges. Vertex-transitive,
+    so colour refinement returns one class and the exact canonical form
+    refuses -- which is why the labelling has to come from outside."""
+    import itertools
+
+    from certo.structures import SetFamily
+
+    index = {e: i for i, e in enumerate(itertools.combinations(range(6), 2))}
+    blocks = []
+    for r in range(5):
+        matching = [(5, r)] + [tuple(sorted(((r + k) % 5, (r - k) % 5)))
+                               for k in (1, 2)]
+        blocks.append(sorted(index[tuple(sorted(e))] for e in matching))
+    return SetFamily(15, blocks)
+
+
+def _labelled_copies(n=12, seed=7):
+    import random
+
+    base = _one_factorisation()
+    rng = random.Random(seed)
+    out = {}
+    for _ in range(n):
+        order = list(range(15))
+        rng.shuffle(order)
+        forward = dict(enumerate(order))
+        copy = base.relabelled(forward)
+        back = {label: src for src, label in forward.items()}
+        out[copy] = {p: back[p] for p in range(15)}
+    return out
+
+
+def test_the_exact_canonical_form_refuses_where_the_labelling_is_needed():
+    """The premise of the whole feature, pinned so it cannot quietly change."""
+    fam = _one_factorisation()
+    assert [len(c) for c in fam._classes()] == [15]      # one class: no split
+    try:
+        fam.canonical()
+        raise AssertionError("expected a refusal on a vertex-transitive object")
+    except ValueError as e:
+        assert "too symmetric" in str(e)
+
+
+def test_a_supplied_labelling_makes_the_orbit_checkable_instead_of_claimed():
+    from certo import DomainSpec
+    from certo.certificate import Certificate
+    from certo.engines import domain
+
+    copies = _labelled_copies()
+    r = domain.sweep_domain(DomainSpec(
+        items=list(copies), predicate=lambda f: False, key=lambda f: f.key(),
+        labelling=lambda f: copies[f]), LIM)
+    rows = r.certificate.payload["orbits"]
+    assert len(rows) == 1 and rows[0]["size"] == len(copies)
+    # every member, not the five that are listed for reading
+    assert len(rows[0]["witnesses"]) == len(copies)
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("re-applying the stored permutation" in n
+               for n, ok, _ in rep.checks if ok)
+    # and what it does not establish is said, not implied
+    assert any("different representatives are different" in w
+               for w in rep.warnings)
+
+    base = json.loads(json.dumps(r.certificate.to_dict()))
+
+    def bent(fn):
+        import copy as _copy
+
+        d = _copy.deepcopy(base)
+        fn(d["payload"]["orbits"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a permutation altered, a witness dropped, and one member given another's
+    assert not bent(lambda rows: rows[0]["witnesses"][0][1].__setitem__(
+        0, [0, 1]))
+    assert not bent(lambda rows: rows[0]["witnesses"].pop())
+    assert not bent(lambda rows: rows[0]["witnesses"][0].__setitem__(
+        1, list(rows[0]["witnesses"][1][1])))
+
+
+def test_a_labelling_that_is_not_a_permutation_is_refused():
+    """A map that is not a bijection renames the object into a different one."""
+    from certo import orbits as orb
+
+    fam = _one_factorisation()
+    for bad in ({p: 0 for p in range(15)},          # not injective
+                {p: p for p in range(14)},          # not total
+                {p: p + 1 for p in range(15)}):     # off the ground set
+        try:
+            orb.apply_labelling(fam, bad)
+            raise AssertionError("expected a refusal")
+        except ValueError as e:
+            assert "permutation" in str(e)
+
+
+def test_canonicalize_and_labelling_are_refused_together():
+    from certo import DomainSpec
+    from certo import orbits as orb
+
+    fam = _one_factorisation()
+    spec = DomainSpec(items=[fam], canonicalize=lambda f: f.key(),
+                      labelling=lambda f: {p: p for p in range(15)})
+    try:
+        orb.build(spec, [fam], [fam.key()])
+        raise AssertionError("expected a refusal")
+    except TypeError as e:
+        assert "not both" in str(e)
+
+
+def test_an_id_stays_unambiguous_past_ten_points():
+    """Two different families shared an id, and the round trip gave a third.
+
+    `key` juxtaposed point numbers, which is unambiguous only while a point is
+    one digit. On eleven points `{1,2,13}` and `{12,13}` both read as "1213".
+    The id is the dedup key and what lands in a certificate, so that is a
+    collision between DIFFERENT objects, not a cosmetic one.
+    """
+    import random
+
+    from certo.structures import SetFamily
+
+    a, b = SetFamily(15, [(1, 2, 13)]), SetFamily(15, [(12, 13)])
+    assert a != b and a.key() != b.key()
+    assert SetFamily.from_key(a.key()) == a
+    assert SetFamily.from_key(b.key()) == b
+
+    # ids at ten points or fewer are exactly what they always were, because
+    # every stored certificate contains them
+    assert SetFamily(7, [(0, 1, 2), (3, 4, 5)]).key() == "7:012|345"
+
+    rng = random.Random(3)
+    for n in range(1, 22):
+        for _ in range(40):
+            k = rng.randint(1, min(4, n))
+            fam = SetFamily(n, [rng.sample(range(n), k)
+                                for _ in range(rng.randint(1, 4))])
+            assert SetFamily.from_key(fam.key()) == fam, fam.key()
+
+
 def test_orbits_collapse_relabelled_counterexamples():
     from certo.engines import domain
 

@@ -461,6 +461,54 @@ The certificate schema is **frozen from 0.4**: existing payloads do not
 move, so a certificate produced for a paper still verifies against a later
 certo. New certificate kinds stay additive and always will.
 
+## Orbits you can check, not just believe
+
+A combinatorial search produces relabelled copies of one object by the
+hundred. `canonicalize` collapses them — hand over a function from item to a
+hashable form and a sweep reporting forty counterexamples reports one, forty
+times over.
+
+That asks to be believed. `canonicalize` is arbitrary Python, so *"these forty
+share a canonical form"* is the **spec's claim**, and all a certificate could
+check was that the decomposition's arithmetic held together: the counts add
+up, the representatives are distinct, each belongs to the orbit it heads. None
+of that is the question.
+
+```python
+labelling=lambda item: {source_point: label, ...}
+```
+
+is the other bargain. Hand over the **permutation** instead of the form: certo
+applies it, the result *is* the canonical form, and the permutation travels in
+the certificate.
+
+```
+[ok] every member of every orbit carries its permutation  (40 witnesses)
+[ok] each member IS the representative relabelled, by re-applying the stored
+     permutation  (40 re-applied, 0 carried but not decodable, failing: -)
+WARNING: what the witnesses show is that members of an orbit are the SAME
+object relabelled. They do not show that two different representatives are
+different objects [...]
+```
+
+### Why hand it over at all
+
+certo's own canonical form is exact and **refuses** rather than guessing. On a
+vertex-transitive object it refuses immediately: a 1-factorisation of K6 has
+fifteen points that all look alike, `15!` is 1,307,674,368,000, and knowing the
+automorphism group does not rescue it — `|Aut|` is 120, so quotienting by all
+of it still leaves 10,897,286,400 cosets.
+
+Computing a canonical labelling well is a hard search that a tool built for it
+does far better. So nauty finds the labelling, certo checks it, and the
+artefact carries both — the same split `parametric` makes with its dual and
+`farkas` with its multipliers. **There is no cap on this route, because
+nothing is searched.**
+
+Declaring `canonicalize` and `labelling` together is refused: one asks to be
+believed and the other asks to be checked.
+
+
 ## Why the certificate is the centre
 
 With an LLM in the loop the dominant risk is not a shortage of ideas, it is

@@ -3071,6 +3071,11 @@ def _sweep_warnings(p) -> list:
     if c.get("errors") or c.get("inconclusive"):
         out.append(t("verify.sweep.unevaluated",
                      n=c.get("errors", 0) + c.get("inconclusive", 0)))
+    if any(r.get("witnesses") for r in (p.get("orbits") or [])):
+        # The witnesses show members of an orbit are the SAME object relabelled.
+        # Nothing here shows two REPRESENTATIVES are different ones, and a
+        # reader who takes the first for the second has over-read it.
+        out.append(t("verify.orbits.one_way"))
     return out
 
 

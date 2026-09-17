@@ -6,6 +6,158 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+
+## [0.7.0] — 2026-09-17
+
+Read against three separate write-ups of one argument rather than against a
+tool. Each symmetrises a fractional cover over edge orbits, states the value as
+a minimum of named closed forms, and closes with *"duality completes the
+proof"*. What duality completes it **with** is a finite object none of them
+writes down, and certo could not express any of them.
+
+Four things came out of chasing that, and three of them are holes that were
+already shipped.
+
+### `parametric`: the cover shape, and a dual that may be a polynomial
+
+The command was built from the instance that arrived first — a packing, `max`,
+`<=` rows — and refused a `min` problem or a `>=` row by design. **Every cover
+in the corpus is the other shape.** So `sense="min"` with `>=` rows is the
+second shape, certifying a bound from **below** out of a feasible packing, one
+sign apart from the first.
+
+A cover's dual is itself a packing, and a packing of a growing object grows
+with it — `C(d,2)` triangles, not `1/3`. So a dual entry may be a polynomial,
+and `y >= 0` becomes the same shift test as every other row. `dual_poly` carries
+it exactly; `dual` keeps the readable form and is **checked against it**,
+because a field nobody checks can say anything. Both are optional and written
+only when they say something, so a packing certificate is byte-for-byte what it
+was.
+
+The branch conditions of a piecewise closed form turn out to **be** the dual's
+feasibility conditions. Not a coincidence worth documenting — it is what a
+piecewise-linear value function looks like from underneath, and it is why each
+branch is its own certificate rather than a wider ray.
+
+### `parametric`: a branch that is not a coordinate box
+
+The shift test proves non-negativity on a ray, so what a certificate covers is
+a **box**. A branch cut out by `q d + d r = d(d-1) + r(r-1)` is not one, and the
+limitation was invisible: a spec that cannot be written as a box does not fail,
+it never gets written.
+
+Side conditions are **declared** now. `region=[("name", g)]` means `g(p) >= 0`
+on the instances meant — exactly the standing the parameter floors already have
+— and nothing here proves it. `verify` carries a warning of its own for them,
+separate from the scope line, because a polynomial side condition reads like
+something proved.
+
+What certo finds is the **multipliers**, because that search is a linear
+program. They are polynomials rather than numbers, and pairwise products of the
+declared conditions are derived rather than assumed.
+
+A four-orbit trichotomy that two boxes covered 68% of now takes five
+certificates — three boxes, two scoped by a curve — and covers **1170 of 1170**
+measured parameter points, every bound exact against an exact rational simplex.
+
+### `certo peak`: the best integer choice, for a whole family at once
+
+A value function optimised over something that has to be a whole number. A
+write-up completes the square, observes the objective is an integer at integer
+argument, concludes the maximum is the **floor** of the continuous peak, and
+attains it at the nearest integer. Every step right, none of them a finite
+object: the floor of a parametric expression is not a polynomial.
+
+Moving the origin to the claimed maximiser makes it polynomial. An integer step
+`t` changes the objective by `A t^2 + q'(x*) t`, which for `A < 0` is
+non-positive for every non-zero integer `t` **exactly when**
+
+    A <= q'(x*) <= -A
+
+Two polynomial inequalities, checked by the same shift. No floor and no residue
+appears in the certificate. The bound is **attained** because `x*` is an integer
+— which is why a maximiser with non-integer coefficients is refused rather than
+assumed integral, that being the step the written version takes on trust.
+Residue classes are separate specs, the way branches are.
+
+### Branch and bound: each node tied to its own subproblem
+
+**The hole that mattered most.** A node closed by storing a whole nested
+certificate, which `verify` checked *on its own terms*. But a dual for a node's
+relaxation is a valid dual for **some** linear program, and nothing in it says
+which node. So a tree with two node certificates **exchanged** verified — an
+expensive subtree closed by a cheap one's certificate, reading exactly like a
+complete proof. That breaks the strongest thing certo says.
+
+Each node's problem is **derived** now, from a root system carried once and the
+node's own fixings, by the same function the search calls — so producer and
+verifier cannot hold two readings of what the node's LP is.
+
+The two halves the backlog asked for came out of it for free: node data fell
+from ~33,654 bytes to 880 on a 98-row instance and runs ~150-176 bytes per node
+on branching trees, and `solver_free` is **computed** rather than hardcoded
+false and comes back true.
+
+Certificates written before the root system existed still verify, by the nested
+path, with a warning naming exactly what they do not establish.
+
+### A dedup you can check: `labelling=`
+
+`canonicalize` hands over a **form** and asks to be believed, so *"these forty
+are the same object"* was the spec's claim. `labelling` hands over the
+**permutation**: certo applies it, the result is the canonical form, and the
+permutation travels so anyone can re-apply it.
+
+No cap, because nothing is searched. The instance that motivated it — a
+vertex-transitive object certo's own canonical form refuses outright, where
+`15!` is 1,307,674,368,000 and quotienting by the whole automorphism group still
+leaves 10,897,286,400 cosets — deduplicates 40 labelled copies to 1 orbit with
+40 witnesses, all re-applied on verification.
+
+What it still does **not** show, that two different representatives are
+different objects, is a warning rather than an implication. Declaring both
+`canonicalize` and `labelling` is refused.
+
+### Two more holes, found by the work above
+
+* **A `SetFamily` id was ambiguous past ten points.** `key` juxtaposed point
+  numbers, which is unambiguous only while a point is one digit: on fifteen
+  points `{1,2,13}` and `{12,13}` both read as `1213`, so two **different**
+  families shared an id and `from_key` returned a third. The id is the dedup key
+  and what lands in a certificate. Ids separate their points above ten now and
+  are byte-identical at or below it.
+* **The exact simplex could return a `y` violating its own constraints.** Rows
+  one-per-monomial are dependent by construction, so phase 1 ends with an
+  artificial basic at level zero; the transition renamed it to variable index 0,
+  which is a real variable, stating a false tableau. The result was a wrong
+  answer or a spurious "unbounded", silently. No soundness hole where it was
+  used — every caller re-checks what comes back — but it was losing answers.
+
+### Adversarial coverage
+
+`branch_bound` was **missing from the suite entirely**, which is how its hole
+survived; it is in it now, with `integer_peak` and both new `parametric` shapes.
+The suite also mutated a nested certificate's schema number rather than its
+payload, so a field holding a whole sub-certificate looked unchecked when it was
+checked thoroughly.
+
+Three payload fields were written during this work and then **removed** rather
+than excused, because the suite said mutating them flipped no check:
+`dual_rows`, and `integer_peak`'s leading coefficient, slope and two step
+inequalities. All are one expansion from what remains.
+
+### Discharged against real obligations
+
+Five examples, every output copied from a real run: `parametric_cover.py`,
+`parametric_orbits.py`, `farkas_named_square.py`, `peak_residues.py`,
+`orbits_witnessed.py`. The third needed **no new code** — `farkas --nonlinear`
+searches a fixed square set and a margin estimate completing the square as
+`(2s-q)^2` is outside it; a square is a tautology, so handing one over adds a
+row and not an assumption.
+
+Schema still **frozen at 4**. Every new field is optional.
+
+
 ### Adversarial verification, and the three holes it found
 
 Two certificates shipped in 0.6.0 that `verify` rejects, and 339 tests could

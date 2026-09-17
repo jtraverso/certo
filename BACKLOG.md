@@ -58,6 +58,8 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 | ✅ | **A `mixed_design` certificate its own verifier rejected** *(user feedback P0)* | Any model with a `>=` or `==` row: `as_leq_system` renames and negates those, and the equivalence check looked up the original name in a table keyed by the normalised ones. Reported as "all variables discrete"; the empty residual was incidental and the blast radius was every quota model. The mapping now lives in `normalised_rows` and both consumers use it. |
 | ✅ | **`--self-check`** *(user feedback P0)* | The real verifier, run over what was just produced: by default for solver-free certificates, opt-in otherwise. A failure exits non-zero and says it is certo's bug. This is the fix for the class — 339 tests missed both defects because every one fed verification a certificate the producer had built, so both sides were wrong in the same place. |
 | ✅ | **`parametric` for cover programs** | `sense="min"` with `>=` rows, bounding from BELOW out of a feasible packing, and dual entries that may be polynomials because a cover's dual grows with the instance. Forced by three separate write-ups of one argument, all of which reduce to a symmetrised cover over edge orbits and all of which state the value as a minimum of named closed forms. Two branches of a two-orbit program and one branch of a four-orbit program are now certificates; each is EXACT against an exact rational simplex on its branch (49 and 343 points). The branch conditions come out as the dual's own feasibility. |
+| ✅ | **A dedup you can check: `labelling=`** *(P2)* | `canonicalize` hands over a FORM and asks to be believed, so "these forty are the same object" was the spec's claim and a certificate could only check that the decomposition's arithmetic held together. `labelling` hands over the PERMUTATION: certo applies it, the result is the canonical form, and the permutation travels so anyone can re-apply it. The claim becomes an arithmetic fact. No cap, because nothing is searched -- the instance that motivated the whole item, a vertex-transitive object certo's own canonical form refuses outright, deduplicates 40 labelled copies to 1 orbit with 40 witnesses, all re-applied on verification. What it still does NOT show -- that two DIFFERENT representatives are different objects -- is a warning rather than an implication. Declaring both is refused: one asks to be believed, the other to be checked. |
+| ✅ | **A `SetFamily` id was ambiguous past ten points** | Found by the above, when the witness decoder refused to round-trip. `key` juxtaposed point numbers, which is unambiguous only while a point is one digit: on fifteen points `{1,2,13}` and `{12,13}` both read as `1213`, so two DIFFERENT families shared an id and `from_key` returned a third family. The id is the dedup key and what lands in a certificate. Ids separate their points above ten now and are byte-identical at or below it, which is every id any stored certificate contains. |
 | ✅ | **A branch-and-bound tree tied to its own problem** *(user feedback P1)* | The item was compression and a `--fully-checkable` mode. Measuring it found something else first: a node's dual was a whole nested certificate checked ON ITS OWN TERMS, and a dual for a node's relaxation is a valid dual for SOME linear program with nothing saying which node. Exchanging two node certificates verified -- so an expensive subtree could be closed by a cheap one's, and "no design does better", the strongest thing certo says, was not established. Each node's program is DERIVED now, from a root system carried once and the node's own fixings, by the same function the producer uses. The compression and the mode came free: node data fell from ~33,654 bytes to 880 on a 98-row instance, ~150-176 bytes per node on branching trees, and `solver_free` is COMPUTED and comes back true -- every node closes by exact rational arithmetic. Certificates written before the root system existed still verify, with a warning naming exactly what they do not establish. `branch_bound` was also missing from the adversarial suite entirely, which is how the hole survived; it is in it now, and nested sub-certificates are mutated in their payload rather than their schema number. |
 | ✅ | **`certo peak`** *(P1)* | The best INTEGER choice for a family of concave quadratics. A write-up completes the square, says the objective is an integer at integer argument, and concludes the maximum is the FLOOR of the continuous peak -- and the floor of a parametric expression is not a polynomial, so there is nothing to expand. Moving the origin to the claimed maximiser makes it polynomial: an integer step changes the objective by `A t^2 + q'(x*) t`, non-positive for every non-zero integer `t` exactly when `A <= q'(x*) <= -A`. Two inequalities, checked by shift, no floor and no residue inside the certificate. The bound is ATTAINED because `x*` is an integer, so a non-integral maximiser is refused rather than assumed integral. Residue classes are separate specs, the way branches are. Matches brute force on three classes for every n < 180. |
 | ✅ | **`parametric` past the box: `region=`** *(P1)* | The shift proves non-negativity on a ray, so a certificate covers a BOX -- and a branch cut out by `q d + d r = d(d-1) + r(r-1)` is not one. Side conditions are now DECLARED: `g(p) >= 0` enters the certificate's scope, nothing proves it, and `verify` warns separately and loudly because a polynomial condition reads like something proved. certo finds the MULTIPLIERS, since that search is a linear program -- polynomial ones, because the multiplier of a condition is `r/2` as often as it is a number. A trichotomy that two boxes covered 68% of now takes five certificates and covers 1170 of 1170 measured points, every bound exact against the simplex. |
@@ -218,56 +220,27 @@ Empty. The three items that were here landed; what was P2 is next.
 
 ## P2 — high value, more work
 
-### 1. A canonical form that scales — and the measurement that kills the plan
+### 1. A canonical form that scales, on its own
 
-**The item as written does not work, and here is the number.** The plan was:
-take a generating set for the automorphism group as INPUT and prune the search
-with it, the way `parametric` takes a dual. Measured on the instance that
-motivates it, a 1-factorisation of K6 — 15 points, 5 blocks, and 1-WL
-refinement returns ONE class because the object is vertex-transitive:
+**(b) landed; (a) is what is left, and it needs a decision.** The measurement
+that split them: a 1-factorisation of K6 has 15 points and ONE refinement
+class, `15!` is 1,307,674,368,000, and `|Aut|` is 120 — so quotienting by the
+whole automorphism group still leaves 10,897,286,400 cosets, fifty-four
+thousand times over the cap. Coset pruning was never the missing ingredient,
+because `|Aut|` is small and `n!` is not.
 
-    candidate relabellings          15! = 1,307,674,368,000
-    |Aut|, computed exhaustively    120
-    cosets, with the FULL group     10,897,286,400
-    the cap                         200,000
+What would make `certo canonical` scale by itself is pruning INSIDE the search
+tree, and that needs a prefix-comparable form: the bipartite incidence matrix
+of points and blocks, read row-major, which is what nauty canonicalises. The
+current form — lex-smallest sorted tuple of blocks — is not prefix-comparable,
+because fixing labels `0..k` determines no prefix of the sorted block list.
 
-Consuming the whole automorphism group leaves the search 54,000 times over the
-cap. Coset pruning is not the missing ingredient, because `|Aut|` is small and
-`n!` is not. The earlier negative result on individualisation-refinement said
-the same thing from the other side, and this says why: the win in nauty is
-pruning INSIDE the search tree, not quotienting the outside of it.
+The cost is a **blast radius**: every canonical value certo computes changes.
+Orbit DECOMPOSITIONS are unaffected (both forms are complete invariants, so
+the partition is identical), but stored representatives and ids move.
 
-**And tree pruning needs a different canonical form.** Pruning a partial
-labelling requires comparing a PREFIX of the form against the best complete
-one. The current form is the lexicographically smallest sorted tuple of
-blocks, and that is not prefix-comparable: fixing labels `0..k` does not
-determine any prefix of the sorted block list, because a block with a small
-first label and large later ones sorts before a block that is already fully
-determined.
-
-So the real decision is not "consume a group". It is:
-
-**(a) Change the canonical form to a prefix-comparable one** — the bipartite
-incidence matrix of points and blocks, read row-major, which is what nauty
-canonicalises. Then branch and bound on the lex-min works, orbit pruning from
-a supplied group slots in, and the motivating instance becomes feasible. The
-cost is a **blast radius**: every canonical value certo computes changes.
-Orbit DECOMPOSITIONS are unaffected — both forms are complete invariants, so
-the partition is identical — but stored representatives and ids move, and
-anything that pinned a literal canonical string has to be re-pinned.
-
-**(b) Take the canonical labelling as INPUT, and make the dedup checkable.**
-Today `verify` re-derives certo's own canonical form and trusts the algorithm.
-With a supplied labelling per item, each orbit carries an explicit permutation
-to its representative, and membership becomes checkable by applying it — no
-trust in certo, no cap, and nauty does the part it is good at. What stays
-uncertified is the other direction, that two representatives are NOT
-isomorphic, and that would be named rather than implied.
-
-(b) is the smaller change and the one shaped like the rest of the tool; (a) is
-the one that makes `certo canonical` actually scale on its own. They are not
-exclusive. **This needs a decision before it is built**, which is why it is
-written down rather than started.
+Not started, because it is a decision rather than a task, and because `(b)`
+removed the pressure: the instance that motivated it is now handled.
 
 ### 2. Flag algebras
 

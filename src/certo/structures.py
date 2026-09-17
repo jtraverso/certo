@@ -108,19 +108,39 @@ class SetFamily:
 
     # --- identity ---------------------------------------------------------
 
+    #: Above this many points, an id separates them. At or below it a point is
+    #: one character and juxtaposition is unambiguous, so ids stay exactly
+    #: what they have always been -- which is what every stored certificate
+    #: contains.
+    SEPARATE_ABOVE = 10
+
     def key(self) -> str:
-        """A stable, readable id. This is what lands in a certificate."""
+        """A stable, readable id. This is what lands in a certificate.
+
+        Juxtaposing point numbers is unambiguous only while a point is one
+        digit. On eleven points or more it is not: `{1,2,13}` and `{12,13}`
+        both read as "1213", so two DIFFERENT families shared an id and the
+        round trip returned a third family. Above ten points the id separates
+        its points; at or below, nothing changes.
+        """
+        sep = "." if self.n > self.SEPARATE_ABOVE else ""
         return "{}:{}".format(
-            self.n, "|".join("".join(str(p) for p in b) for b in self.blocks))
+            self.n, "|".join(sep.join(str(p) for p in b) for b in self.blocks))
 
     def __str__(self) -> str:
         return self.key()
 
     @classmethod
     def from_key(cls, s: str) -> "SetFamily":
+        """The inverse of `key`, reading the point count to know which form."""
         n, _, rest = s.partition(":")
-        blocks = [tuple(int(c) for c in part) for part in rest.split("|") if part]
-        return cls(int(n), blocks)
+        n = int(n)
+        parts = [p for p in rest.split("|") if p]
+        if n > cls.SEPARATE_ABOVE:
+            blocks = [tuple(int(x) for x in part.split(".")) for part in parts]
+        else:
+            blocks = [tuple(int(c) for c in part) for part in parts]
+        return cls(n, blocks)
 
     # --- symmetry ---------------------------------------------------------
 

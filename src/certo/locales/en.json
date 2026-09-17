@@ -909,5 +909,14 @@
   "cli.peak.scope": "and that is every integer choice with {floor} -- not a sample of them",
   "verify.bb.tied": "each node's dual is checked against that node's OWN problem, derived from the root",
   "verify.bb.derived": "{n} closed nodes, each rebuilt from the root system",
-  "verify.bb.untied": "this certificate predates the root system being carried, so each node's certificate was checked on its own terms and NOTHING ties it to that node's subproblem. A certificate belonging to a different node would pass. Re-run the search to get one that is tied."
+  "verify.bb.untied": "this certificate predates the root system being carried, so each node's certificate was checked on its own terms and NOTHING ties it to that node's subproblem. A certificate belonging to a different node would pass. Re-run the search to get one that is tied.",
+  "orbits.both": "declare `canonicalize` or `labelling`, not both: one asks to be believed and the other asks to be checked, and running both would leave it unclear which one the orbits came from",
+  "orbits.no_relabel": "a supplied labelling needs an item that can be relabelled -- an `n` and a `relabelled(perm)` -- and {got} has neither",
+  "orbits.not_a_permutation": "the labelling is not a permutation of the {n} ground points ({got} entries given): a map that is not a bijection renames the object into a different one rather than the same one",
+  "orbits.no_witness": "no stored permutation for {id}",
+  "verify.orbits.all_witnessed": "every member of every orbit carries its permutation",
+  "verify.orbits.witness_counts": "{n} witnesses; orbits missing some: {names}",
+  "verify.orbits.witnessed": "each member IS the representative relabelled, by re-applying the stored permutation",
+  "verify.orbits.reapplied": "{n} re-applied, {skipped} carried but not decodable, failing: {names}",
+  "verify.orbits.one_way": "what the witnesses show is that members of an orbit are the SAME object relabelled. They do not show that two different representatives are different objects -- that needs the labelling to be isomorphism-invariant, which is the part certo did not compute and cannot check."
 }
