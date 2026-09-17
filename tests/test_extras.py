@@ -1217,6 +1217,87 @@ def _mirror_spec(n=7):
     )
 
 
+# --- entry: where a sequence first crosses, and by how little --------------
+
+
+def _run_entry(spec):
+    from certo.engines import algebra
+
+    return algebra.entry(spec, LIM)
+
+
+def test_the_first_crossing_is_the_first_one_and_carries_its_window():
+    """The claim that goes wrong is "it had not crossed yet", not "it crosses"."""
+    from certo import EntrySpec
+
+    walk = [Fraction(n * (n + 1), 150) for n in range(12)]
+    r = _run_entry(EntrySpec(values=walk, threshold=Fraction(1, 2),
+                             step_bound=Fraction(1, 5)))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["index"] == 9 and r.meta["value"] == "3/5"
+    assert r.meta["window"] == "7/10"
+    p = r.certificate.payload
+    # the prefix stops at the crossing: nothing past it is part of the claim
+    assert len(p["prefix"]) == 10 and p["prefix"][-1] == "3/5"
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+    # and the window is real: the crossing lands below threshold + delta
+    assert Fraction(p["prefix"][-1]) < Fraction(p["window"])
+
+
+def test_strict_moves_the_index_when_a_value_lands_on_the_line():
+    from certo import EntrySpec
+
+    values = [Fraction(i, 4) for i in range(8)]
+    loose = _run_entry(EntrySpec(values=values, threshold=Fraction(1)))
+    tight = _run_entry(EntrySpec(values=values, threshold=Fraction(1),
+                                 strict=True))
+    assert loose.meta["index"] == 4 and loose.meta["value"] == "1"
+    assert tight.meta["index"] == 5 and tight.meta["value"] == "5/4"
+
+
+def test_a_walk_that_never_crosses_has_no_first_index():
+    from certo import EntrySpec
+
+    r = _run_entry(EntrySpec(values=[Fraction(1, 2 + i) for i in range(10)],
+                             threshold=Fraction(2)))
+    assert r.verdict is Verdict.REFUTED
+    assert r.certificate is None
+    assert "never crosses" in r.detail
+
+
+def test_a_step_bound_that_fails_earlier_takes_the_window_with_it():
+    from certo import EntrySpec
+
+    walk = [Fraction(n * (n + 1), 150) for n in range(12)]
+    r = _run_entry(EntrySpec(values=walk, threshold=Fraction(1, 2),
+                             step_bound=Fraction(1, 100)))
+    assert r.verdict is Verdict.REFUTED
+    assert "somebody got wrong" in r.detail
+
+
+def test_a_forged_earlier_index_does_not_verify():
+    """Dropping the last value would make an earlier index look like the first."""
+    from certo import EntrySpec
+    from certo.certificate import Certificate
+
+    walk = [Fraction(n, 10) for n in range(8)]
+    r = _run_entry(EntrySpec(values=walk, threshold=Fraction(1, 2)))
+    base = json.loads(json.dumps(r.certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    # claim a later index while keeping the prefix that crossed earlier
+    bent = json.loads(json.dumps(base))
+    bent["payload"]["prefix"] = bent["payload"]["prefix"] + ["9/10"]
+    assert not verify(Certificate.from_dict(bent), LIM).ok
+
+    # keep the index, move the threshold so the prefix crossed sooner
+    bent = json.loads(json.dumps(base))
+    bent["payload"]["threshold"] = "1/10"
+    assert not verify(Certificate.from_dict(bent), LIM).ok
+
+
 # --- moment: the first moment, exactly, and the existence it buys ----------
 
 

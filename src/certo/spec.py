@@ -899,6 +899,41 @@ class ParametricSpec:
 
 
 @dataclass
+class EntrySpec:
+    """The first index where a sequence crosses a threshold, and the window.
+
+        EntrySpec(
+            values=[Fraction(i, 10) for i in range(20)],
+            threshold=Fraction(1, 2),
+            step_bound=Fraction(1, 10),      # optional
+        )
+
+    Two claims, and the second is the one that carries the weight: it crosses
+    at `k`, and it had NOT crossed at any `j < k`. An off-by-one, or a `<=`
+    where the argument needed `<`, and the "first" index is not first.
+
+    The certificate carries `a_0 .. a_k` and nothing past it, because nothing
+    past it is part of either claim -- and the tail is usually where the
+    length is.
+
+    `step_bound` buys the WINDOW. With `|a_{j+1} - a_j| <= delta` the crossing
+    lands inside `[threshold, threshold + delta)`, because the step before it
+    was on the near side. Only the last step is used for that, though `delta`
+    is checked against every step of the prefix: a bound that fails earlier is
+    a bound somebody got wrong.
+
+    `direction` is `"up"` or `"down"`; `strict` picks `>` over `>=`.
+    """
+
+    values: object                   # iterable of rationals, or callable()
+    threshold: object
+    direction: str = "up"            # "up" crosses from below
+    strict: bool = False             # `>` rather than `>=`
+    step_bound: object = None        # |a_{j+1} - a_j| <= this
+    title: str = ""
+
+
+@dataclass
 class MomentSpec:
     """The first moment, exactly, and the existence it buys.
 

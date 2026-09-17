@@ -250,6 +250,7 @@ BY_QUESTION = (
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
+        ("commands.q.entry", "entry"),
         ("commands.q.moment", "moment"),
         ("commands.q.ratio", "ratio"),
         ("commands.q.family", "family"),
@@ -597,6 +598,15 @@ def cmd_cover(args):
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
     return rc
+
+
+def cmd_entry(args):
+    from .engines import algebra
+    from .spec import EntrySpec, load_spec
+
+    spec = load_spec(args.spec, EntrySpec)
+    res = algebra.entry(spec, limits_from(args), spec_path=args.spec)
+    return emit(res, args)
 
 
 def cmd_moment(args):
@@ -1721,6 +1731,11 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("entry", "where a sequence first crosses a threshold, and how "
+                      "far past it lands")
+    sp.add_argument("spec", help=".py file returning an EntrySpec")
+    sp.set_defaults(func=cmd_entry)
 
     sp = add("moment", "the expected number of bad events, exactly -- and the "
                        "existence a mean below one buys")

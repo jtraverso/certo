@@ -266,6 +266,16 @@ def test_branch_bound():
     _report("branch_bound", probe(cert))
 
 
+def test_first_entry():
+    from certo import EntrySpec
+    from certo.engines import algebra
+
+    got = algebra.entry(EntrySpec(
+        values=[Fraction(n, 10) for n in range(8)],
+        threshold=Fraction(1, 2), step_bound=Fraction(1, 10)), LIM).certificate
+    _report("first_entry", probe(got))
+
+
 def test_first_moment():
     from certo import MomentSpec
     from certo.engines import algebra

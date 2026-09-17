@@ -593,6 +593,32 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
     )
 
 
+def first_entry_certificate(index, prefix, threshold, direction, strict,
+                            step_bound=None, window=None,
+                            title="") -> Certificate:
+    """`k` is the FIRST index where the sequence crosses, and how far it lands.
+
+    Two claims, and the second carries the weight: it crosses at `k`, and it
+    had not crossed at any `j < k`. The payload is `a_0 .. a_k` and nothing
+    past it, because nothing past it is part of either claim.
+
+    `window` is what a step bound buys: the step before the crossing was on
+    the near side, so the crossing overshoots by at most `delta`. Only the
+    last step is used for it, and `delta` is re-checked against every step of
+    the prefix -- a bound that fails earlier is a bound somebody got wrong.
+    """
+    payload = {"index": index, "prefix": prefix, "threshold": threshold,
+               "direction": direction, "strict": bool(strict), "title": title}
+    if step_bound is not None:
+        payload["step_bound"] = step_bound
+    if window is not None:
+        payload["window"] = window
+    return Certificate(
+        kind="first_entry", solver_free=True, payload=payload,
+        note_key="cert.note.first_entry",
+    )
+
+
 def first_moment_certificate(terms, expectation, threshold, relation, counts,
                              concludes, masses=None, title="") -> Certificate:
     """`E[X] < 1`, in exact rationals, and the existence it buys.
@@ -1214,6 +1240,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "first_entry": _verify_first_entry,
         "first_moment": _verify_first_moment,
         "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
@@ -1569,6 +1596,38 @@ def _verify_exact_cover(cert, limits) -> VerifyReport:
                  n=out["universe"],
                  kind=t("verify.cover.exactly" if p.get("exact", True)
                         else "verify.cover.atleast")),
+    )
+
+
+def _verify_first_entry(cert, limits) -> VerifyReport:
+    """Re-find the crossing in the stored prefix. Exact rationals, no solver."""
+    from . import entry
+
+    p = cert.payload
+    if p["direction"] not in ("up", "down"):
+        return VerifyReport(False, "first_entry", True,
+                            detail=t("entry.direction", got=p["direction"]))
+    got = entry.check(p)
+    checks = [
+        (t("verify.entry.crosses"), got["crosses"], got["value"]),
+        (t("verify.entry.earliest"), got["earliest"],
+         t("verify.entry.early", names=", ".join(got["early"]) or "-")),
+        (t("verify.entry.indexed"), got["indexed"], str(p["index"])),
+    ]
+    if p.get("step_bound") is not None:
+        checks.append((t("verify.entry.steps"), got["steps"],
+                       str(p["step_bound"])))
+        checks.append((t("verify.entry.window"), got["window_ok"],
+                       str(p.get("window") or "-")))
+
+    warnings = [t("verify.entry.scope", n=len(p["prefix"]))]
+    return VerifyReport(
+        all(c[1] for c in checks), "first_entry", True, checks=checks,
+        warnings=warnings, method_key="verify.entry.method",
+        detail=t("verify.entry.detail_window" if p.get("window")
+                 else "verify.entry.detail", index=p["index"],
+                 value=got["value"], threshold=str(p["threshold"]),
+                 window=str(p.get("window") or "-")),
     )
 
 

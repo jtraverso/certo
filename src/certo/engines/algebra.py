@@ -29,6 +29,7 @@ import time
 from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
                            family_extremum_certificate,
+                           first_entry_certificate,
                            first_moment_certificate,
                            ratio_bound_certificate,
                            integer_peak_certificate,
@@ -138,6 +139,48 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
             out["stopped"] = got.meta
             out["stopped_detail"] = got.detail
     return out
+
+
+def entry(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """Where a sequence first crosses a threshold, and how far past it lands."""
+    from ..entry import NotAnEntry, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotAnEntry as e:
+        return Result("entry", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    if out["index"] is None:
+        n = len(spec.values() if callable(spec.values) else spec.values)
+        return Result("entry", Status.SAT, Verdict.REFUTED, ENGINE_PARAM, ms,
+                      None,
+                      detail=t("engine.entry.never",
+                               threshold=str(out["threshold"]), n=n),
+                      meta={"crossed": False})
+    if not out["steps_ok"]:
+        return Result("entry", Status.SAT, Verdict.REFUTED, ENGINE_PARAM, ms,
+                      None,
+                      detail=t("engine.entry.steps", delta=out["step_bound"]),
+                      meta={"index": out["index"]})
+
+    cert = first_entry_certificate(
+        index=out["index"], prefix=out["prefix"],
+        threshold=str(out["threshold"]), direction=out["direction"],
+        strict=out["strict"], step_bound=out["step_bound"],
+        window=out["window"], title=spec.title,
+    ).stamp(spec_path or None)
+
+    key = "engine.entry.window" if out["window"] else "engine.entry.proved"
+    return Result("entry", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM, ms,
+                  cert,
+                  detail=t(key, index=out["index"], value=out["prefix"][-1],
+                           threshold=str(out["threshold"]),
+                           window=out["window"] or "-"),
+                  meta={"index": out["index"], "value": out["prefix"][-1],
+                        "window": out["window"] or ""})
 
 
 def moment(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
