@@ -1526,10 +1526,20 @@ def _verify_number(cert, limits) -> VerifyReport:
 
     p = cert.payload
     tree = p["tree"]
+
+    # The tree has to be about the number the certificate NAMES. Without this,
+    # a perfectly good Pratt tree for 2^31 - 1 relabelled as 2^31 verified --
+    # and 2^31 is even. The tree was never wrong; nothing tied it to the claim.
+    claimed = p.get("n")
+    root = tree.get("n") if isinstance(tree, dict) else None
+    tied = root is not None and claimed is not None and root == claimed
+    checks = [(t("verify.number.same_n"), tied,
+               t("verify.number.n_detail", claimed=claimed, root=root))]
+
     if p["question"] == "factor":
-        checks = numbers.verify_factorisation(tree)
+        checks += numbers.verify_factorisation(tree)
     else:
-        checks = numbers.verify_pratt(tree)
+        checks += numbers.verify_pratt(tree)
     return VerifyReport(
         all(c[1] for c in checks), "number", True, checks=checks,
         detail=t("verify.number.detail", n=p["n"], checks=len(checks)),
@@ -1926,14 +1936,22 @@ def _verify_core_by_farkas(cert) -> VerifyReport:
     nonneg = all(l >= 0 for l in lams)
     ok, const, strict = linarith.is_contradiction(rows, lams)
 
+    # The rows have to BE the core. Both forms are in the payload and only one
+    # was being read, so a certificate could carry a bogus `core_smt2` beside
+    # a valid multiplier set -- and `compose` reads the SMT2 for its entailment
+    # check, so the two disagreeing is exactly the gap `compose` exists to
+    # close, reopened one level down.
+    tied = _rows_match_smt2(rows, p.get("core_smt2") or "")
+
     used = [n for (n, _, _), l in zip(rows, lams) if l]
     checks = [
+        (t("verify.core.rows_match"), tied, ""),
         (t("verify.farkas.nonneg"), nonneg, ""),
         (t("verify.core.combination"), ok,
          t("verify.core.closes", const=str(const),
            rel="<" if strict else "<=")),
     ]
-    good = nonneg and ok
+    good = nonneg and ok and tied
     return VerifyReport(
         good, "unsat_core", True,
         checks=checks,
@@ -1942,6 +1960,41 @@ def _verify_core_by_farkas(cert) -> VerifyReport:
         detail=t("verify.core.detail_farkas", n=len(used),
                  names=", ".join(n for n in used if n != "__goal__")),
     )
+
+
+def _rows_match_smt2(rows, smt2: str) -> bool:
+    """Are the stored rows the same system as the stored SMT-LIB2?
+
+    Re-parsed and re-normalised rather than compared as text: the same
+    inequality has many spellings, and a check that only caught a different
+    spelling would be a check on formatting.
+    """
+    import z3
+
+    from . import linarith
+
+    if not smt2.strip():
+        return False
+    try:
+        formulas = list(z3.parse_smt2_string(smt2))
+    except z3.Z3Exception:
+        return False
+
+    want = []
+    for f in formulas:
+        try:
+            poly, rel = linarith.as_row(f)
+        except Exception:
+            return False
+        if rel == "=":
+            want.append((poly, "<="))
+            want.append(({m: -c for m, c in poly.items()}, "<="))
+        else:
+            want.append((poly, rel))
+    got = [(poly, rel) for _, poly, rel in rows]
+    if len(got) != len(want):
+        return False
+    return all(any(p == q and r == s for q, s in want) for p, r in got)
 
 
 def _core_warnings(cert) -> list:
@@ -1986,6 +2039,21 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
     A = [exact.parse_all(r) for r in p["A"]]
     b, c = exact.parse_all(p["b"]), exact.parse_all(p["c"])
     x, y = exact.parse_all(p["primal"]), exact.parse_all(p["dual"])
+
+    # Shapes first. `zip` truncates in silence, so a primal one entry short
+    # verified: every check ran over the prefix and none of them noticed the
+    # variable that was missing.
+    shapes = (len(x) == len(c) and len(y) == len(A)
+              and all(len(row) == len(c) for row in A) and len(b) == len(A))
+    if not shapes:
+        return VerifyReport(
+            False, "lp_dual", True,
+            checks=[(t("verify.lp.shapes"), False,
+                     t("verify.lp.shape_detail", x=len(x), c=len(c),
+                       y=len(y), rows=len(A)))],
+            detail=t("verify.lp.shape_detail", x=len(x), c=len(c),
+                     y=len(y), rows=len(A)))
+
     rep = exact.check_lp(A, b, c, x, y)
 
     checks = [

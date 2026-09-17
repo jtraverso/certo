@@ -6,6 +6,72 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Adversarial verification, and the three holes it found
+
+Two certificates shipped in 0.6.0 that `verify` rejects, and 339 tests could
+not have caught either: every test feeds verification something the producer
+built, so a contract misread in BOTH places passes.
+
+`tests/test_adversarial.py` does the opposite. It takes a valid certificate of
+every kind, mutates one payload field at a time, and asserts the mutation is
+caught. The interesting failure is not a crash — it is a mutation that flips
+**no check**, because a field nothing looks at is a field the certificate does
+not really carry.
+
+It found three:
+
+* **A Pratt primality tree was never tied to the number it claimed.** A valid
+  certificate for 2³¹ − 1, relabelled as 2³¹, verified — and 2³¹ is even. The
+  tree was never wrong; nothing checked it was about the stated `n`.
+* **`lp_dual` accepted a primal one entry short.** `zip` truncates in silence,
+  so every check ran over the prefix and none noticed the missing variable.
+  Shapes are checked first now.
+* **An `unsat_core` with Farkas multipliers never read its own `core_smt2`.**
+  From 0.6.1's own work: with multipliers present the SMT-LIB2 core was
+  carried and unchecked, so a certificate could pair a bogus core with a valid
+  multiplier set — and `compose` reads that core for its entailment check.
+  The rows are now re-parsed from the SMT2 and matched.
+
+Fields that legitimately carry no claim are excused **by name with a reason**,
+not by a rule, so excusing one is a decision somebody made. Two categories:
+descriptive (titles, counts, data the checked content is derived from) and
+weakening — an exact cover really is an at-least cover, and a mutation that
+makes a *smaller* true claim is not a forgery.
+
+Two of those exclusions are worth reading on their own: `sos` records a
+denominator its verifier never looks at, and a sweep whose predicate cannot be
+re-run says so loudly and then checks none of its outcomes. The first is inert
+and should probably not be in a checkable payload; the second is the honesty
+layer working.
+
+### `certo repro`: the bundle
+
+Spec, certificates, versions, hashes and the ledger in one directory a referee
+can check with nothing installed but certo. Two rules make it worth having:
+
+**Nothing invalid goes in.** Every certificate is verified on the way and one
+that fails is left out and named. A bundle containing a certificate that does
+not check is worse than no bundle — it looks like evidence.
+
+**Nothing untied goes in quietly.** A certificate names its spec by hash; when
+the file still matches it is copied in, and when it has moved on the manifest
+says so rather than shipping a different file in silence.
+
+On a real directory: 132 certificates, 101 of them re-checking without a
+solver, 57 specs copied, 6 named as untied and 5 left out with their reasons.
+The bundle re-verified end to end.
+
+### `verify --spec` and `certo --version`
+
+    certo verify cert.json --spec spec.py
+
+refuses unless that file is the one the certificate was made from, by hash —
+the failure being verifying an old certificate correctly while believing it
+describes the file on your screen. And `certo --version` reported a missing
+subcommand; it now prints version, commit where available, and the newest
+certificate schema this build writes.
+
+
 ### `cover --optimize`: a cover, and how far it is from the minimum
 
 A cover certificate is an upper bound, and a user read one as an optimum —

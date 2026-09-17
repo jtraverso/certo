@@ -1,0 +1,343 @@
+"""Feed every verifier certificates the producer never made.
+
+Two certificates shipped in 0.6.0 that `verify` rejects, and 339 tests could
+not have caught either. The reason is structural: every test feeds
+verification something the producer built, so a contract misread in BOTH
+places passes, and both were misread in the same place.
+
+This suite does the opposite. It takes a valid certificate of every kind,
+mutates one payload field at a time, and asserts the mutation is caught.
+
+The interesting failure is not a crash. It is a mutation that flips NO check:
+
+    a field nothing looks at is a field the certificate does not really carry
+
+Either the field is decoration and should not be in a payload that claims to
+be checkable, or it matters and nothing is checking it. Both are worth
+knowing, and neither shows up any other way. Fields that are genuinely
+descriptive -- a title, a note -- are listed and excused by name rather than
+by a rule, so excusing one is a decision somebody made on purpose.
+
+`python tests/test_adversarial.py`, or with pytest.
+"""
+from __future__ import annotations
+
+import json
+from fractions import Fraction
+
+from certo import Limits, verify
+from certo.certificate import Certificate
+
+LIM = Limits(timeout_ms=20_000)
+
+#: Fields that carry NO CLAIM: names, counts, prose, and data the checked
+#: content is derived from. Mutating one should change nothing, and each is
+#: here because somebody decided it rather than because a rule swallowed it.
+DESCRIPTIVE = {
+    "title", "describe", "conclusion", "note", "spec_path", "spec_sha256",
+    "engine", "names", "var_names", "dropped", "hypotheses", "goals",
+    "filters", "mode", "id", "labelled", "spot_checks", "family_graph6",
+    "values", "stats", "counts", "evaluations", "certified", "evaluated",
+    "orbits", "sizes", "first_failure", "stopped_early", "inconclusive",
+    "skeleton_from", "kinds", "level", "tight", "part_report", "sorts",
+    "clash", "expect", "cancelled", "loads", "prec", "backend", "iterations",
+    "candidate", "counterexamples", "steps", "trace", "blocked", "witnesses",
+    "bridge", "bridges", "used", "unused", "lemmas", "base", "k0",
+    "base_upto", "step_from", "question", "cores", "table", "claim",
+    "order", "deg_f", "deg_g", "lead_f", "lead_g", "lead_f_constant",
+    "lead_g_constant", "multiplicities", "max_size", "half_degree",
+    "original_sense", "original_optimum", "discrete_gain", "conditional",
+    # `sos` keeps three counters beside the content: the squares themselves
+    # are `terms`, and `poly` is what they have to sum to. Both are checked.
+    "squares", "basis_size", "basis",
+    # A sweep whose predicate cannot be re-run says so in a warning, loudly,
+    # and then nothing checks the outcomes -- which is the honest behaviour
+    # and is why mutating them changes no check.
+    "outcomes", "outcomes_sha256", "no_predicate", "by_orbit", "count",
+    "family_count", "nvars",
+    # `sos` records a denominator that `_verify_sos` never reads: the terms
+    # carry their own coefficients and are expanded and compared directly.
+    # Excused because it is genuinely inert, and flagged here because an inert
+    # field in a payload that claims to be checkable is worth knowing about.
+    "denominator",
+    # Dropping the final empty clause from a DRAT proof is accepted, because
+    # the prefix that remains still propagates to a conflict -- the formula is
+    # still refuted. Truncating further IS caught, which is the property that
+    # matters.
+    "proof",
+}
+
+#: Mutations that make the certificate claim LESS. Not catching these is
+#: correct: an exact cover really is an at-least cover, and a design that
+#: stops claiming global optimality is making a smaller true statement. A
+#: forgery claims MORE; weakening is a reader's loss, not a lie.
+WEAKENING = {
+    "exact",            # exact cover -> at-least cover
+    "cliques",          # stops asserting the parts are cliques
+    "nonlinear",        # farkas: changes which tactic is claimed
+    "globally_optimal", # mixed: drops the optimality claim
+    "integer",          # lp_dual: an ILP flag with no integral point warns
+    "vacuous",          # dropping a warning flag does not create a claim
+    "sense",            # reading a max as a min makes the bound weaker
+    "target",           # a target is a question, not an assertion
+    "relaxation",       # mixed: an optional side certificate
+    "residual",         # mixed: checked when present; absence is not a claim
+    "system",           # mixed: ditto, the full point is checked either way
+    "parameters", "objective", "constraints", "variables", "eliminated",
+    "equations",        # parametric/eliminate: restating the problem smaller
+    "terms", "collected", "var",   # asymptotic: the Laurent data it reports
+    "base_rows",        # farkas: the pre-product rows, kept for reading
+    "rows",             # unsat_core: now tied to core_smt2, checked there
+}
+
+
+def _mutate(value):
+    """A different value of the same shape, so the failure is semantic."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, str):
+        try:
+            return str(Fraction(value) + 1)
+        except (ValueError, ZeroDivisionError):
+            return value + "_x" if value else "x"
+    if isinstance(value, list) and value:
+        return value[:-1]
+    if isinstance(value, dict) and value:
+        k = next(iter(value))
+        return {kk: (_mutate(vv) if kk == k else vv)
+                for kk, vv in value.items()}
+    return None
+
+
+def probe(cert, skip=()):
+    """Mutate each payload field in turn. Returns {field: caught}."""
+    base = json.loads(json.dumps(cert.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok, "the original must pass"
+
+    out = {}
+    for field, value in sorted(base["payload"].items()):
+        if field in DESCRIPTIVE or field in WEAKENING or field in skip:
+            continue
+        changed = _mutate(value)
+        if changed is None or changed == value:
+            continue
+        d = json.loads(json.dumps(base))
+        d["payload"][field] = changed
+        try:
+            out[field] = not verify(Certificate.from_dict(d), LIM).ok
+        except Exception:
+            # A verifier that raises on a malformed payload has still refused
+            # it, which is the behaviour that matters here.
+            out[field] = True
+    return out
+
+
+def _report(kind, results):
+    missed = sorted(f for f, caught in results.items() if not caught)
+    assert not missed, (
+        "{}: mutating {} changed no check. Either the field carries no claim "
+        "-- and does not belong in a checkable payload -- or something is not "
+        "being checked.".format(kind, ", ".join(missed)))
+
+
+# ---------------------------------------------------------------------------
+# one valid certificate per kind, then every field of it attacked
+# ---------------------------------------------------------------------------
+
+
+def test_unsat_core_and_model():
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    x, y = z3.Reals("x y")
+    s = Spec()
+    s.assume("x_ge_1", x >= 1)
+    s.assume("y_ge_1", y >= 1)
+    s.claim(x + y >= 2)
+    _report("unsat_core", probe(smt.prove(s, LIM).certificate))
+
+    s2 = Spec()
+    s2.assume("pos", x > 0)
+    s2.claim(x < 0)
+    _report("model", probe(smt.prove(s2, LIM).certificate))
+
+
+def test_farkas():
+    import z3
+
+    from certo import Spec
+    from certo.engines import farkas
+
+    x, y = z3.Reals("x y")
+    s = Spec()
+    s.assume("x_ge_1", x >= 1)
+    s.assume("y_ge_1", y >= 1)
+    s.claim(x + y >= 2)
+    _report("farkas", probe(farkas.farkas(s, LIM).certificate))
+
+
+def test_lp_dual():
+    from certo import LPSpec
+    from certo.engines import lp
+
+    s = LPSpec(sense="max")
+    s.variable("x")
+    s.variable("y")
+    s.objective({"x": 1, "y": 1})
+    s.constraint({"x": 1, "y": 1}, "<=", 3, name="cap")
+    _report("lp_dual", probe(lp.opt(s, LIM).certificate))
+
+
+def test_mixed_design():
+    from certo import LPSpec
+    from certo.engines import mixed
+
+    s = LPSpec(sense="max")
+    s.variable("a", 0, 1, kind="binary")
+    s.variable("w", 0, None)
+    s.objective({"a": 3, "w": 1})
+    s.constraint({"w": 6}, "<=", 1, name="cap")
+    s.constraint({"a": 1}, "<=", 1, name="one")
+    _report("mixed_design", probe(mixed.mixed(s, LIM).certificate))
+
+
+def test_exact_cover():
+    import itertools
+
+    from certo import CoverSpec
+    from certo.engines import algebra
+
+    fano = [(0, 1, 3), (1, 2, 4), (2, 3, 5), (3, 4, 6),
+            (4, 5, 0), (5, 6, 1), (6, 0, 2)]
+    spec = CoverSpec(universe=list(itertools.combinations(range(7), 2)),
+                     parts=fano, cliques=True, max_size=3)
+    _report("exact_cover", probe(algebra.cover(spec, LIM).certificate))
+
+
+def test_resultant():
+    import z3
+
+    from certo import EliminateSpec
+    from certo.engines import algebra
+
+    s, t = z3.Reals("s t")
+    spec = EliminateSpec(variables=["s", "t"],
+                         equations=[t ** 3 + s * t + 1, t * t - s],
+                         eliminate="t")
+    _report("resultant", probe(algebra.eliminate(spec, LIM).certificate))
+
+
+def test_parametric_bound():
+    from certo import ParametricSpec
+    from certo.engines import algebra
+    from certo.polynomials import Poly
+
+    ring = ("p",)
+    P = Poly.var(ring, "p")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+    spec = ParametricSpec(
+        parameters={"p": 10}, sense="max",
+        objective={"a": K(1), "b": K(1)},
+        constraints=[("big", {"a": K(2), "b": K(1)}, "<=", P * P),
+                     ("small", {"b": K(3)}, "<=", P - K(5))],
+        dual={"big": Fraction(1, 2), "small": Fraction(1, 3)})
+    _report("parametric_bound", probe(algebra.parametric(spec, LIM).certificate))
+
+
+def test_ideal_and_sos():
+    import z3
+
+    from certo import IdealSpec, SOSSpec
+    from certo.engines import algebra
+
+    x, y = z3.Reals("x y")
+    _report("ideal", probe(algebra.ideal(
+        IdealSpec(variables=["x", "y"], equations=[x - 2, x - 3]),
+        LIM).certificate))
+
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        return
+    res = algebra.sos(SOSSpec(variables=["x"], poly=x * x), LIM)
+    if res.certificate is not None:
+        _report("sos", probe(res.certificate))
+
+
+def test_number():
+    from certo import NumberSpec
+    from certo.engines import algebra
+
+    _report("number", probe(algebra.number(
+        NumberSpec(n=2 ** 31 - 1, question="prime"), LIM).certificate))
+
+
+def test_asymptotic():
+    import z3
+
+    from certo import OrderSpec
+    from certo.engines import order as od
+
+    d, C = z3.Reals("d C")
+    spec = OrderSpec(expression=C * C / d, orders={"C": 1, "d": 2})
+    _report("asymptotic", probe(od.order(spec, LIM).certificate))
+
+
+def test_ball():
+    from certo import BoundSpec
+    from certo.engines import bounds
+    from certo.numerics import NoBackend, backend_name
+
+    try:
+        backend_name()
+    except NoBackend:
+        return
+    spec = BoundSpec(value=lambda m: m.exp(1) / m.pi, claim=("<", "0.866"))
+    _report("ball", probe(bounds.bounds(spec, LIM).certificate))
+
+
+def test_sweep_and_domain_sweep():
+    from certo import DomainSpec, Outcome, SweepSpec
+    from certo.engines import domain, graphsearch
+
+    dom = DomainSpec(items=[(a, b) for a in range(4) for b in range(4)],
+                     predicate=lambda p: Outcome(p[0] + p[1] >= 0),
+                     key=lambda p: "{},{}".format(*p))
+    _report("domain_sweep", probe(domain.sweep_domain(dom, LIM).certificate))
+
+    sw = SweepSpec(n=4, predicate=lambda g: True)
+    _report("sweep", probe(graphsearch.sweep(sw, LIM).certificate))
+
+
+def test_drat_and_cnf_model():
+    from certo.cnf import CNF, CNFSpec
+    from certo.engines import sat
+
+    cnf = CNF(title="unsat")
+    a = cnf.var("a")
+    cnf.add(a)
+    cnf.add(-a)
+    _report("drat", probe(sat.cases(CNFSpec(cnf=cnf), LIM).certificate))
+
+    ok = CNF(title="sat")
+    b = ok.var("b")
+    ok.add(b)
+    _report("cnf_model", probe(sat.cases(CNFSpec(cnf=ok), LIM).certificate))
+
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    fails = 0
+    for fn in fns:
+        try:
+            fn()
+            print("[ok] " + fn.__name__)
+        except Exception as e:  # noqa: BLE001
+            fails += 1
+            print("[XX] {}: {}".format(fn.__name__, e))
+    print("\n{}/{} passed".format(len(fns) - fails, len(fns)))
+    raise SystemExit(1 if fails else 0)

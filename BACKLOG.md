@@ -49,6 +49,9 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **`certo repro`** *(P1)* | Spec, certificates, versions, hashes and ledger in one directory a referee checks with nothing but certo. Nothing invalid goes in, and nothing untied goes in quietly — a bundle that silently shipped a different spec would be the worst failure available. Measured on a real directory: 132 certificates, 5 refused with reasons, 6 named as untied, and the bundle re-verified end to end. |
+| ✅ | **Adversarial verification tests** *(P1)* | Every kind, every payload field mutated, and a mutation that flips no check is the finding. Three real holes: a Pratt tree never tied to the number it claimed (2³¹−1 relabelled as 2³¹ verified), an `lp_dual` accepting a primal one entry short because `zip` truncates in silence, and an `unsat_core` with multipliers never reading its own `core_smt2`. Exclusions are named with reasons, in two categories — descriptive, and weakening, since a smaller true claim is not a forgery. |
+| ✅ | **`verify --spec` and `certo --version`** *(user feedback P1)* | Refuse unless the file is the one the certificate was made from, by hash; and print version, commit and the newest schema this build writes. |
 | ✅ | **`cover --optimize` and `CoverSpec.to_lp`** *(user feedback P1)* | Three numbers with their statuses attached: your cover as a certified upper bound, the relaxation as an exact rational lower bound, and the integer optimum when branch and bound finishes. `candidates` required and refused rather than guessed, because minimal-relative-to-what is a modelling fact. Built for a misreading: a valid cover reported as an optimal one. |
 | ✅ | **An exact rational simplex** | Surfaced by the above. Deriving a degenerate dual by choosing which tight rows carry weight is C(49,7) on a realistic exact cover, about 10^8 — right for a handful of tight rows and hopeless past it. Past that the dual is solved outright, two-phase, Bland's rule, no floats. The motivating instance came back `exact: False` and is certified now. |
 | ✅ | **`certo order` shipped and nobody found it** *(user feedback P1)* | Not a missing feature: a discovery failure, which is worse, because the work was done and did not reach anyone. `asymptotics` and `decays` as aliases, a help line that leads with "does this DECAY in n", `certo commands` putting the question-to-command table in the terminal, and a `lint` note that names the command when a claim divides by a product of symbols. The last has a narrow trigger — two or more symbols at negative exponent — and fires zero times across the shipped examples. |
@@ -185,43 +188,7 @@ on a degenerate LP at realistic scale is unblocked.
 
 ## P1 — next
 
-### 1. `certo repro`: the artefact, bundled
-
-Was P3 for a year on the grounds that nobody was asking. Finding 1 makes it
-the clearest expression of what certo is for: spec, certificates, versions,
-hashes and the ledger in one directory a referee can be handed, verifying
-end to end with nothing installed but certo.
-
-Everything it needs already exists — provenance, `status`, `verify`, the
-ledger — and is currently spread across four commands and a convention. This
-is the item that says what the tool is, and it is small because the parts are
-built.
-
-### 2. Adversarial verification tests
-
-Two certificates shipped that `verify` rejects, and the test suite could not
-have caught either: every test feeds verification something the producer made,
-so a contract misread in both places passes.
-
-The fix is a suite that feeds each verifier certificates it did NOT produce —
-hand-built, mutated field by field, and cross-kind. Every mutation of a
-payload field should flip exactly one check, and a mutation that flips nothing
-is a check that is not being made.
-
-Not a feature. It is the reason to believe the other thirty-two kinds are not
-carrying the same bug, and right now there is no such reason.
-
-### 3. `certo repro`'s prerequisites: `verify --spec` and `certo --version`
-*(user feedback)*
-
-    certo verify cert.json --spec spec.py     # fail if the hash differs
-
-so nobody verifies an old certificate believing it describes the file in front
-of them. And `certo --version` currently reads as a missing subcommand; it
-should print version, commit where available, and the maximum certificate
-schema. Both are small, both are provenance, and `repro` wants them.
-
-### 4. A `--fully-checkable` branch-and-bound certificate *(user feedback)*
+### 1. A `--fully-checkable` branch-and-bound certificate *(user feedback)*
 
 63 nodes cost 842 KB and the certificate is `solver_free: false`. Of everything
 certo produces, this is the weakest artefact — and by finding 1, the artefact

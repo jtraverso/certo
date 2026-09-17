@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
 from .certificate import Certificate
 from .certificate import verify as verify_cert
 from .i18n import available, set_lang, t
@@ -1190,7 +1191,30 @@ def cmd_ledger(args):
 
 def cmd_verify(args):
     data = json.loads(Path(args.certificate).read_text(encoding="utf-8"))
-    rep = verify_cert(Certificate.from_dict(data), limits_from(args))
+    cert = Certificate.from_dict(data)
+
+    # Tying the certificate to a file you are LOOKING at is a different check
+    # from verifying it, and the failure it catches is specific: verifying an
+    # old certificate correctly while believing it describes the spec on your
+    # screen. `status` reports staleness across a directory; this refuses.
+    if args.spec:
+        import hashlib
+
+        want = (cert.provenance or {}).get("spec_sha256")
+        got = hashlib.sha256(Path(args.spec).read_bytes()).hexdigest()
+        if not want:
+            print(t("cli.verify.no_provenance", path=args.spec),
+                  file=sys.stderr)
+            return 3
+        if want != got:
+            print(t("cli.verify.spec_differs", path=args.spec,
+                    was=(cert.provenance or {}).get("spec_path") or "?",
+                    want=want[:16], got=got[:16]), file=sys.stderr)
+            return 1
+        if not args.json:
+            print("  " + t("cli.verify.spec_matches", path=args.spec))
+
+    rep = verify_cert(cert, limits_from(args))
     if args.json:
         print(json.dumps(rep.to_dict(), indent=2, ensure_ascii=False))
     else:
@@ -1241,6 +1265,34 @@ def cmd_lint(args):
     if rep["errors"]:
         return 1
     return 2 if rep["warnings"] else 0
+
+
+def cmd_repro(args):
+    """Everything a referee needs, in one directory."""
+    from . import repro
+
+    m = repro.bundle(args.where, args.out, limits_from(args),
+                     include_ledger=not args.no_ledger)
+    if args.json:
+        print(json.dumps(m, indent=2, ensure_ascii=False))
+        return 1 if m["refused"] else 0
+
+    print(t("cli.repro.done", n=len(m["certificates"]), path=args.out))
+    print("  " + t("cli.repro.free", free=m["solver_free"],
+                   total=len(m["certificates"])))
+    if m["specs"]:
+        print("  " + t("cli.repro.specs", n=len(m["specs"])))
+    if m["specs_not_included"]:
+        print("  !! " + t("cli.repro.untied", n=len(m["specs_not_included"])))
+        for u in m["specs_not_included"][:4]:
+            print("       {}  ({})".format(u["spec"], u["why"]))
+    if m["refused"]:
+        print("  !! " + t("cli.repro.refused", n=len(m["refused"])))
+        for r in m["refused"][:4]:
+            print("       {}: {}".format(r["file"], "; ".join(r["why"][:1])))
+    print("  " + t("cli.repro.next", path=args.out))
+    # A bundle that had to leave something out is not a clean result.
+    return 1 if m["refused"] else 0
 
 
 def cmd_status(args):
@@ -1456,7 +1508,10 @@ def build_parser():
         description="Proof support: decide, enumerate, optimise and synthesise. "
                     "Everything with a certificate.",
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    p.add_argument("--version", action="store_true",
+                   help="version, commit where available, and the newest "
+                        "certificate schema this build writes")
+    sub = p.add_subparsers(dest="cmd", required=False)
 
     def add(name, helptext, aliases=()):
         """A subcommand, and the other words somebody might type for it.
@@ -1559,6 +1614,16 @@ def build_parser():
     sp.add_argument("-q", "--quiet", action="store_true",
                     help="errors and warnings only, without the notes")
     sp.set_defaults(func=cmd_lint)
+
+    sp = add("repro", "bundle spec, certificates, versions and hashes into "
+                      "one directory a referee can check")
+    sp.add_argument("where", nargs="?", default=".",
+                    help="directory of certificates (searched recursively)")
+    sp.add_argument("--out", default="repro", metavar="DIR",
+                    help="where to write the bundle (default: ./repro)")
+    sp.add_argument("--no-ledger", action="store_true", dest="no_ledger",
+                    help="leave the audit ledger out")
+    sp.set_defaults(func=cmd_repro)
 
     sp = add("status", "read a directory of certificates and say where the "
                        "proof stands: proved, owed, hollow, stale")
@@ -1745,6 +1810,11 @@ def build_parser():
 
     sp = add("verify", "re-verify a stored certificate")
     sp.add_argument("certificate", help="the certificate .json file")
+    sp.add_argument("--spec", metavar="FILE",
+                    help="refuse unless this file is the one the certificate "
+                         "was made from, by hash. Verifying an old "
+                         "certificate correctly while believing it describes "
+                         "the spec on your screen is the failure this catches")
     sp.set_defaults(func=cmd_verify)
 
     sp = add("export", "dump the spec to SMT-LIB2 or DIMACS, or a "
@@ -1773,10 +1843,40 @@ def build_parser():
     return p
 
 
+def _version_line() -> str:
+    """Version, the commit if this is a checkout, and the schema written.
+
+    The schema matters as much as the version: it is what says whether a
+    certificate from elsewhere can be read, and it moves on its own timetable.
+    """
+    import subprocess
+
+    from .certificate import SCHEMA_VERSION
+
+    commit = ""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                             cwd=str(Path(__file__).resolve().parent),
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            commit = out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return t("cli.version", version=__version__,
+             commit=commit or t("cli.version.no_commit"),
+             schema=SCHEMA_VERSION)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if getattr(args, "lang", None):
         set_lang(args.lang)
+    if getattr(args, "version", False):
+        print(_version_line())
+        return 0
+    if getattr(args, "func", None) is None:
+        build_parser().print_help()
+        return 2
     try:
         return args.func(args)
     except Exception as e:  # noqa: BLE001

@@ -29,7 +29,7 @@ jobs:
         run: certo doctor
       - name: tests
         shell: bash
-        run: for t in smoke mcp i18n extras; do python tests/test_$t.py; done
+        run: for t in smoke mcp i18n extras adversarial; do python tests/test_$t.py; done
 
   # The examples are the documentation, and documentation that no longer runs
   # is worse than none. Each one is executed exactly as the README shows it.
