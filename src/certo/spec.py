@@ -899,6 +899,38 @@ class ParametricSpec:
 
 
 @dataclass
+class FamilySpec:
+    """A finite family of linear programs, and the largest of them.
+
+        FamilySpec(
+            items=all_bipartitions,          # iterable, or callable() -> iterable
+            lp=lambda z: lp_for(z),          # callable(item) -> LPSpec, sense max
+            key=lambda z: "z={}".format(z),  # callable(item) -> str
+        )
+
+    Certifies `max over the family = V`, which is two claims and they are not
+    symmetric: the winner ATTAINS `V` (an exact primal and dual that meet), and
+    every other item is BOUNDED by it (a feasible dual with `b.y <= V`). A dual
+    does not have to be optimal to bound, so the expensive half of the search
+    never has to be exact -- only the checking does.
+
+    Nothing stores an LP. Each item's program is rebuilt from `lp(item)` at
+    verification, so a dual belonging to a different item does not fit, and
+    `verify` NEEDS the spec file -- saying so when it does not have it rather
+    than checking less while looking the same.
+
+    Every item program must be a maximisation; a `min` is refused rather than
+    reinterpreted, because bounding a minimum from above needs a primal point
+    and not a dual, which is a different certificate.
+    """
+
+    items: object                    # iterable, or callable() -> iterable
+    lp: object                       # callable(item) -> LPSpec
+    key: object = None               # callable(item) -> str (default: str)
+    title: str = ""
+
+
+@dataclass
 class PeakSpec:
     """A concave quadratic in one INTEGER variable, and where it peaks.
 

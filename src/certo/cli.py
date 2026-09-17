@@ -250,6 +250,7 @@ BY_QUESTION = (
         ("commands.q.order", "order"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
+        ("commands.q.family", "family"),
         ("commands.q.exists", "exists"),
     )),
     ("commands.group.every", (
@@ -593,6 +594,18 @@ def cmd_cover(args):
                          detail=bounds["stopped_detail"]))
     elif not args.prove_optimal:
         print("  " + t("cli.cover.try_prove"))
+    return rc
+
+
+def cmd_family(args):
+    from .engines import algebra
+    from .spec import FamilySpec, load_spec
+
+    spec = load_spec(args.spec, FamilySpec)
+    res = algebra.family_max(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("value"):
+        print("  " + t("verify.family_max.scope"))
     return rc
 
 
@@ -1688,6 +1701,11 @@ def build_parser():
                     dest="wall_timeout_ms", metavar="MS",
                     help="a budget for the whole search")
     sp.set_defaults(func=cmd_cover)
+
+    sp = add("family", "the largest of a finite family of linear programs, "
+                       "with every other one bounded below it")
+    sp.add_argument("spec", help=".py file returning a FamilySpec")
+    sp.set_defaults(func=cmd_family)
 
     sp = add("exists", "does a cover exist at all -- and when it does not, "
                        "the refutation that says so")

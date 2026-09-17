@@ -593,6 +593,41 @@ def cover_certificate(universe, parts, exact, cliques, multiplicities,
     )
 
 
+def family_extremum_certificate(value, argmax, primal, dual, bounds, ids,
+                                count, title="") -> Certificate:
+    """`max over this family = V`. Two claims, and they are not symmetric.
+
+    The winner ATTAINS `V`: an exact primal and dual whose values meet, so its
+    optimum IS `V` rather than a bound on it. Every other item is BOUNDED by
+    it: a feasible dual with `b.y <= V`, which is weak duality and much less
+    work than solving. A dual does not have to be optimal to bound.
+
+    NOTHING STORES AN LP. Each item's program is rebuilt from the spec and the
+    item at verification time. Carrying one program per item would be both
+    enormous and unchecked -- a dual for a different item's program would fit
+    it perfectly, which is the hole a branch-and-bound tree had. So this needs
+    the spec to verify, and says so when it does not have it.
+    """
+    return Certificate(
+        kind="family_extremum", solver_free=False,
+        payload={"sense": "max", "value": value, "argmax": argmax,
+                 "primal": primal, "dual": dual, "bounds": bounds,
+                 "ids": ids, "ids_sha256": _digest_of(ids), "count": count,
+                 "title": title},
+        note_key="cert.note.family_extremum",
+    )
+
+
+def _digest_of(ids) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    for i in ids:
+        h.update(str(i).encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
 def integer_peak_certificate(parameters, variable, objective, argmax, value,
                              region=None, title="") -> Certificate:
     """No integer beats `argmax`, and `argmax` attains `value`. For every p.
@@ -1123,6 +1158,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
         "parametric_bound": _verify_parametric_bound,
         "exact_cover": _verify_exact_cover,
@@ -1475,6 +1511,60 @@ def _verify_exact_cover(cert, limits) -> VerifyReport:
                  n=out["universe"],
                  kind=t("verify.cover.exactly" if p.get("exact", True)
                         else "verify.cover.atleast")),
+    )
+
+
+def _verify_family_extremum(cert, limits) -> VerifyReport:
+    """Re-derive every item's program and re-check the vector stored for it."""
+    from . import family
+
+    p = cert.payload
+    checks, warnings = [], []
+
+    got = _digest_of(p["ids"])
+    checks.append((t("verify.family_max.ids"), got == p["ids_sha256"],
+                   got[:16]))
+    covered = 1 + len(p["bounds"])
+    checks.append((t("verify.family_max.every_item"),
+                   covered == p["count"] == len(p["ids"]),
+                   t("verify.family_max.counts", n=covered,
+                     total=p["count"])))
+
+    path, why = _spec_from(cert)
+    if path is None:
+        # Without the spec there is no way to rebuild the programs, and the
+        # stored vectors are numbers about nothing. Said, not skipped.
+        warnings.append(t("verify.family_max.no_spec",
+                          reason=t("verify.sweep.replay."
+                                   + (why if why else "no_path"))))
+        return VerifyReport(
+            False, "family_extremum", False, checks=checks, warnings=warnings,
+            detail=t("verify.family_max.unverified", value=p["value"]))
+
+    from .spec import load_spec
+
+    spec = load_spec(path)
+    try:
+        ok_argmax, bad, missing = family.check(p, spec, limits)
+    except (family.NotAFamily, KeyError, TypeError, ValueError) as e:
+        return VerifyReport(False, "family_extremum", False, checks=checks,
+                            warnings=warnings,
+                            detail=t("verify.failed", type=type(e).__name__,
+                                     message=e))
+
+    checks.append((t("verify.family_max.attained"), ok_argmax,
+                   t("verify.lp.declared", value=p["value"])))
+    checks.append((t("verify.family_max.bounded"), not bad and not missing,
+                   t("verify.family_max.offenders",
+                     n=len(p["bounds"]),
+                     bad=", ".join(map(str, bad[:3])) or "-",
+                     missing=", ".join(map(str, missing[:3])) or "-")))
+    warnings.append(t("verify.family_max.scope"))
+    return VerifyReport(
+        all(c[1] for c in checks), "family_extremum", False, checks=checks,
+        warnings=warnings, method_key="verify.family_max.method",
+        detail=t("verify.family_max.detail", value=p["value"],
+                 argmax=p["argmax"], n=p["count"]),
     )
 
 

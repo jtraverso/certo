@@ -1217,6 +1217,105 @@ def _mirror_spec(n=7):
     )
 
 
+# --- family: the largest of many LPs, and why nothing beats it -------------
+
+
+def _family_of_lps():
+    """Four programs whose optima are 1, 2, 3 and 4, so the winner is known."""
+    from certo import FamilySpec, LPSpec
+
+    def one(k):
+        lp = LPSpec(sense="max", title="k={}".format(k))
+        lp.variable("x", 0, None)
+        lp.objective({"x": 1})
+        lp.constraint({"x": 1}, "<=", k, name="cap")
+        return lp
+
+    return FamilySpec(items=[1, 2, 3, 4], lp=one,
+                      key=lambda k: "k={}".format(k))
+
+
+def test_a_family_maximum_attains_at_the_winner_and_bounds_the_rest():
+    """Two claims, and they are not symmetric -- which is the whole design."""
+    from certo.engines import algebra
+
+    r = algebra.family_max(_family_of_lps(), LIM)
+    assert r.verdict is Verdict.SATISFIABLE
+    assert r.meta["value"] == "4" and r.meta["argmax"] == "k=4"
+    p = r.certificate.payload
+    assert p["count"] == 4 and len(p["bounds"]) == 3
+    # the winner carries a primal AND a dual; the others only a dual
+    assert p["primal"] and p["dual"]
+
+
+def test_a_family_certificate_without_its_spec_checks_nothing_and_says_so():
+    """The programs are not stored, so the vectors are numbers about nothing."""
+    from certo.certificate import Certificate
+    from certo.engines import algebra
+
+    r = algebra.family_max(_family_of_lps(), LIM)
+    stripped = json.loads(json.dumps(r.certificate.to_dict()))
+    stripped["provenance"] = {}
+    rep = verify(Certificate.from_dict(stripped), LIM)
+    assert not rep.ok
+    assert any("NOTHING was checked" in w for w in rep.warnings)
+
+
+def test_a_min_item_program_is_refused_rather_than_reinterpreted():
+    """Bounding a minimum from above needs a primal point, not a dual."""
+    from certo import FamilySpec, LPSpec
+    from certo.engines import algebra
+
+    def down(k):
+        lp = LPSpec(sense="min", title="k={}".format(k))
+        lp.variable("x", 1, None)
+        lp.objective({"x": 1})
+        lp.constraint({"x": 1}, ">=", k, name="floor")
+        return lp
+
+    r = algebra.family_max(FamilySpec(items=[1, 2], lp=down,
+                                      key=lambda k: str(k)), LIM)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "maximisation" in r.detail
+
+
+def test_two_items_sharing_an_id_are_refused():
+    """A bound stored for one would be read as a bound for the other."""
+    from certo import FamilySpec, LPSpec
+    from certo.engines import algebra
+
+    def flat(_k):
+        lp = LPSpec(sense="max")
+        lp.variable("x", 0, 1)
+        lp.objective({"x": 1})
+        lp.constraint({"x": 1}, "<=", 1, name="cap")
+        return lp
+
+    r = algebra.family_max(FamilySpec(items=[1, 2], lp=flat,
+                                      key=lambda _k: "same"), LIM)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "share an id" in r.detail
+
+
+def test_weak_duality_is_what_bounds_the_losers():
+    """A dual does not have to be OPTIMAL to bound -- only feasible."""
+    from fractions import Fraction as F
+
+    from certo.family import attains_value, bounds_value
+
+    # max x s.t. x <= 3, x >= 0
+    A, b, c = [[F(1)]], [F(3)], [F(1)]
+    assert bounds_value(A, b, c, [F(1)], F(3))        # optimal dual
+    assert bounds_value(A, b, c, [F(1)], F(5))        # bounded by more
+    assert not bounds_value(A, b, c, [F(1)], F(2))    # 3 is not <= 2
+    assert not bounds_value(A, b, c, [F(-1)], F(3))   # y >= 0 is required
+    assert not bounds_value(A, b, c, [F(0)], F(3))    # A^T y >= c fails
+
+    assert attains_value(A, b, c, [F(3)], [F(1)], F(3))
+    assert not attains_value(A, b, c, [F(2)], [F(1)], F(3))   # not attained
+    assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
+
+
 # --- exists: does one exist at all, and the refutation when it does not ----
 
 

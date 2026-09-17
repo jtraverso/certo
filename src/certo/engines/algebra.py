@@ -28,6 +28,7 @@ import time
 
 from ..certificate import (cover_certificate, ideal_certificate,
                            number_certificate, parametric_bound_certificate,
+                           family_extremum_certificate,
                            integer_peak_certificate,
                            resultant_certificate, sos_certificate)
 from ..i18n import t
@@ -135,6 +136,33 @@ def cover_bounds(spec, limits=None, prove_optimal=False, max_nodes=5_000,
             out["stopped"] = got.meta
             out["stopped_detail"] = got.detail
     return out
+
+
+def family_max(spec, limits: Limits | None = None,
+               spec_path: str = "") -> Result:
+    """The largest of a finite family of linear programs, and why nothing beats it."""
+    from ..family import NotAFamily, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec, limits)
+    except NotAFamily as e:
+        return Result("family", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = family_extremum_certificate(
+        value=str(out["value"]), argmax=out["argmax"], primal=out["primal"],
+        dual=out["dual"], bounds=out["bounds"], ids=out["ids"],
+        count=out["count"], title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("family", Status.SAT, Verdict.SATISFIABLE, ENGINE_PARAM, ms,
+                  cert,
+                  detail=t("engine.family.proved", value=str(out["value"]),
+                           argmax=out["argmax"], n=out["count"]),
+                  meta={"value": str(out["value"]), "argmax": out["argmax"],
+                        "items": out["count"]})
 
 
 def exists(spec, limits: Limits | None = None, spec_path: str = "",
