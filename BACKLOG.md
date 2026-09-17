@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-16 (after the second user report: the integral-point hole fixed, three items added to P1).
+Last updated: 2026-09-17. P1 is down to the two items that want a real instance; everything else from the user reports has landed.
 
 ---
 
@@ -48,6 +48,7 @@ Last updated: 2026-09-16 (after the second user report: the integral-point hole 
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
 | ✅ | **Derive the LP dual instead of reconstructing it** *(user feedback P1)* | 3 of 56 exact LPs needed the rational pair injected by hand, all on symmetric solutions: on a degenerate vertex CBC returns an arbitrary one of many optimal duals and rounding it need not be dual-feasible. Complementary slackness determines the dual from the primal in exact `Fraction`, and where it underdetermines it the choices ARE the optimal duals. Certifies now with no usable dual from the solver at all. The second cause this item claimed — a coupled denominator ladder — was **measured and refuted**; that pass was dropped rather than shipped. |
 | ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
 | ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
@@ -99,6 +100,22 @@ certified exactly; when they do not, the gap is reported rather than hidden.
 
 That is the argument for real instances in one paragraph, and it is why the
 items below still say "build against a real problem".
+
+
+### A note on the README
+
+Restructured 2026-09-17 after the observation that the opening was abstract.
+It now leads with three real sessions — a false claim refuted in 4 ms with its
+counterexample, a vacuous proof caught, an optimum proved with every leaf
+certified — each one runnable from `examples/`, and every block of output
+copied from an actual run rather than written from memory. Two blocks were
+wrong when checked, including one that claimed a `branch_bound` certificate
+verified *without* a solver. It does not.
+
+After that: **Start here**, a five-row router by who you are, and **Which
+command answers which question**, a table keyed on the question in the
+reader's own words rather than on the command name. That second table is the
+one an LLM needs, and it turns out a newcomer needs the same thing.
 
 
 ## P1 — next

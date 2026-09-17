@@ -6,6 +6,41 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### A refutation now shows what refuted it
+
+The values were in the certificate and nowhere on screen, so refuting a claim
+meant opening a JSON file to find out *what* refuted it. The counterexample is
+the answer; the word "REFUTED" is not.
+
+```
+$ certo prove examples/refute_density.py
+REFUTED  [sat]
+  the counterexample:
+    dens = 7/8
+    kappa = 4
+```
+
+`check` and `check --hypotheses-only` do the same — the latter now literally
+exhibits the parameter set that inhabits a regime, which is what it was for.
+
+### The README leads with what happens, not with what it is
+
+It opened on "a laboratory for supporting mathematical proofs". True, and it
+tells you nothing about what running the thing does, which is what someone
+deciding whether to try it needs and what a model being asked to use it needs
+more.
+
+It now opens on three real sessions, each runnable from `examples/`, and every
+block of output is copied from an actual run. Two were wrong when checked
+against one — including a claim that a `branch_bound` certificate verifies
+*without* a solver. It does not, and the front page of a project about not
+overclaiming is a bad place to overclaim.
+
+Then **Start here**, a router by who the reader is, and **Which command
+answers which question** — keyed on the question in the reader's own words
+rather than on the command name.
+
+
 ### Exact LP certification stopped depending on CBC's dual
 
 A user certified 56 LPs exactly and **3 needed the rational primal and dual

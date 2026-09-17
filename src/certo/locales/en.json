@@ -33,7 +33,7 @@
   "cli.reductions.more": "... {n} more",
   "cli.round": "round {round}: impl={impl} | counterexample={ce}",
   "cli.probe": "t={t:<12} {status}",
-  "cli.witness": "witness ({n} variables true): {names}",
+  "cli.witness": "a point that satisfies everything:",
   "cli.checker": "checker {name}: {verdict} ({detail})",
   "cli.starting_from": "starting from the first counterexample of the sweep: {g6}",
   "cli.no_counterexample": "no counterexample to minimise: the sweep found none (examined: {n})",
@@ -715,5 +715,6 @@
   "verify.core.combination": "the combination closes: sum of lambda_i * row_i is a contradiction",
   "verify.core.closes": "constant {const}, and {rel} 0 is false",
   "verify.core.by_farkas": "checked by arithmetic, no solver: Farkas multipliers",
-  "verify.core.detail_farkas": "{n} rows carry a non-zero multiplier: {names}"
+  "verify.core.detail_farkas": "{n} rows carry a non-zero multiplier: {names}",
+  "cli.counterexample": "the counterexample:"
 }

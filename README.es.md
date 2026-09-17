@@ -1,38 +1,176 @@
 # certo
 
-> Traducción al español. La versión de referencia es [README.md](README.md).
+**Tienes una afirmación matemática. certo intenta romperla, y si no puede, te
+entrega un certificado que cualquiera puede re-comprobar sin fiarse de certo.**
 
-Laboratorio de apoyo a demostraciones matemáticas, por CLI y por MCP.
-**Todo resultado viene con un certificado que se verifica sin confiar en el solver.**
+CLI y MCP. Veinticinco comandos. Se ejecuta antes de gastar las horas que
+cuesta una formalización.
 
-Veinticinco comandos para descubrir objetos, destruir formulaciones falsas, calibrar
-constantes y minimizar hipótesis — antes de pagar el coste de formalizar.
+*English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
+
+---
+
+### Caza afirmaciones que son simplemente falsas
+
+Un usuario escribió que una restricción de densidad «obliga a `G` casi
+completo, luego el caso es trivial». No lo hace, y esta la puedes correr tú:
 
 ```
-$ certo bisect examples/bisect_ramsey.py
-UMBRAL ACOTADO por demostracion y refutacion  [sat]
-  umbral en 6 (se cumple en t=6, falla en t=5; 4 pruebas)
-
-$ certo verify out/r33.json
-VALIDO  certificado bisect (verificado sin solver)
-  [ok] lado bueno t=6 (drat)        (23 pasos RUP)
-  [ok] lado malo  t=5 (cnf_model)
+$ certo prove examples/refute_density.py
+REFUTADO  [sat]
+  REFUTADO: hay un contraejemplo que cumple las hipótesis y viola la tesis
+  el contraejemplo:
+    dens = 7/8
+    kappa = 4
+  certificado: model (sin solver, id 1a76b821f2cafa42)
+  motor: z3:5.1.0 | 4.2 ms
 ```
+
+**Cuatro milisegundos**, y la respuesta no es «no» —es `dens = 7/8`, que pasa
+todas las hipótesis y no está ni cerca de ser completo—. Su siguiente
+afirmación, que con `|κ| ≥ 4` bastaba para toda densidad, cayó igual con
+`dens = 127/128, |κ| = 7`, fallando por `0.3351` frente a `0.3333`. La cota
+correcta era 8. Las dos habrían ido a una pasada de formalización, a dos horas
+y media cada una.
+
+El certificado es un **modelo**: re-comprobarlo es sustituir los valores y
+evaluar. Nadie tiene que fiarse de z3, ni de certo.
+
+### Caza afirmaciones que son ciertas y no van de nada
+
+```
+$ certo prove examples/lint_vacuous_regime.py
+DEMOSTRADO -- simbólico y universal bajo las hipótesis  [unsat]
+  VACUA: estas hipótesis se contradicen entre sí, así que este objetivo --y
+  cualquier otro-- se sigue. La demostración es válida y no dice nada.
+  El choque es: kappa_large, density_high, sparse
+  !! las hipótesis son contradictorias: esta demostración es vacua
+```
+
+Lean demostrará ese teorema, no reportará ningún `sorry`, y `#print axioms`
+saldrá limpio. Nada de eso te dice que las hipótesis fueran satisfacibles. Ese
+mismo usuario tenía **cuatro** módulos Lean así. Preguntado al revés:
+
+```
+$ certo check examples/regime_nonempty.py --hypotheses-only
+SATISFACIBLE  [sat]
+  el régimen NO ES VACÍO: las 4 hipótesis se sostienen a la vez, y aquí hay
+  un punto donde lo hacen
+  un punto que satisface todo:
+    dens = 1/2
+    kappa = 4
+    n = 100
+```
+
+### Y te deja algo que un referee puede comprobar
+
+```
+$ certo mixed examples/walkthrough.py --prove-optimal
+DEMOSTRADO  [unsat]
+  ÓPTIMO 7, DEMOSTRADO: 73 nodos, 37 de ellos cerrados con certificado
+  73 nodos: 19 cerrados por cota, 18 infactibles, 0 totalmente fijados
+
+$ certo verify out/optimal.json
+VÁLIDO  certificado branch_bound (verificado con solver)
+  [ok] ningún nodo aparece dos veces  (0 duplicados)
+  [ok] el diseño incumbente existe y alcanza el óptimo  (declarado 7)
+  [ok] toda rama tiene todos sus hijos  (faltan 0: -)
+  [ok] todo nodo hoja está cerrado con un certificado  (0 sin cerrar: -)
+```
+
+No «el solver dijo 7». Cada hoja de la búsqueda lleva su propio certificado y
+se comprueba que el árbol cubre el dominio entero —meses después, solo con el
+artefacto—.
+
+---
+
+## Empieza aquí
+
+| Si eres... | Ve a |
+|---|---|
+| **nuevo y quieres verlo funcionar** | [Instalación](#instalación), y luego [Dos minutos](#empezar-en-dos-minutos) |
+| **alguien evaluando si le sirve** | [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) — un problema de punta a punta, siete comandos, quince segundos |
+| **alguien buscando el comando para su pregunta** | [Qué comando responde a qué pregunta](#qué-comando-responde-a-qué-pregunta) |
+| **un LLM al que le piden usar esto** | [Qué comando responde a qué pregunta](#qué-comando-responde-a-qué-pregunta), luego [El DSL](#el-dsl) y [Servidor MCP](#servidor-mcp). Corre [`certo lint`](#lint-antes-de-gastar-el-cómputo) sobre cada spec antes de ejecutarlo. |
+| **alguien preguntándose qué NO hace** | [Qué no hace](#qué-no-hace) — tan importante como la lista de comandos |
+
+## Qué comando responde a qué pregunta
+
+Formulado como la pregunta, porque así es como llega cualquiera.
+
+### ¿Es cierto?
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| ¿Es cierta esta afirmación, bajo estas hipótesis? | `prove` | una demostración, o un **contraejemplo con valores concretos** |
+| ¿Cuáles de mis hipótesis necesita de verdad? | `core` | el conjunto minimal, y cuáles sobraban |
+| Mismas hipótesis, varias afirmaciones: ¿cuál necesita qué? | `core` sobre un `MultiSpec` | una tabla hipótesis-por-objetivo |
+| ¿Es cierta esta desigualdad, con los multiplicadores a la vista? | `farkas` | `linarith`/`nlinarith`, **sin solver** |
+| ¿Vale esto para todo `n ≥ n₀`? | `induct` | casos base + paso, **y la comprobación de que la cadena une** |
+
+### ¿Está siquiera bien planteado mi problema?
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| **¿Mi régimen no es vacío?** | `check --hypotheses-only` | un **modelo** si no lo es, el **choque minimal** si lo es |
+| ¿Está bien planteado este spec, antes de gastar el cómputo? | `lint` | hipótesis contradictorias, una familia vacía, un dominio de 10⁹ |
+| ¿Dónde está mi proyecto entero? | `status` | probado, pendiente, hueco, desfasado |
+| ¿Puede esta instalación hacer lo que necesito? | `doctor` | cada capacidad, y qué cuesta cada hueco |
+
+### ¿Cuánto, cuán pequeño, cuántos?
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| ¿Cuál es el óptimo, exacto? | `opt` | el **dual racional exacto** = el certificado |
+| ...¿y es óptimo de verdad sobre los enteros? | `mixed --prove-optimal` | branch and bound, **cada hoja certificada** |
+| ¿Dónde está el umbral de esta constante? | `bisect` | el par que lo acota, cada lado certificado |
+| ¿Es cierta esta desigualdad numérica? (`e`, `log`, `π`, `ζ`) | `bounds` | un encierro riguroso en racionales exactos |
+| ¿Decae este término en `n`, o es Θ(1)? | `order` | el **exponente**, sin solver |
+
+### ¿Vale para todos los casos?
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| ¿Vale para todo grafo de `n` vértices? | `sweep` | la familia, **y qué se estableció sobre el predicado** |
+| ...¿para todo elemento de cualquier dominio finito? | `cases` (`DomainSpec`) | lo mismo, sobre cualquier cosa enumerable |
+| ¿Es insatisfacible esta CNF? | `cases` | una **prueba DRAT** |
+| Mi contraejemplo es enorme: ¿cuál es el de verdad? | `shrink` | un testigo minimal, con el descenso registrado |
+| Mil fallos: ¿cuántos objetos son en realidad? | `sweep --witnesses` | órbitas, y un testigo minimal por órbita |
+
+### Álgebra y números
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| ¿Tienen solución estas ecuaciones polinómicas? | `ideal` | cofactores de Gröbner, comprobables expandiendo |
+| ¿Es este polinomio no negativo en todas partes? | `sos` | cuadrados racionales exactos, sin solver |
+| ¿Es primo este entero? | `number` | un árbol de Pratt, comprobable por exponenciación modular |
+
+### Construir y conservar
+
+| Tu pregunta | Comando | Qué vuelve |
+|---|---|---|
+| ¿Existe un objeto con estas propiedades? | `synth` | CEGIS, más los contraejemplos que lo forzaron |
+| ¿Cómo ensamblo mis lemas en una demostración? | `compose` | la demostración, **con cada puente nombrado** |
+| ¿Sigue siendo válido este certificado guardado? | `verify` | re-comprobado, con los avisos repetidos |
+| Llevar esto a Lean | `export --lean` | enunciados reales para aritmética lineal; datos para grafos |
+| ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
+
+Tabla completa con motores y tipos de certificado:
+[Los veinticinco comandos](#los-veinticinco-comandos).
 
 ## Qué es y qué no es
 
-**Es** el instrumento de laboratorio: encontrar una contradicción rápido, saber
-qué hipótesis sobran, validar exhaustivamente un caso finito, acotar una
+**Es** el instrumento de laboratorio: encontrar una contradicción rápido,
+saber qué hipótesis sobran, validar exhaustivamente un caso finito, acotar una
 constante con certificado, sintetizar un candidato sobre un dominio acotado.
 
-**No es** un asistente de demostración — eso es Lean, Rocq o Isabelle — ni un
-catálogo de cálculo simbólico. Ver [Qué no hace](#qué-no-hace), que es tan
-importante como la lista de comandos.
+**No es** un asistente de pruebas —eso son Lean, Rocq o Isabelle— ni un
+catálogo de álgebra computacional. Ver [Qué no hace](#qué-no-hace), que importa
+tanto como la lista de comandos.
 
-**¿Primera vez?** [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) lleva un
-problema desde no saber la respuesta hasta tener un artefacto que un árbitro
-puede comprobar. Los demás ejemplos muestran un comando; ese muestra un
-problema.
+**El reparto de funciones**, en palabras de un usuario tras una sesión real:
+certo encuentra y certifica los trades pequeños; la demostración humana explica
+por qué ensamblan globalmente sin doble cobro.
 
 ## La comprobación que tu asistente de pruebas no puede hacer por ti
 

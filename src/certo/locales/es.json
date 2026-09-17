@@ -33,7 +33,7 @@
   "cli.reductions.more": "... {n} más",
   "cli.round": "ronda {round}: impl={impl} | contraejemplo={ce}",
   "cli.probe": "t={t:<12} {status}",
-  "cli.witness": "testigo ({n} variables verdaderas): {names}",
+  "cli.witness": "un punto que satisface todo:",
   "cli.checker": "verificador {name}: {verdict} ({detail})",
   "cli.starting_from": "partiendo del primer contraejemplo del barrido: {g6}",
   "cli.no_counterexample": "no hay contraejemplo que minimizar: el barrido no encontró ninguno (examinados: {n})",
@@ -715,5 +715,6 @@
   "verify.core.combination": "la combinación cierra: la suma de lambda_i * fila_i es una contradicción",
   "verify.core.closes": "constante {const}, y {rel} 0 es falso",
   "verify.core.by_farkas": "comprobado por aritmética, sin solver: multiplicadores de Farkas",
-  "verify.core.detail_farkas": "{n} filas llevan multiplicador no nulo: {names}"
+  "verify.core.detail_farkas": "{n} filas llevan multiplicador no nulo: {names}",
+  "cli.counterexample": "el contraejemplo:"
 }

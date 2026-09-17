@@ -1,23 +1,161 @@
 # certo
 
-A laboratory for supporting mathematical proofs, over CLI and over MCP.
-**Every result comes with a certificate that verifies without trusting the solver.**
+**You have a mathematical claim. certo tries to break it, and if it cannot,
+hands you a certificate that anybody can re-check without trusting certo.**
 
-Twenty-five commands to discover objects, destroy false formulations, calibrate
-constants and minimise hypotheses — before paying the cost of formalising.
-
-```
-$ certo bisect examples/bisect_ramsey.py
-THRESHOLD BRACKETED by a proof and a refutation  [sat]
-  threshold at 6 (holds at t=6, fails at t=5; 4 probes)
-
-$ certo verify out/r33.json
-VALID  bisect certificate (verified without a solver)
-  [ok] good side t=6 (drat)        (23 RUP steps)
-  [ok] bad side  t=5 (cnf_model)
-```
+CLI and MCP. Twenty-five commands. Runs before you spend the hours a
+formalisation costs.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
+
+---
+
+### It catches claims that are simply false
+
+A user wrote that a density constraint "forces `G` almost complete, hence the
+case is trivial". It does not, and you can run this one yourself:
+
+```
+$ certo prove examples/refute_density.py
+REFUTED  [sat]
+  REFUTED: there is a counterexample that satisfies the hypotheses and violates the claim
+  the counterexample:
+    dens = 7/8
+    kappa = 4
+  certificate: model (no solver needed, id 1a76b821f2cafa42)
+  engine: z3:5.1.0 | 4.2 ms
+```
+
+**Four milliseconds**, and the answer is not "no" — it is `dens = 7/8`, which
+clears every hypothesis and is nowhere near complete. Their next claim, that
+`|κ| ≥ 4` sufficed for every density, fell the same way with
+`dens = 127/128, |κ| = 7`, failing by `0.3351` against `0.3333`. The right
+bound was 8. Both would otherwise have gone to a formalisation pass, at two
+and a half hours each.
+
+The certificate is a **model**: re-checking it means substituting the values
+and evaluating. Nobody has to trust z3, or certo.
+
+### It catches claims that are true and about nothing
+
+```
+$ certo prove examples/lint_vacuous_regime.py
+PROVED -- symbolic and universal under the hypotheses  [unsat]
+  VACUOUS: these hypotheses contradict each other, so this goal -- and every
+  other goal -- follows. The proof is valid and says nothing.
+  The clash is: kappa_large, density_high, sparse
+  !! the hypotheses are contradictory: this proof is vacuous
+```
+
+Lean will prove that theorem, report no `sorry`, and audit clean on
+`#print axioms`. None of that tells you the hypotheses were satisfiable. The
+same user had **four** Lean modules like it. Asked the other way round:
+
+```
+$ certo check examples/regime_nonempty.py --hypotheses-only
+SATISFIABLE  [sat]
+  the regime is NON-EMPTY: all 4 hypotheses hold together, and here is a point where they do
+  a point that satisfies everything:
+    dens = 1/2
+    kappa = 4
+    n = 100
+```
+
+### And it hands you something a referee can check
+
+```
+$ certo mixed examples/walkthrough.py --prove-optimal
+PROVED  [unsat]
+  OPTIMUM 7, PROVED: 73 nodes, 37 of them closed by a certificate
+  73 nodes: 19 closed by bound, 18 infeasible, 0 fully fixed
+
+$ certo verify out/optimal.json
+VALID  branch_bound certificate (verified with a solver)
+  [ok] no node appears twice  (0 duplicates)
+  [ok] the incumbent design exists and attains the optimum  (declared 7)
+  [ok] every branch has all its children  (0 missing: -)
+  [ok] every leaf is closed by a certificate  (0 not closed: -)
+```
+
+Not "the solver said 7". Every leaf of the search carries its own certificate
+and the tree is checked to cover the integer domain — months later, on the
+artefact alone.
+
+---
+
+## Start here
+
+| If you are... | Go to |
+|---|---|
+| **new, and want to see it work** | [Install](#install), then [Two minutes in](#two-minutes-in) |
+| **evaluating whether it helps you** | [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) — one problem end to end, seven commands, fifteen seconds |
+| **looking for the command for your question** | [Which command answers which question](#which-command-answers-which-question) |
+| **an LLM being asked to use this** | [Which command answers which question](#which-command-answers-which-question), then [The DSL](#the-dsl) and [MCP server](#mcp-server). Run [`certo lint`](#lint-before-the-compute-is-spent) on every spec before running it. |
+| **wondering what it will NOT do** | [What it does not do](#what-it-does-not-do) — as important as the command list |
+
+## Which command answers which question
+
+Phrased as the question, because that is how anybody arrives.
+
+### Is it true?
+
+| Your question | Command | What comes back |
+|---|---|---|
+| Is this claim true, under these hypotheses? | `prove` | a proof, or a **counterexample with concrete values** |
+| Which of my hypotheses does it actually need? | `core` | the minimal set, and which were redundant |
+| Same hypotheses, several claims — which needs what? | `core` on a `MultiSpec` | a hypothesis-by-goal table |
+| Is this inequality true, with the multipliers shown? | `farkas` | `linarith`/`nlinarith`, **solver-free** |
+| Does this hold for every `n ≥ n₀`? | `induct` | base cases + step, **and the check that the chain joins** |
+
+### Is my setup even sane?
+
+| Your question | Command | What comes back |
+|---|---|---|
+| **Is my regime non-empty?** | `check --hypotheses-only` | a **model** if it is, the **minimal clash** if not |
+| Is this spec well-posed, before I spend the compute? | `lint` | contradictory hypotheses, an empty family, a 10⁹ domain |
+| Where does my whole project stand? | `status` | proved, still owed, hollow, stale |
+| Can this install actually do what I need? | `doctor` | every capability, and what each gap costs |
+
+### How big, how small, how many?
+
+| Your question | Command | What comes back |
+|---|---|---|
+| What is the optimum, exactly? | `opt` | the **exact rational dual** = the certificate |
+| ...and is it really optimal over the integers? | `mixed --prove-optimal` | branch and bound, **every leaf certified** |
+| Where is the threshold for this constant? | `bisect` | the pair that brackets it, each side certified |
+| Is this numeric inequality true? (`e`, `log`, `π`, `ζ`) | `bounds` | a rigorous enclosure in exact rationals |
+| Does this term decay in `n`, or is it Θ(1)? | `order` | the **exponent**, solver-free |
+
+### Does it hold for every case?
+
+| Your question | Command | What comes back |
+|---|---|---|
+| Does it hold for every graph on `n` vertices? | `sweep` | the family, **and what was established about the predicate** |
+| ...for every item of any finite domain? | `cases` (`DomainSpec`) | same, over anything you can enumerate |
+| Is this CNF unsatisfiable? | `cases` | a **DRAT proof** |
+| My counterexample is huge — what is the real one? | `shrink` | a minimal witness, with the descent recorded |
+| A thousand failures — how many objects is that really? | `sweep --witnesses` | orbits, and one minimal witness per orbit |
+
+### Algebra and numbers
+
+| Your question | Command | What comes back |
+|---|---|---|
+| Do these polynomial equations have a solution? | `ideal` | Gröbner cofactors, checked by expanding |
+| Is this polynomial non-negative everywhere? | `sos` | exact rational squares, solver-free |
+| Is this integer prime? | `number` | a Pratt tree, checked by modular exponentiation |
+
+### Building and keeping
+
+| Your question | Command | What comes back |
+|---|---|---|
+| Does an object with these properties exist? | `synth` | CEGIS, plus the counterexamples that forced it |
+| How do I assemble my lemmas into one proof? | `compose` | the proof, **with every bridge named** |
+| Is this stored certificate still good? | `verify` | re-checked, with the warnings repeated |
+| Get this into Lean | `export --lean` | real statements for linear arithmetic; data for graphs |
+| What did I run last month? | `ledger` | an audit log, re-verifiable |
+
+Full table with engines and certificate kinds:
+[The twenty-five commands](#the-twenty-five-commands).
 
 ## What it is and what it is not
 
@@ -29,9 +167,9 @@ constant with a certificate, synthesise a candidate over a bounded domain.
 computer algebra catalogue. See [What it does not do](#what-it-does-not-do),
 which matters as much as the command list.
 
-**New here?** [examples/WALKTHROUGH.md](examples/WALKTHROUGH.md) takes one
-problem from not knowing the answer to holding an artefact a referee can
-check. Every other example shows one command; that one shows one problem.
+**The division of labour**, in a user's words after a real session: certo
+finds and certifies the small trades; the human proof explains why they
+assemble globally without double-counting.
 
 ## The check your proof assistant cannot do for you
 

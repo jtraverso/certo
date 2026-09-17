@@ -57,7 +57,7 @@ def scope_note(res: Result):
 _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "errors_detail", "inconclusive_detail", "implementation",
                 "domain", "evaluations", "calibration", "table", "multipliers",
-                "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
+                "counterexample", "hint", "lemmas", "used", "unused", "bridges", "lo", "hi",
                 "width", "ladder", "lo_float", "hi_float", "vacuous",
                 "banner_key", "level", "orbits", "spot_checks",
                 "by_orbit", "evaluated", "inferred", "cofactors", "squares",
@@ -108,6 +108,15 @@ def emit(res: Result, args) -> int:
                 print("    {} = {}".format(k, v))
         if res.meta.get("domain"):
             print("  " + t("cli.domain", domain=res.meta["domain"]))
+
+        # A refutation without its values is half an answer: the point of a
+        # counterexample is the counterexample.
+        ce = res.meta.get("counterexample")
+        if ce:
+            print("  " + t("cli.counterexample" if res.verdict is Verdict.REFUTED
+                           else "cli.witness"))
+            for k, v in sorted(ce.items()):
+                print("    {} = {}".format(k, v))
 
         for k, v in sorted(res.meta.items()):
             if k in _HIDDEN_META:

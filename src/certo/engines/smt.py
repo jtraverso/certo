@@ -188,9 +188,14 @@ def prove(spec, limits: Limits | None = None) -> Result:
 
     if st is Status.SAT:
         cert = _model_cert(spec, formulas, s.model(), all_names)
+        # The values ARE the answer. They were in the certificate and nowhere
+        # on screen, so refuting a claim meant opening a JSON file to find out
+        # what refuted it.
         return Result(
             "prove", st, Verdict.REFUTED, ENGINE, ms, cert,
             detail=t("engine.prove.refuted"),
+            meta={"counterexample": {k: v[1] for k, v
+                                     in cert.payload["assignment"].items()}},
         )
 
     return Result(
@@ -238,9 +243,11 @@ def check(spec, limits: Limits | None = None,
 
     if st is Status.SAT:
         cert = _model_cert(spec, formulas, s.model(), all_names)
+        meta = dict(_constant_meta(constant))
+        meta["counterexample"] = {k: v[1] for k, v
+                                  in cert.payload["assignment"].items()}
         return Result("check", st, Verdict.SATISFIABLE, ENGINE, ms, cert,
-                      detail=t("engine.check.sat"),
-                      meta=_constant_meta(constant))
+                      detail=t("engine.check.sat"), meta=meta)
     if st is Status.UNSAT:
         raw = {str(p)[4:] for p in s.unsat_core()}
         core = _mus(s, ind, [n for n in all_names if n in raw] or all_names, lim)
@@ -291,7 +298,10 @@ def _hypotheses_only(spec, lim, t0) -> Result:
         cert = _model_cert(bare, formulas, s.model(), names)
         return Result("check", st, Verdict.SATISFIABLE, ENGINE, ms, cert,
                       detail=t("engine.check.regime_nonempty", n=len(names)),
-                      meta={"hypotheses_only": True})
+                      meta={"hypotheses_only": True,
+                            "counterexample": {
+                                k: v[1] for k, v
+                                in cert.payload["assignment"].items()}})
     if st is Status.UNSAT:
         raw = {str(pp)[4:] for pp in s.unsat_core()}
         clash = _mus(s, ind, [n for n in names if n in raw] or names, lim)

@@ -25,6 +25,7 @@ OUT = ROOT / "out"
 CASES = [
     ("lint_vacuous_regime.py", "lint", [], 1),
     ("regime_nonempty.py", "check", ["--hypotheses-only"]),
+    ("refute_density.py", "prove", []),
     ("amgm.py", "prove", []),
     ("pigeonhole.py", "cases", []),
     ("core_matrix.py", "core", []),
