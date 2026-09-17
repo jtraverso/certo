@@ -38,6 +38,7 @@ CASES = [
     ("eliminate_parameter.py", "eliminate", []),
     ("parametric_bound.py", "parametric", []),
     ("packing_with_loads.py", "opt", []),
+    ("clique_partition.py", "cover", []),
     ("sos_quartic.py", "sos", []),
     ("number_mersenne.py", "number", []),
     ("induct_sum.py", "induct", []),

@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Veintisiete comandos. Corre en milisegundos donde una
+CLI y MCP. Veintiocho comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -181,6 +181,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | Quítame `t` y dime la condición sobre `s` | `eliminate` | la **resultante**, con `Res = A·f + B·g` adjunta |
 | ¿Es este polinomio no negativo en todas partes? | `sos` | cuadrados racionales exactos, sin solver |
 | ¿Es primo este entero? | `number` | un árbol de Pratt, comprobable por exponenciación modular |
+| ¿Es esto de verdad una partición en cliques, y de qué tamaño? | `cover` | cada parte un clique, cada arista una vez, contado |
 
 ### Construir y conservar
 
@@ -193,7 +194,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
-[Los veintisiete comandos](#los-veintisiete-comandos).
+[Los veintiocho comandos](#los-veintiocho-comandos).
 
 ## Qué es y qué no es
 
@@ -315,7 +316,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintisiete comandos
+## Los veintiocho comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -333,6 +334,7 @@ esperar.
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
 | `eliminate` | Quitar una variable de dos polinomios; quedarse con la condición | Sylvester + Bareiss | **Res = A·f + B·g**, sin solver |
 | `parametric` | Una cota para TODO valor de un parámetro, desde un dual que ya tienes | dualidad débil, simbólica | **y y los residuos desplazados**, sin solver |
+| `cover` | ¿Es esto un recubrimiento exacto? Una partición en cliques es un caso | contar | **el universo y las partes**, sin solver |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
 | `number` | Primalidad, o una factorización | Pratt | **árbol de exponenciación modular** |
 | `cases` | SAT con prueba DRAT verificada | CDCL propio o binario externo | prueba DRAT |
@@ -387,6 +389,7 @@ def spec():
 | `IdealSpec` | `ideal` |
 | `EliminateSpec` | `eliminate` |
 | `ParametricSpec` | `parametric` |
+| `CoverSpec` | `cover` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -422,6 +425,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `ideal` | `f = Σ hᵢgᵢ` | **sí**, expandir un producto |
 | `resultant` | `Res = A·f + B·g` | **sí**, expandir dos productos |
 | `parametric_bound` | `opt(p) ≤ b(p)·y` para todo p | **sí**, expandir y leer signos |
+| `exact_cover` | cada elemento en exactamente una parte | **sí**, contando |
 | `sos` | `p = Σ dᵢqᵢ²` en racionales exactos | **sí**, expandir un producto |
 | `number` | primalidad, o una factorización | **sí**, exponenciación modular |
 | `mus` | insatisfacibilidad **y** minimalidad | **sí** |
@@ -1084,6 +1088,59 @@ Tres detalles que separan un certificado de un test:
 
 `--question factor` da la factorización, con cada factor llevando su propio
 certificado de primalidad, para que «y estos son primos» no quede colgando.
+
+## `cover`: ¿es esto de verdad una partición en cliques, y de qué tamaño?
+
+Alguien te pasa una partición en cliques de un grafo y dice que tiene 47
+partes. Dos cosas tienen que ser ciertas y ninguna se ve mirando: que cada
+parte sea de verdad un **clique**, y que cada arista esté cubierta
+**exactamente una vez** —ni cero, que la deja sin ser recubrimiento, ni dos,
+que convierte la cuenta en una mentira—.
+
+Comprobar las dos es contar.
+
+```
+$ certo cover examples/clique_partition.py
+DEMOSTRADO  [unsat]
+  un RECUBRIMIENTO EXACTO: 7 partes, cada uno de los 21 elementos en exactamente una
+  certificado: exact_cover (no necesita solver)
+
+$ certo verify out/clique_partition.json
+VÁLIDO  certificado exact_cover (comprobado contando, sin solver)
+  [ok] todo elemento del universo está cubierto  (0 sin cubrir: -)
+  [ok] ninguna parte cubre nada fuera del universo  (0 elementos ajenos)
+  [ok] y cubierto exactamente una vez  (0 cubiertos más de una vez: -)
+  [ok] el número declarado de partes es el número de partes  (7 contadas, 7 declaradas)
+  [ok] toda parte es realmente un clique del grafo  (0 partes no lo son)
+```
+
+El ejemplo es K7 partido en 7 triángulos —el plano de Fano— porque está
+ajustado (21 aristas, 7 partes, 3 cada una, sin margen) y cualquiera puede
+comprobar una línea a mano.
+
+### Tres formas de fallar, reportadas como tres cosas distintas
+
+| Qué está mal | Qué vuelve |
+|---|---|
+| una parte no es clique | **inconcluyente**, nombrando los pares —eso es una afirmación sobre el grafo, no sobre el recubrimiento, y no se escribe certificado— |
+| una arista cubierta dos veces | **REFUTADO**, nombrando las aristas, y señalando que con `exact=False` los mismos datos serían un recubrimiento válido |
+| una arista cubierta cero veces | **REFUTADO**, nombrando las aristas |
+
+Un recubrimiento «al menos una vez» es una afirmación más débil y perfectamente
+razonable, así que se registra como una **distinta**: el certificado dice cuál
+se hizo en vez de dejar que el lector suponga la fuerte.
+
+### La mitad que no hace
+
+Esto es una **cota superior** con un artefacto pegado. Que 7 sea el *mínimo*
+es otra afirmación, y el dual racional exacto de `certo opt` sobre el mismo
+conjunto de aristas es una cota inferior para ella. Donde las dos se
+encuentran, el número queda demostrado —el mismo emparejamiento que `opt
+--gap` ya hace para packings—.
+
+Encontrar una partición mínima en cliques es NP-duro y deliberadamente no es
+lo que esto hace. Trae la tuya, de donde sea que la encontraste.
+
 
 ## `parametric`: ¿comprobado para p = 5..12, o cierto para todo p?
 
@@ -2071,7 +2128,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veintisiete comandos y treinta tipos de certificado, y la forma de un
+Veintiocho comandos y treinta tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

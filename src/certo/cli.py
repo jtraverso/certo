@@ -64,7 +64,7 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "achieved", "conditional", "discrete_gain", "selected",
                 "skeleton_from", "nodes", "by_bound", "infeasible",
                 "leaves", "closed", "integral_level", "tight",
-                "mu", "nu", "gap", "leading", "case", "resultant", "floor", "bound", "case",
+                "mu", "nu", "gap", "leading", "case", "resultant", "floor", "bound", "missed", "doubled", "case",
                 # both are already said in the detail line, and once loudly
                 "constant_goal", "hypotheses_only", "clash")
 
@@ -428,6 +428,18 @@ def cmd_ideal(args):
         print("  " + t("cli.ideal.cofactors"))
         for i, h in res.meta["cofactors"].items():
             print("    g{} * ({})".format(i, h))
+    return rc
+
+
+def cmd_cover(args):
+    from .engines import algebra
+    from .spec import CoverSpec, load_spec
+
+    spec = load_spec(args.spec, CoverSpec)
+    res = algebra.cover(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        print("  " + t("cli.cover.pair"))
     return rc
 
 
@@ -1384,6 +1396,11 @@ def build_parser():
                       "what follows, with Groebner cofactors")
     sp.add_argument("spec", help=".py file returning an IdealSpec")
     sp.set_defaults(func=cmd_ideal)
+
+    sp = add("cover", "is this an exact cover -- every element in exactly "
+                      "one part? A clique partition is one case")
+    sp.add_argument("spec", help=".py file returning a CoverSpec")
+    sp.set_defaults(func=cmd_cover)
 
     sp = add("parametric", "a bound that holds for EVERY value of a "
                            "parameter, from a dual you already have")

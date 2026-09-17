@@ -697,6 +697,29 @@ async def ideal(spec_path: str | None = None, spec_source: str | None = None,
 
 
 @mcp.tool(description=(
+    "Verify an EXACT COVER: a universe, parts, and every element in exactly "
+    "one part. A clique partition of a graph is the main case -- give the "
+    "edges as the universe and VERTEX SETS as the parts with cliques=true, "
+    "and each part is refused unless every pair among its vertices really is "
+    "an edge. Checking is counting: no solver, no search, no trust in "
+    "whatever produced the cover. This certifies a cover you HAVE; finding a "
+    "minimum one is NP-hard and is not what this does. For the other half -- "
+    "that no smaller cover exists -- run `opt` on the same universe and pair "
+    "the exact dual with this, the way `opt --gap` pairs the two sides of a "
+    "packing."))
+@_guard
+async def cover(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import CoverSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), CoverSpec)
+    res = await _off(algebra.cover, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "A bound that holds for EVERY value of a parameter, not the ones you "
     "tried. Give an LP whose coefficients are POLYNOMIALS in a parameter plus "
     "a dual y you already have (read it off `opt` on one instance), and this "

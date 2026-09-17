@@ -49,6 +49,7 @@ Last updated: 2026-09-17. Four items that were waiting for a real instance now h
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
 | ✅ | **A refutation showed the verdict and hid the counterexample** | The values were in the certificate and nowhere on screen, so refuting a claim meant opening a JSON file to find out WHAT refuted it — and the counterexample is the answer, not the "no". `prove`, `check` and `check --hypotheses-only` now print it. |
+| ✅ | **`certo cover`: exact covers and clique partitions** | Every element of a universe in exactly one part, checked by counting; with `cliques=True` the parts are vertex sets and each is refused unless every pair among them is an edge. Three failures reported as three different things, because a non-clique part is a statement about the graph and a doubled edge is one about the cover. An upper bound with an artefact attached: pair it with `opt`'s exact dual for the lower one. |
 | ✅ | **Local loads in a packing certificate** *(user feedback P1)* | Named regions with bounds, declared apart from resource capacities because a capacity is part of the encoding and a load is part of the argument. They become rows, so the dual prices them: a binding region reports its shadow price, a slack one reports that it is not what constrains the answer. The certificate carries each load's coefficients so `verify` recomputes the achieved value rather than believing it. Built to the shape of the corpus model, `within-A load <= N_A`. |
 | ✅ | **`certo parametric`: a bound for every parameter value** *(P1)* | Weak duality, symbolically: `y >= 0` with `A(p)ᵀy >= c(p)` bounds `opt(p)` for every `p` at once, and each dual-feasibility row is certified on a ray by substituting `p = p0 + u` and reading the coefficient signs. Turns "checked for p = 5..12" into "holds for every p >= 10". Built against the corpus instance whose duals are piecewise constant with thresholds; on a reproduced slice one dual read at p = 10 gives the EXACT optimum at 10, 11, 15 and 30. The shift is sufficient and not necessary, so a failure emits no certificate and says the route failed rather than that the bound is false. |
 | ✅ | **`certo eliminate`: resultants** *(P2)* | Removes a variable from two polynomials and returns the condition on the rest, with the Bezout identity `Res = A*f + B*g` attached — so checking a determinant over a polynomial ring is expanding two products. Bareiss throughout, every division verified exact rather than assumed. A non-zero constant resultant refutes a common root over any field; `Res = 0` is necessary always and sufficient only over an algebraically closed field with a non-vanishing leading coefficient, which `verify` repeats and qualifies. |
@@ -138,6 +139,32 @@ verifies *without* a solver. It does not.
 **Empty.** Everything from the user reports has landed, and the two items that were waiting for a real instance were built against one. What is left is P2, and every item there wants a case that has not come up yet.
 
 ---
+
+### A note on adjacent tools
+
+Checked 2026-09-17 against a library of atomic mathematical tools a user runs
+alongside certo (`jacobian`, v0.21.0). The division of labour is clean and
+worth stating so neither side gets rebuilt here by accident:
+
+**That library COMPUTES.** Minimum generalized exact covers, full graph
+automorphism groups, exact enclosures, algebraic number arithmetic — a large
+surface of "give me the answer to this".
+
+**certo CERTIFIES.** It takes an answer, from anywhere, and produces an
+artefact that re-checks without the thing that produced it. `cover` came
+directly from that split: the audit it was built for sends a graph and a
+partition to a service for checking, and a certificate does the same job
+without the service needing to exist later.
+
+Two consequences worth remembering:
+
+* Do not build a search here because a certificate needs one. `cover` takes a
+  partition; `parametric` takes a dual; `farkas` finds its own multipliers
+  only because the search is an LP that was already in the box.
+* That library computes **full automorphism groups**, which is exactly the
+  missing ingredient in P2 #5. If that item is ever built, it should be
+  against a group somebody else computed, not a reimplementation of nauty.
+
 
 ## P2 — high value, more work
 

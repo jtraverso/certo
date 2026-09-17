@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import time
 
-from ..certificate import (ideal_certificate, number_certificate,
-                           parametric_bound_certificate, resultant_certificate,
-                           sos_certificate)
+from ..certificate import (cover_certificate, ideal_certificate,
+                           number_certificate, parametric_bound_certificate,
+                           resultant_certificate, sos_certificate)
 from ..i18n import t
 from ..limits import Limits
 from ..polynomials import Budget, Poly, cofactors
@@ -37,6 +37,7 @@ from ..status import Result, Status, Verdict
 ENGINE_IDEAL = "certo/groebner"
 ENGINE_ELIM = "certo/sylvester"
 ENGINE_PARAM = "certo/weak-duality"
+ENGINE_COVER = "certo/counting"
 ENGINE_SOS = "certo/sos"
 ENGINE_NUM = "certo/pratt"
 
@@ -49,6 +50,59 @@ def _poly(expr, variables):
 
 
 # ---------------------------------------------------------------------------
+
+
+def cover(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
+    """Is this an exact cover, and how many parts does it use?"""
+    from ..cover import NotACover, check, clique_parts
+
+    t0 = time.perf_counter()
+    universe = [u for u in spec.universe]
+    report = None
+    try:
+        if spec.cliques:
+            parts, report = clique_parts(universe, spec.parts, spec.max_size)
+        else:
+            parts = [list(part) for part in spec.parts]
+        out = check(universe, parts, exact=spec.exact)
+    except NotACover as e:
+        return Result("cover", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_COVER, (time.perf_counter() - t0) * 1000, None,
+                      detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    meta = {"parts": out["parts"], "universe": out["universe"],
+            "missed": len(out["missed"]), "doubled": len(out["doubled"])}
+
+    if not out["ok"]:
+        # Not a cover. No certificate, and the reason is the useful part.
+        if out["foreign"]:
+            detail = t("engine.cover.foreign", n=len(out["foreign"]))
+        elif out["missed"]:
+            detail = t("engine.cover.missed", n=len(out["missed"]),
+                       names=", ".join(map(str, out["missed"][:4])))
+        else:
+            detail = t("engine.cover.doubled", n=len(out["doubled"]),
+                       names=", ".join(map(str, out["doubled"][:4])))
+        return Result("cover", Status.SAT, Verdict.REFUTED, ENGINE_COVER, ms,
+                      None, detail=detail, meta=meta)
+
+    cert = cover_certificate(
+        universe=[list(u) if isinstance(u, (tuple, list)) else u
+                  for u in universe],
+        parts=[[list(e) if isinstance(e, (tuple, list)) else e for e in part]
+               for part in parts],
+        exact=spec.exact, cliques=spec.cliques,
+        multiplicities={}, part_report=report, max_size=spec.max_size,
+        title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("cover", Status.UNSAT, Verdict.PROVED, ENGINE_COVER, ms,
+                  cert,
+                  detail=t("engine.cover.proved" if spec.exact
+                           else "engine.cover.proved_atleast",
+                           parts=out["parts"], n=out["universe"]),
+                  meta=meta)
 
 
 def parametric(spec, limits: Limits | None = None,

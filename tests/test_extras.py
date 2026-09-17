@@ -3931,6 +3931,110 @@ def test_a_packing_with_no_loads_carries_an_empty_list():
     assert verify(_roundtrip(r.certificate), LIM).ok
 
 
+
+# --- exact covers, and clique partitions as one case ----------------------
+
+
+FANO = [(0, 1, 3), (1, 2, 4), (2, 3, 5), (3, 4, 6),
+        (4, 5, 0), (5, 6, 1), (6, 0, 2)]
+
+
+def _cover(universe, parts, **kw):
+    from certo import CoverSpec
+    from certo.engines import algebra
+
+    return algebra.cover(CoverSpec(universe=universe, parts=parts,
+                                   title="t", **kw), LIM)
+
+
+def _complete_pairs(n):
+    import itertools
+
+    return list(itertools.combinations(range(n), 2))
+
+
+def test_the_fano_plane_partitions_k7_into_seven_triangles():
+    """Tight and checkable by hand: 21 edges, 7 parts, 3 edges each."""
+    r = _cover(_complete_pairs(7), FANO, cliques=True, max_size=3)
+    assert r.verdict is Verdict.PROVED
+    assert r.meta == {"parts": 7, "universe": 21, "missed": 0, "doubled": 0}
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("really is a clique" in name for name, _, _ in rep.checks)
+    # It is an upper bound and says so.
+    assert any("does not say it is the smallest" in w for w in rep.warnings)
+
+
+def test_an_edge_covered_twice_is_refuted_not_accepted():
+    r = _cover(_complete_pairs(7), FANO + [(0, 1, 3)], cliques=True)
+    assert r.verdict is Verdict.REFUTED
+    assert r.meta["doubled"] == 3            # the three edges of that triangle
+    assert r.certificate is None
+    assert "exact=False" in r.detail          # and what would make it valid
+
+
+def test_an_uncovered_edge_is_named():
+    r = _cover(_complete_pairs(7), FANO[:-1], cliques=True)
+    assert r.verdict is Verdict.REFUTED
+    assert r.meta["missed"] == 3
+
+
+def test_a_part_that_is_not_a_clique_stops_before_any_certificate():
+    """A statement about the graph, not about the cover."""
+    edges = [e for e in _complete_pairs(7) if e != (0, 1)]
+    r = _cover(edges, FANO, cliques=True)
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+    assert "not a clique" in r.detail and "(0, 1)" in r.detail
+
+
+def test_at_least_covers_are_a_different_claim_and_recorded_as_one():
+    r = _cover(_complete_pairs(7), FANO + [(0, 1, 3)], cliques=True, exact=False)
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.payload["exact"] is False
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    # The stronger claim is simply not made, and the wording says which.
+    assert "at least once" in rep.detail
+
+
+def test_a_generic_exact_cover_needs_no_graph_at_all():
+    r = _cover(["a", "b", "c", "d"], [["a", "c"], ["b", "d"]])
+    assert r.verdict is Verdict.PROVED
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_parts_covering_something_outside_the_universe_are_caught():
+    """Otherwise the cover is of a different object than the one declared."""
+    r = _cover(["a", "b"], [["a", "b"], ["z"]])
+    assert r.verdict is Verdict.REFUTED
+    assert "not in the universe" in r.detail
+
+
+def test_a_repeated_universe_element_is_refused_outright():
+    """'Exactly once' would not mean anything."""
+    r = _cover(["a", "a", "b"], [["a", "b"]])
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "repeats" in r.detail
+
+
+def test_forging_the_part_count_is_caught_by_recounting():
+    r = _cover(_complete_pairs(7), FANO, cliques=True)
+    d = json.loads(json.dumps(r.certificate.to_dict()))
+    d["payload"]["size"] = 5
+    rep = verify(Certificate.from_dict(d), LIM)
+    assert not rep.ok
+
+
+def test_a_forged_part_is_caught_by_re_deriving_its_edges():
+    """The clique check is redone from the graph, not read off the payload."""
+    r = _cover(_complete_pairs(7), FANO, cliques=True)
+    d = json.loads(json.dumps(r.certificate.to_dict()))
+    d["payload"]["part_report"][0]["vertices"] = ["0", "1", "3", "5"]
+    assert not verify(Certificate.from_dict(d), LIM).ok
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

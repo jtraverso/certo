@@ -742,6 +742,37 @@ class IdealSpec:
 
 
 @dataclass
+class CoverSpec:
+    """A universe, and parts that are supposed to cover it exactly once each.
+
+        CoverSpec(universe=edges, parts=[[e1, e2, e3], [e4, e5]])
+
+    For a CLIQUE PARTITION of a graph, give the graph's edges as the universe
+    and the parts as VERTEX SETS, with `cliques=True`: each one is then
+    expanded to its own edges and refused unless every pair really is present.
+    A part that is not a clique would still cover edges, and the cover would
+    verify, and the object would not be what it claims.
+
+        CoverSpec(universe=edges, parts=[[0,1,2], [3,4]], cliques=True)
+
+    `exact=False` asks only that every element is covered at least once, which
+    is a weaker and different claim; the certificate records which one was
+    made rather than letting a reader assume.
+
+    This certifies a cover you have. Finding a minimum one is NP-hard and not
+    this command's job -- pair it with `opt` on the same universe for the
+    lower bound, the way `opt --gap` pairs the two sides for a packing.
+    """
+
+    universe: object                 # iterable of hashable elements
+    parts: list                      # iterable of parts, or of vertex sets
+    cliques: bool = False            # parts are vertex sets of a graph
+    exact: bool = True               # exactly once, rather than at least once
+    max_size: object = None          # optional cap on a part's vertex count
+    title: str = ""
+
+
+@dataclass
 class ParametricSpec:
     """An LP whose data are POLYNOMIALS in a parameter, and a dual to check.
 

@@ -6,6 +6,46 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### `certo cover`: is this really a clique partition, and how large?
+
+Somebody hands you a clique partition and says it has 47 parts. Two things
+have to be true and neither is visible by looking: every part really is a
+clique, and every edge is covered EXACTLY once — not zero times, which makes
+it not a cover, and not twice, which makes the count a lie. Checking both is
+counting: no solver, no search, no trust in whatever produced it.
+
+```
+$ certo verify out/clique_partition.json
+VALID  exact_cover certificate (checked by counting, no solver)
+  [ok] every element of the universe is covered  (0 missed: -)
+  [ok] and covered exactly once  (0 covered more than once: -)
+  [ok] every part really is a clique of the graph  (0 parts are not)
+```
+
+The general object is an exact cover — a universe and parts, each element in
+exactly one — and a clique partition is that with the edge set as the universe.
+So the machinery is written once and the graph case adds the check a cover
+cannot make: that a part's edges really are ALL the edges among its vertices.
+
+Three failures, reported as three different things. A part that is not a
+clique is a statement about the graph, so the run stops **inconclusive** with
+the offending pairs named and writes no certificate. An edge covered twice or
+zero times is **REFUTED**, named, and in the first case told that `exact=False`
+would make the same data valid — an at-least cover is a weaker and reasonable
+claim, recorded as a different one rather than left for a reader to assume.
+
+**It is an upper bound.** That the size is minimum is a different statement,
+and the exact rational dual from `opt` on the same universe is a lower bound
+for it; where the two meet the number is proved, which is the pairing
+`opt --gap` already makes for packings. Finding a minimum cover is NP-hard and
+deliberately not what this does.
+
+Built from a real audit that sends a graph plus a partition, and a graph plus
+dual weights, to an external service for checking. The difference in model is
+the point: a certificate carries its own check, so the same audit does not
+need the service to still be running in six months.
+
+
 ### Local loads: named regions a packing has to respect
 
 A packing certificate proved an optimum and could not say the thing an

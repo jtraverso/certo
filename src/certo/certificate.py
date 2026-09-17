@@ -570,6 +570,29 @@ def ideal_certificate(variables, equations, claim, cofactors, inconsistent,
     )
 
 
+def cover_certificate(universe, parts, exact, cliques, multiplicities,
+                      part_report=None, max_size=None, title="") -> Certificate:
+    """Every element of the universe in exactly one part, and how many parts.
+
+    Checking it is counting, which is why the whole universe and the parts
+    travel: a certificate that recorded only the verdict would need whatever
+    produced it to still exist, and the point is that it does not.
+
+    `exact` records WHICH claim was made. An at-least cover is a weaker and
+    perfectly reasonable thing to certify, and a reader who assumed the
+    stronger one would be wrong in the direction that matters.
+    """
+    return Certificate(
+        kind="exact_cover", solver_free=True,
+        payload={"universe": universe, "parts": parts,
+                 "exact": bool(exact), "cliques": bool(cliques),
+                 "multiplicities": multiplicities,
+                 "part_report": part_report or [],
+                 "max_size": max_size, "size": len(parts), "title": title},
+        note_key="cert.note.exact_cover",
+    )
+
+
 def parametric_bound_certificate(parameters, variables, objective,
                                  constraints, dual, bound, rows,
                                  title="") -> Certificate:
@@ -991,6 +1014,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
         "parametric_bound": _verify_parametric_bound,
+        "exact_cover": _verify_exact_cover,
         "sos": _verify_sos,
         "number": _verify_number,
         "mixed_design": _verify_mixed_design,
@@ -1291,6 +1315,56 @@ def _verify_orbit_witnesses(cert, limits) -> VerifyReport:
                  orbits=p["orbits"]),
     )
 
+
+
+def _verify_exact_cover(cert, limits) -> VerifyReport:
+    """Recount from the universe and the parts. Nothing here is believed."""
+    from .cover import check
+
+    p = cert.payload
+    out = check(p["universe"], p["parts"], exact=p.get("exact", True))
+
+    checks = [
+        (t("verify.cover.covered"), not out["missed"],
+         t("verify.cover.missed", n=len(out["missed"]),
+           names=", ".join(map(str, out["missed"][:4])) or "-")),
+        (t("verify.cover.foreign"), not out["foreign"],
+         t("verify.cover.foreign_detail", n=len(out["foreign"]))),
+    ]
+    if p.get("exact", True):
+        checks.append((t("verify.cover.once"), not out["doubled"],
+                       t("verify.cover.doubled", n=len(out["doubled"]),
+                         names=", ".join(map(str, out["doubled"][:4])) or "-")))
+    checks.append((t("verify.cover.size"), out["parts"] == p["size"],
+                   t("verify.cover.size_detail", n=out["parts"],
+                     declared=p["size"])))
+
+    # A clique partition's parts have to BE cliques, and that is a statement
+    # about the graph, not about the cover. Re-derived rather than trusted.
+    if p.get("cliques"):
+        from .cover import _key, edges_of
+
+        present = {_key(e) for e in p["universe"]}
+        bad = []
+        for entry in p.get("part_report") or []:
+            own = edges_of(entry["vertices"])
+            if any(_key(e) not in present for e in own):
+                bad.append(entry["vertices"])
+            elif len(own) != entry["edges"]:
+                bad.append(entry["vertices"])
+        checks.append((t("verify.cover.cliques"), not bad,
+                       t("verify.cover.not_cliques", n=len(bad))))
+
+    ok = all(c[1] for c in checks)
+    return VerifyReport(
+        ok, "exact_cover", True, checks=checks,
+        warnings=[t("verify.cover.not_minimum")],
+        method_key="verify.cover.method",
+        detail=t("verify.cover.detail", parts=p["size"],
+                 n=out["universe"],
+                 kind=t("verify.cover.exactly" if p.get("exact", True)
+                        else "verify.cover.atleast")),
+    )
 
 
 def _verify_parametric_bound(cert, limits) -> VerifyReport:

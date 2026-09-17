@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Twenty-seven commands. Runs in milliseconds where a formalisation
+CLI and MCP. Twenty-eight commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -181,6 +181,7 @@ Phrased as the question, because that is how anybody arrives.
 | Get rid of `t` and tell me the condition on `s` | `eliminate` | the **resultant**, with `Res = A·f + B·g` attached |
 | Is this polynomial non-negative everywhere? | `sos` | exact rational squares, solver-free |
 | Is this integer prime? | `number` | a Pratt tree, checked by modular exponentiation |
+| Is this really a clique partition, and how big? | `cover` | every part a clique, every edge once, counted |
 
 ### Building and keeping
 
@@ -193,7 +194,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The twenty-seven commands](#the-twenty-seven-commands).
+[The twenty-eight commands](#the-twenty-eight-commands).
 
 ## What it is and what it is not
 
@@ -321,7 +322,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-seven commands
+## The twenty-eight commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -339,6 +340,7 @@ and what to expect.
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
 | `parametric` | A bound for EVERY value of a parameter, from a dual you already have | weak duality, symbolic | **y and the shifted residuals**, solver-free |
+| `cover` | Is this an exact cover? A clique partition is one case | counting | **the universe and the parts**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
 | `cases` | SAT with a verified DRAT proof | own CDCL or external binary | DRAT proof |
@@ -393,6 +395,7 @@ def spec():
 | `IdealSpec` | `ideal` |
 | `EliminateSpec` | `eliminate` |
 | `ParametricSpec` | `parametric` |
+| `CoverSpec` | `cover` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -428,6 +431,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
 | `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
 | `parametric_bound` | `opt(p) ≤ b(p)·y` for all p | **yes**, expand and read signs |
+| `exact_cover` | every element in exactly one part | **yes**, counting |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
 | `mus` | unsatisfiability **and** minimality | **yes** |
@@ -1086,6 +1090,57 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+## `cover`: is this really a clique partition, and how large?
+
+Somebody hands you a clique partition of a graph and says it has 47 parts. Two
+things have to be true and neither is visible by looking: every part really is
+a **clique**, and every edge is covered **exactly once** — not zero times,
+which makes it not a cover, and not twice, which makes the count a lie.
+
+Checking both is counting.
+
+```
+$ certo cover examples/clique_partition.py
+PROVED  [unsat]
+  an EXACT COVER: 7 parts, every one of the 21 elements in exactly one
+  certificate: exact_cover (no solver needed)
+
+$ certo verify out/clique_partition.json
+VALID  exact_cover certificate (checked by counting, no solver)
+  [ok] every element of the universe is covered  (0 missed: -)
+  [ok] no part covers anything outside the universe  (0 foreign elements)
+  [ok] and covered exactly once  (0 covered more than once: -)
+  [ok] the declared number of parts is the number of parts  (7 counted, 7 declared)
+  [ok] every part really is a clique of the graph  (0 parts are not)
+```
+
+The example is K7 partitioned into 7 triangles — the Fano plane — because it
+is tight (21 edges, 7 parts, 3 each, nothing to spare) and anyone can check a
+line of it by hand.
+
+### Three ways it goes wrong, reported as three different things
+
+| What is wrong | What comes back |
+|---|---|
+| a part is not a clique | **inconclusive**, with the offending pairs named — that is a statement about the graph, not about the cover, and no certificate is written |
+| an edge is covered twice | **REFUTED**, naming the edges, and pointing out that `exact=False` would make the same data a valid cover |
+| an edge is covered zero times | **REFUTED**, naming the edges |
+
+An at-least cover is a weaker and perfectly reasonable claim, so it is
+recorded as a *different* one: the certificate says which was made rather than
+letting a reader assume the stronger.
+
+### The half it does not do
+
+This is an **upper bound** with an artefact attached. That 7 is the *smallest*
+possible is a different statement, and the exact rational dual from `certo opt`
+on the same edge set is a lower bound for it. Where the two meet, the number
+is proved — the same pairing `opt --gap` already makes for packings.
+
+Finding a minimum clique partition is NP-hard and deliberately not what this
+does. Bring your own, from whatever found it.
+
 
 ## `parametric`: checked for p = 5..12, or true for every p?
 
@@ -2030,7 +2085,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Twenty-seven commands and thirty certificate kinds, and the shape of a
+Twenty-eight commands and thirty certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```

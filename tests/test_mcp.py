@@ -486,6 +486,29 @@ def spec():
     assert any("integer optimum" in w for w in rep["warnings"])
 
 
+
+def test_cover_reaches_the_model_and_refuses_a_double_cover():
+    src = """
+from itertools import combinations
+from certo import CoverSpec
+FANO = [(0,1,3),(1,2,4),(2,3,5),(3,4,6),(4,5,0),(5,6,1),(6,0,2)]
+def spec():
+    return CoverSpec(universe=list(combinations(range(7), 2)),
+                     parts=FANO, cliques=True, max_size=3, title="K7")
+"""
+    out = run(call("cover", {"spec_source": src}))
+    assert out["verdict"] == "proved"
+    assert out["meta"]["parts"] == 7 and out["meta"]["universe"] == 21
+
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"] and rep["solver_free"]
+    assert any("smallest" in w for w in rep["warnings"])
+
+    doubled = src.replace("parts=FANO,", "parts=FANO + [(0,1,3)],")
+    bad = run(call("cover", {"spec_source": doubled}))
+    assert bad["verdict"] == "refuted"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0
