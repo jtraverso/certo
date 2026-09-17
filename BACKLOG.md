@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17. P1 is down to the two items that want a real instance; everything else from the user reports has landed.
+Last updated: 2026-09-17. Four items that were waiting for a real instance now have one, located in the corpus and measured rather than assumed — see each item.
 
 ---
 
@@ -135,26 +135,51 @@ verifies *without* a solver. It does not.
 
 ### 1. Local loads as part of a packing certificate *(user feedback)*
 
-The user is building a resource-packing / hypergraph-matching layer AROUND
-certo: generate the physical rows automatically, and ask for "preserve these
-local loads" as part of what gets certified. `PackingSpec.lists` covers the
-first half. The second is new: pin named local loads and have the certificate
-record that the solution holds them.
+**No longer blocked: the instance is confirmed in the corpus.** A packing
+model whose constraints are a named regional load with a cap (`within-A load
+<= N_A`), plus a parity-coverage inequality and a divisibility condition, and
+whose optimum is claimed as a CLOSED FORMULA — `3V = min(N + n*qB + (n-1)*qA,
+3(N_A + qB), 3N)` — proved by LP duality plus an explicit primal, and
+**verified against the ILP on a finite window of states**.
 
-**Wants their instance before it is designed.** Which loads are worth pinning,
-and whether they are equalities or bounds, is a property of the problem; the
-same argument as P2 #7, and guessing produced a bad check once already.
+That tells the design what it needs to know. The loads worth pinning are
+named regions with caps, not arbitrary linear forms, and what the user wants
+certified is that the solution HOLDS them — which is a set of extra rows whose
+slack the certificate records, alongside the dual that is already there.
+
+`PackingSpec.lists` covers generating the physical rows. The new part is
+`loads={"A": (expr, cap)}` and a payload field recording each one's achieved
+value and slack.
 
 ### 2. Parametric certificates — the jump from finite case to theorem
 
-`order` is the first step of this and it shipped. The rest: an LP dual given
-as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial
-inequalities in `s`, certified for all `s >= s0` by `sos` or
-`farkas --nonlinear` — both of which already exist.
+**No longer blocked, and the instance is better than hoped for.** The corpus
+contains a structured dual family for a symmetrised rational LP: duals written
+as functions of the parameters, a bound of the form `const + cB*qB + cA*qA`,
+and dual feasibility checked SYMBOLICALLY per cell by hand. It is validated
+against an exact rational simplex — hand-written, because the exact dual was
+needed and no solver gave it — on a window of parameter values.
 
-That turns "checked for s = 7..20" into "holds for every s >= 7", which is the
-one thing the tool keeps saying it cannot do. Wanted: an instance where the
-dual weights follow a visible pattern in `s`.
+Measured on one slice of it, the structure is exactly what this item wanted:
+
+| parameter | optimum | dual |
+|---|---|---|
+| p = 6 | 9 | one vertex |
+| p = 7, 8, 9 | 11, 13, 16 | a DIFFERENT vertex, constant across the three |
+| p = 10, 11, 12 | 58/3, 68/3, 79/3 | a third vertex, constant again |
+
+Piecewise constant duals with thresholds, and a bound that is polynomial in
+the parameter on each piece. So the certificate is: on `p >= 10` this fixed
+`y` is dual-feasible, which is a finite set of polynomial inequalities in `p`
+— exactly what `farkas --nonlinear` or `sos` certifies for all `p >= 10`.
+
+That turns "checked for p = 5..12" into "holds for every p >= 10", which is
+the one thing the tool keeps saying it cannot do. The thresholds are part of
+the answer and have to be reported, not smoothed over.
+
+**Build against this slice first.** The window the corpus checks is finite in
+two parameters at once, and a certificate that only extends one of them is
+still worth having and much easier to get right.
 
 ---
 
@@ -163,12 +188,19 @@ dual weights follow a visible pattern in `s`.
 ### 3. Flag algebras, now that the objection is gone
 
 `sos` established the pattern: numeric search, rational reconstruction, exact
-re-verification. A flag-algebra bound is the same shape one level up. Wanted:
-2–3 real packing instances to build against, so the interface is designed
-around a problem rather than around the method.
+re-verification. A flag-algebra bound is the same shape one level up.
+
+**The instances exist**: the corpus has over a hundred scripts solving
+LP/ILP triangle packings, several of them asking whether an invariant stays
+bounded or grows with `n` — which is the question a flag-algebra bound
+answers. More than the 2–3 this item was waiting for.
 
 ### 4. `SetFamily` canonicalisation for matchings and coloured hypergraphs
 *(user feedback)*
+
+**The instance is confirmed**: the corpus enumerates every matching of a
+complete graph on a vertex set and indexes LP columns by them, which is
+precisely the structure below.
 
 `canonical()` quotients by relabelling the ground set. A family of MATCHINGS
 has more structure than that — the blocks partition, and a factorisation of
