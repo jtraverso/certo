@@ -17,7 +17,6 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 
 | | | |
 |---|---|---|
-| **P0** | The exported theorem must be the certificate's claim | *the other half of the hollow-export finding* |
 | **P1** | Typed transport: which object does this certificate speak about | *named by two users and load-bearing here* |
 | **P1** | Certified symmetry reduction | |
 | **P1** | Does this hypothesis earn its place | |
@@ -30,19 +29,6 @@ Last updated: 2026-09-17. Reordered after measuring an adjacent library, the sel
 Everything below P3 is waiting on something above it, or on somebody asking.
 The history -- what landed, what was decided, what the first real instance
 found -- is at the end, because it is the part that does not change.
-
----
-
-## P0 — a defect that has shipped
-
-### 1. The exported theorem must be the certificate's claim
-
-A separate check, and the one with teeth: whatever Lean statement comes out
-has to correspond to the hypotheses and goal the certificate actually
-establishes. Today nothing compares them. Where the statement is rendered
-structurally -- linear arithmetic over the reals, which already emits real
-binders, hypotheses and a positively stated goal -- the comparison is
-mechanical. Where it is not, that is case 1 and the answer is HOLLOW.
 
 ---
 
@@ -264,6 +250,7 @@ geometric transport. That is now the stated policy rather than an implication.
 | ✅ | **`certo ratio`: a fraction inequality for every n** *(P3)* | `(n-2)/n^2 <= 1/n` for n >= 2 and its cousins, which `prove` settles with an unsat core that re-checks by running a solver again. Clearing the denominators makes it the shift test, and the step that can go wrong -- clearing them -- is the step that gets checked: a denominator not shown positive is a refusal, because a negative one flips the inequality and makes the certificate backwards. `>=` is not offered, being the same claim with the sides swapped. |
 | ✅ | **`certo moment`: the first moment, exactly** *(P3)* | The probabilistic method in one line, and the line is a sum of rationals -- usually done in floating point, where `0.9999999` and `1.0000001` have both been written down as "less than one". Two shapes: by event (linearity, no independence needed) and by tail (masses as successive differences, which is the shape the active corpus work states). The existence conclusion is drawn only when the quantity is declared a COUNT, and `verify` re-earns that rather than believing the flag. |
 | ✅ | **`certo entry`: the first crossing, and its window** *(P3)* | A proof walks a finite path and stops at the first index past a line. The claim that goes wrong is not "it crosses" but "it had not crossed yet". The prefix is the whole evidence -- nothing past the crossing is part of either claim, so the tail never travels. A step bound buys the WINDOW: the step before was on the near side, so the crossing overshoots by at most delta. |
+| ✅ | **The exported theorem is compared against the certificate** *(user feedback P0)* | Nothing compared them. The exporter reads a certificate and writes Lean, and a bug anywhere in that path -- a dropped hypothesis, a sign, a coefficient, a goal rendered from the wrong row -- produces a theorem that COMPILES, looks right, and is not the one the certificate supports. It is the failure this project has already had twice in the other direction: producer and verifier wrong in the same place, agreeing with each other. So the check does not ask the exporter what it meant: it PARSES THE EMITTED TEXT BACK and compares, by a different route. Comparison is semantic, because `-a < 0` and `a > 0` are one row and the exporter writes hypotheses one way and the goal the other on purpose. Four mangles caught, each naming what changed rather than pooling into one boolean. The parser covers only the grammar certo emits and REFUSES the rest, because one that guessed would quietly approve a statement it misread. |
 | ✅ | **A hollow Lean export says it is hollow** *(user feedback P0)* | A user exporting an `unsat_core` over a theory certo cannot render got `theorem from_core : True := by trivial` -- compiles, no `sorry`, passes `#print axioms`, states nothing. They declined to put it in their formal chain, which means the safeguard that worked was a person reading carefully. Three changes: a placeholder closes with **`sorry`** rather than `trivial`, so every audit a formalisation project already runs sees it; its name carries `_HOLLOW`, so it is not cited by accident; and `export --check` reports **HOLLOW** and exits non-zero instead of OK, because compiling was never the question. The manifest records the count per file. The route that WORKS -- linear arithmetic over the reals, with real binders and a positively stated goal -- is unmarked, which is what keeps the signal worth anything. |
 | ✅ | **A dedup you can check: `labelling=`** *(P2)* | `canonicalize` hands over a FORM and asks to be believed, so "these forty are the same object" was the spec's claim and a certificate could only check that the decomposition's arithmetic held together. `labelling` hands over the PERMUTATION: certo applies it, the result is the canonical form, and the permutation travels so anyone can re-apply it. The claim becomes an arithmetic fact. No cap, because nothing is searched -- the instance that motivated the whole item, a vertex-transitive object certo's own canonical form refuses outright, deduplicates 40 labelled copies to 1 orbit with 40 witnesses, all re-applied on verification. What it still does NOT show -- that two DIFFERENT representatives are different objects -- is a warning rather than an implication. Declaring both is refused: one asks to be believed, the other to be checked. |
 | ✅ | **A `SetFamily` id was ambiguous past ten points** | Found by the above, when the witness decoder refused to round-trip. `key` juxtaposed point numbers, which is unambiguous only while a point is one digit: on fifteen points `{1,2,13}` and `{12,13}` both read as `1213`, so two DIFFERENT families shared an id and `from_key` returned a third family. The id is the dedup key and what lands in a certificate. Ids separate their points above ten now and are byte-identical at or below it, which is every id any stored certificate contains. |

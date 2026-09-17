@@ -1015,5 +1015,15 @@
   "cli.ask.unknown": "nothing here runs a {got}. `certo commands` lists which command answers which question",
   "cli.ask.needs_flags": "a {got} goes to `certo {command}`, which needs a decision this cannot make for you -- run it directly and say which mode you want",
   "commands.q.ask": "I wrote the spec. Just run whatever answers it.",
-  "cli.lean.hollow": "{n} of the theorems in this file state `True`: they compile, they carry `sorry`, and they say NOTHING. certo could not render those statements in Mathlib and will not guess at an encoding -- transcribe them from the comments above each one before this file is worth anything."
+  "cli.lean.hollow": "{n} of the theorems in this file state `True`: they compile, they carry `sorry`, and they say NOTHING. certo could not render those statements in Mathlib and will not guess at an encoding -- transcribe them from the comments above each one before this file is worth anything.",
+  "leancheck.empty_term": "an empty term in a polynomial",
+  "leancheck.bad_factor": "`{got}` is not a variable, an integer or a rational, and this parser refuses what it does not recognise rather than guessing",
+  "leancheck.not_zero": "the relation is not against zero (`{got}`), which is the only form certo emits",
+  "leancheck.no_relation": "no relation found in `{got}`",
+  "leancheck.no_goal": "no goal line of the form `: <poly> REL 0 := by`",
+  "leancheck.hollow": "the statement is HOLLOW, so there is nothing to correspond to the certificate",
+  "leancheck.no_rows": "a {kind} certificate carries no linear rows to compare against",
+  "cli.lean.corresponds": "the exported statement CORRESPONDS to the certificate: {n} hypotheses and the goal, re-parsed from the file and compared",
+  "cli.lean.mismatch": "the exported statement does NOT correspond to the certificate -- missing: {missing}; unexpected: {extra}; altered: {changed}; goal matches: {goal}",
+  "cli.lean.not_compared": "statement correspondence NOT checked: {reason}"
 }

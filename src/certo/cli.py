@@ -1495,10 +1495,10 @@ def _export_lean(args):
                   file=sys.stderr)
             return 3
         text = lean.graphs_to_lean(graphs, source)
-    return _write_lean(text, args, [path])
+    return _write_lean(text, args, [path], cert=data)
 
 
-def _write_lean(text, args, sources):
+def _write_lean(text, args, sources, cert=None):
     from . import leanexport
 
     if not args.out:
@@ -1514,6 +1514,28 @@ def _write_lean(text, args, sources):
         mp = Path(args.manifest)
         mp.write_text(json.dumps(man, indent=2) + "\n", encoding="utf-8")
         print("  " + t("cli.lean.manifest", path=str(mp)))
+
+    # DOES THE FILE SAY WHAT THE CERTIFICATE ESTABLISHED. Separate from
+    # compiling, and the question compiling never answered: a dropped
+    # hypothesis or a flipped sign produces a theorem that builds and is not
+    # the one the certificate supports. Checked by parsing the emitted text
+    # BACK and comparing, so a bug in the exporter shows up as a mismatch
+    # rather than as a second opinion that agrees with itself.
+    from . import leancheck
+
+    corr = ({"checked": False, "reason": t("leancheck.no_rows", kind="?")}
+            if cert is None else leancheck.correspondence(cert, text))
+    if not corr.get("checked"):
+        print("  " + t("cli.lean.not_compared", reason=corr["reason"]))
+    elif corr["ok"]:
+        print("  " + t("cli.lean.corresponds", n=corr["hypotheses"]))
+    else:
+        print("  !! " + t("cli.lean.mismatch",
+                          missing=", ".join(corr["missing"]) or "-",
+                          extra=", ".join(corr["extra"]) or "-",
+                          changed=", ".join(corr["changed"]) or "-",
+                          goal="yes" if corr["goal_matches"] else "NO"))
+        return 1
 
     if args.check:
         # "It should compile" is the claim most likely to be wrong and the one

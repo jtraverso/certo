@@ -1015,5 +1015,15 @@
   "cli.ask.unknown": "aquí nada ejecuta un {got}. `certo commands` lista qué comando responde qué pregunta",
   "cli.ask.needs_flags": "un {got} va a `certo {command}`, que necesita una decisión que esto no puede tomar por ti -- ejecútalo directamente y di qué modo quieres",
   "commands.q.ask": "Escribí el spec. Ejecuta lo que sea que lo responda.",
-  "cli.lean.hollow": "{n} de los teoremas de este fichero enuncian `True`: compilan, llevan `sorry`, y no dicen NADA. certo no supo traducir esos enunciados a Mathlib y no va a adivinar una codificación -- transcríbelos desde los comentarios de arriba antes de que este fichero valga algo."
+  "cli.lean.hollow": "{n} de los teoremas de este fichero enuncian `True`: compilan, llevan `sorry`, y no dicen NADA. certo no supo traducir esos enunciados a Mathlib y no va a adivinar una codificación -- transcríbelos desde los comentarios de arriba antes de que este fichero valga algo.",
+  "leancheck.empty_term": "un término vacío en un polinomio",
+  "leancheck.bad_factor": "`{got}` no es una variable, un entero ni un racional, y este parser rechaza lo que no reconoce en vez de adivinar",
+  "leancheck.not_zero": "la relación no es contra cero (`{got}`), que es la única forma que certo emite",
+  "leancheck.no_relation": "no se encontró relación en `{got}`",
+  "leancheck.no_goal": "no hay línea de objetivo con la forma `: <poly> REL 0 := by`",
+  "leancheck.hollow": "el enunciado es HUECO, así que no hay nada que corresponda al certificado",
+  "leancheck.no_rows": "un certificado {kind} no lleva filas lineales contra las que comparar",
+  "cli.lean.corresponds": "el enunciado exportado CORRESPONDE al certificado: {n} hipótesis y el objetivo, re-parseados del fichero y comparados",
+  "cli.lean.mismatch": "el enunciado exportado NO corresponde al certificado -- faltan: {missing}; sobran: {extra}; alteradas: {changed}; objetivo coincide: {goal}",
+  "cli.lean.not_compared": "correspondencia del enunciado NO comprobada: {reason}"
 }

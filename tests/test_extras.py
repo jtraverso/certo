@@ -1576,6 +1576,115 @@ def test_weak_duality_is_what_bounds_the_losers():
     assert not attains_value(A, b, c, [F(4)], [F(1)], F(3))   # infeasible
 
 
+# --- does the exported theorem say what the certificate established? -------
+
+
+def _real_core():
+    """A core over the reals, which is the route that renders structurally."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    a, b, c = z3.Reals("a b c")
+    spec = Spec(title="amgm")
+    spec.assume("a_pos", a > 0)
+    spec.assume("b_pos", b > 0)
+    spec.assume("c_pos", c > 0)
+    spec.claim((a + b) * (b + c) * (a + c) >= 8 * a * b * c)
+    return smt.prove(spec, LIM).certificate.to_dict()
+
+
+def test_the_exported_statement_is_compared_against_the_certificate():
+    """Nothing compared them. The exporter reads a certificate and writes
+    Lean, and a bug anywhere in that path produces a theorem that compiles,
+    looks right, and is not the one the certificate supports."""
+    from certo import leancheck, leanexport
+
+    cert = _real_core()
+    text = leanexport.core_to_lean(cert)
+    got = leancheck.correspondence(cert, text)
+    assert got["checked"] and got["ok"], got
+    assert got["goal_matches"] and got["hypotheses"] == 3
+
+
+def test_a_mangled_export_is_caught_and_the_damage_named():
+    """Four ways an exporter could go wrong, each named rather than pooled
+    into one boolean: a reader who is told `mismatch` still has to go and
+    find out which."""
+    from certo import leancheck, leanexport
+
+    cert = _real_core()
+    text = leanexport.core_to_lean(cert)
+
+    dropped = "\n".join(l for l in text.splitlines() if "b_pos" not in l)
+    got = leancheck.correspondence(cert, dropped)
+    assert not got["ok"] and got["missing"] == ["b_pos"]
+
+    invented = text.replace("    (c_pos : -c < 0)",
+                            "    (c_pos : -c < 0)\n    (fake : -a - b < 0)")
+    got = leancheck.correspondence(cert, invented)
+    assert not got["ok"] and got["extra"] == ["fake"]
+
+    # a coefficient in the goal
+    bent = text.replace("6 * a * b * c", "5 * a * b * c")
+    got = leancheck.correspondence(cert, bent)
+    assert not got["ok"] and not got["goal_matches"]
+
+    # the direction of the goal
+    flipped = text.replace("\u2265 0 := by", "\u2264 0 := by")
+    got = leancheck.correspondence(cert, flipped)
+    assert not got["ok"] and not got["goal_matches"]
+
+
+def test_the_comparison_is_semantic_and_not_textual():
+    """`-a < 0` and `a > 0` are one row, and the exporter deliberately writes
+    hypotheses one way and the goal the other."""
+    from certo.leancheck import normalise, parse_relation
+
+    left = normalise(*parse_relation("-a < 0"))
+    right = normalise(*parse_relation("a > 0"))
+    assert left == right
+
+    # and a genuinely different row is genuinely different
+    assert left != normalise(*parse_relation("a < 0"))
+    # rationals survive
+    half = parse_relation("(1/2 : \u211a) * x + y \u2264 0")[0]
+    assert half[("x",)] == Fraction(1, 2)
+
+
+def test_the_parser_refuses_what_it_does_not_recognise():
+    """A restricted parser that guessed would quietly approve a statement it
+    misread, which is worse than refusing."""
+    from certo.leancheck import NotParseable, parse_relation, parse_statement
+
+    for bad in ("f x + 1 \u2264 0", "x \u2264 1", "x + y"):
+        try:
+            parse_relation(bad)
+            raise AssertionError("expected a refusal for " + bad)
+        except NotParseable:
+            pass
+
+    try:
+        parse_statement("theorem t : True := by\n  sorry")
+        raise AssertionError("expected a refusal")
+    except NotParseable:
+        pass
+
+
+def test_a_hollow_file_reports_not_checked_rather_than_ok():
+    """`could not check` and `checked and fine` are different answers, and
+    collapsing them is how a gap becomes a green tick."""
+    from certo import leancheck, leanexport
+
+    cert = _real_core()
+    hollow = leanexport._core_structure_only(cert)
+    got = leancheck.correspondence(cert, hollow)
+    assert got["checked"] is False
+    assert "HOLLOW" in got["reason"]
+    assert "ok" not in got
+
+
 # --- a hollow Lean export must say it is hollow ----------------------------
 
 
