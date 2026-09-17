@@ -4,6 +4,11 @@ Three commands that have nothing to do with SMT, and one shape in common with
 everything else here: a search that may be as clever or as numeric as it
 likes, and a certificate that is exact and checkable without it.
 
+  parametric A bound that holds for EVERY value of a parameter, not the ones
+          you tried. Weak duality, symbolically: `y >= 0` with
+          `A(p)^T y >= c(p)` bounds the optimum for all p at once, and each
+          inequality is certified on a ray by a shift.
+
   eliminate  The resultant of two polynomials in one variable, with the
           Bezout identity `Res = A f + B g` attached. Turns "do these two
           share a root in t" into a condition on the other variables.
@@ -22,7 +27,8 @@ from __future__ import annotations
 import time
 
 from ..certificate import (ideal_certificate, number_certificate,
-                           resultant_certificate, sos_certificate)
+                           parametric_bound_certificate, resultant_certificate,
+                           sos_certificate)
 from ..i18n import t
 from ..limits import Limits
 from ..polynomials import Budget, Poly, cofactors
@@ -30,6 +36,7 @@ from ..status import Result, Status, Verdict
 
 ENGINE_IDEAL = "certo/groebner"
 ENGINE_ELIM = "certo/sylvester"
+ENGINE_PARAM = "certo/weak-duality"
 ENGINE_SOS = "certo/sos"
 ENGINE_NUM = "certo/pratt"
 
@@ -42,6 +49,83 @@ def _poly(expr, variables):
 
 
 # ---------------------------------------------------------------------------
+
+
+def parametric(spec, limits: Limits | None = None,
+               spec_path: str = "") -> Result:
+    """`opt(p) <= b(p).y` for every p at or above the floor, or why not."""
+    from ..linarith import NotPolynomial
+    from ..parametric import NotParametric, certify
+
+    t0 = time.perf_counter()
+
+    if spec.sense != "max":
+        return Result("parametric", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None,
+                      detail=t("engine.param.max_only", sense=spec.sense))
+    bad_sense = [n for n, _, sense, _ in spec.constraints if sense != "<="]
+    if bad_sense:
+        return Result("parametric", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None,
+                      detail=t("engine.param.le_only",
+                               names=", ".join(map(str, bad_sense[:4]))))
+    try:
+        out = certify(spec)
+    except (NotParametric, NotPolynomial) as e:
+        return Result("parametric", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_PARAM, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    floor = ", ".join("{} >= {}".format(k, v)
+                      for k, v in spec.parameters.items())
+
+    if not out["ok"]:
+        # No certificate. The shift is sufficient and not necessary, so a
+        # failure is "not established by this route" and never "false" -- and
+        # emitting a certificate for it would be the overclaim this whole
+        # project exists to avoid.
+        if out["negative_dual"]:
+            detail = t("engine.param.negative",
+                       names=", ".join(out["negative_dual"][:4]))
+        else:
+            detail = t("engine.param.not_shown",
+                       names=", ".join(out["failed"][:4]), floor=floor)
+        return Result("parametric", Status.UNKNOWN_SOLVER,
+                      Verdict.INCONCLUSIVE, ENGINE_PARAM, ms, None,
+                      detail=detail,
+                      meta={"failed_columns": out["failed"]})
+
+    cert = parametric_bound_certificate(
+        parameters=dict(spec.parameters),
+        variables=out["variables"],
+        objective={v: _ser(spec, c) for v, c in spec.objective.items()},
+        constraints=[[str(n), {v: _ser(spec, c) for v, c in row.items()},
+                      sense, _ser(spec, rhs)]
+                     for n, row, sense, rhs in spec.constraints],
+        dual={str(n): str(v) for n, v in spec.dual.items()},
+        bound=out["bound"].serialize(),
+        rows=out["rows"],
+        title=spec.title,
+    ).stamp(spec_path or None)
+
+    return Result("parametric", Status.UNSAT, Verdict.PROVED, ENGINE_PARAM,
+                  ms, cert,
+                  detail=t("engine.param.proved", bound=str(out["bound"]),
+                           floor=floor),
+                  meta={"bound": str(out["bound"]), "floor": floor,
+                        "columns": len(out["variables"])})
+
+
+def _ser(spec, coef):
+    """A coefficient as a serialised Poly over the parameter ring."""
+    from ..polynomials import Poly
+
+    ring = tuple(spec.parameters)
+    if isinstance(coef, Poly):
+        return coef.serialize()
+    if isinstance(coef, (int, float)) or hasattr(coef, "numerator"):
+        return Poly.const(ring, coef).serialize()
+    return Poly.from_z3(coef, ring).serialize()
 
 
 def eliminate(spec, limits: Limits | None = None,

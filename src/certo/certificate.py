@@ -565,6 +565,30 @@ def ideal_certificate(variables, equations, claim, cofactors, inconsistent,
     )
 
 
+def parametric_bound_certificate(parameters, variables, objective,
+                                 constraints, dual, bound, rows,
+                                 title="") -> Certificate:
+    """`opt(p) <= b(p).y` for every p at or above the given floor.
+
+    Weak duality holds symbolically: any `y >= 0` with `A(p)^T y >= c(p)`
+    bounds the optimum, for every parameter value at once. So the whole
+    certificate is `y`, the polynomial data, and -- per column -- the residual
+    `A^T y - c` after substituting `p = p0 + u`, whose coefficients are all
+    non-negative. Checking it is reading signs off a list.
+
+    The shift is SUFFICIENT and not necessary. A certificate exists only when
+    it succeeds; when it does not, no certificate is emitted, because "this
+    route did not work" is not a bound.
+    """
+    return Certificate(
+        kind="parametric_bound", solver_free=True,
+        payload={"parameters": parameters, "variables": list(variables),
+                 "objective": objective, "constraints": constraints,
+                 "dual": dual, "bound": bound, "rows": rows, "title": title},
+        note_key="cert.note.parametric_bound",
+    )
+
+
 def resultant_certificate(variables, eliminated, f, g, resultant, A, B,
                           deg_f, deg_g, lead_f, lead_g, lead_f_constant,
                           lead_g_constant, title="") -> Certificate:
@@ -961,6 +985,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "orbit_witnesses": _verify_orbit_witnesses,
         "ideal": _verify_ideal,
         "resultant": _verify_resultant,
+        "parametric_bound": _verify_parametric_bound,
         "sos": _verify_sos,
         "number": _verify_number,
         "mixed_design": _verify_mixed_design,
@@ -1261,6 +1286,58 @@ def _verify_orbit_witnesses(cert, limits) -> VerifyReport:
                  orbits=p["orbits"]),
     )
 
+
+
+def _verify_parametric_bound(cert, limits) -> VerifyReport:
+    """Re-derive every residual and re-read the signs. No solver, no search."""
+    from fractions import Fraction
+
+    from .parametric import nonneg_on_ray
+    from .polynomials import Poly
+
+    p = cert.payload
+    ring = tuple(p["parameters"])
+    lows = p["parameters"]
+    y = {n: Fraction(v) for n, v in p["dual"].items()}
+
+    nonneg = all(v >= 0 for v in y.values())
+    checks = [(t("verify.param.nonneg"), nonneg,
+               t("verify.param.offenders",
+                 names=", ".join(sorted(n for n, v in y.items() if v < 0))
+                 or "-"))]
+
+    # A^T y - c, rebuilt from the payload rather than trusted from it.
+    bad = []
+    for var in p["variables"]:
+        acc = Poly(ring)
+        for name, row, _sense, _rhs in p["constraints"]:
+            if var in row and y.get(name):
+                acc = acc + Poly.parse(ring, row[var]).scaled(y[name])
+        residual = acc - Poly.parse(ring, p["objective"].get(var, {}))
+        ok, _shifted = nonneg_on_ray(residual, lows)
+        if not ok:
+            bad.append(var)
+    checks.append((t("verify.param.feasible"), not bad,
+                   t("verify.param.columns", n=len(p["variables"]),
+                     bad=", ".join(bad[:4]) or "-")))
+
+    # and the bound itself
+    want = Poly.parse(ring, p["bound"])
+    got = Poly(ring)
+    for name, _row, _sense, rhs in p["constraints"]:
+        if y.get(name):
+            got = got + Poly.parse(ring, rhs).scaled(y[name])
+    matches = not (got - want)
+    checks.append((t("verify.param.bound"), matches, str(want) or "0"))
+
+    floor = ", ".join("{} >= {}".format(k, v) for k, v in lows.items())
+    return VerifyReport(
+        nonneg and not bad and matches, "parametric_bound", True,
+        checks=checks,
+        warnings=[t("verify.param.scope", floor=floor)],
+        method_key="verify.param.method",
+        detail=t("verify.param.detail", bound=str(want) or "0", floor=floor),
+    )
 
 
 def _verify_resultant(cert, limits) -> VerifyReport:

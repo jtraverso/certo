@@ -117,7 +117,7 @@ COMMANDS = {
     "BoundSpec": "bounds", "ProofSpec": "compose", "InductSpec": "induct",
     "IdealSpec": "ideal", "SOSSpec": "sos", "NumberSpec": "number",
     "OrderSpec": "order", "CNFSpec": "sat", "CNF": "sat",
-    "EliminateSpec": "eliminate",
+    "EliminateSpec": "eliminate", "ParametricSpec": "parametric",
 }
 
 
@@ -432,6 +432,31 @@ def _check_sos(spec, limits):
         yield _f(ERROR, "sos.no_variables")
 
 
+def _check_parametric(spec, limits):
+    if spec.sense != "max":
+        yield _f(ERROR, "param.max_only", sense=spec.sense)
+    if not spec.parameters:
+        yield _f(ERROR, "param.no_parameters")
+        return
+    bad = [str(n) for n, _, sense, _ in spec.constraints if sense != "<="]
+    if bad:
+        yield _f(ERROR, "param.le_only", names=", ".join(bad[:4]))
+    names = [str(n) for n, _, _, _ in spec.constraints]
+    dual = {str(n): v for n, v in spec.dual.items()}
+    missing = [n for n in names if n not in dual]
+    if missing:
+        yield _f(ERROR, "param.dual_missing", names=", ".join(missing[:4]))
+    negative = sorted(n for n, v in dual.items() if v < 0)
+    if negative:
+        # Weak duality needs y >= 0, so this is not a near miss.
+        yield _f(ERROR, "param.negative", names=", ".join(negative[:4]))
+    yield _f(NOTE, "param.shape", rows=len(spec.constraints),
+             params=", ".join("{} >= {}".format(k, v)
+                              for k, v in spec.parameters.items()))
+    if not any(dual.get(n) for n in names):
+        yield _f(WARN, "param.all_zero")
+
+
 def _check_eliminate(spec, limits):
     from .polynomials import Poly
 
@@ -525,4 +550,5 @@ CHECKS = {
     "NumberSpec": _check_number, "SynthSpec": _check_synth,
     "BisectSpec": _check_bisect, "CNFSpec": _check_cnf, "CNF": _check_cnf,
     "PackingSpec": _check_packing, "EliminateSpec": _check_eliminate,
+    "ParametricSpec": _check_parametric,
 }

@@ -458,6 +458,34 @@ def spec():
     assert any("algebraically closed" in w for w in rep["warnings"])
 
 
+
+def test_parametric_reaches_the_model_as_a_statement_about_a_family():
+    src = """
+from fractions import Fraction
+from certo import ParametricSpec
+from certo.polynomials import Poly
+RING = ("p",)
+P = Poly.var(RING, "p")
+K = lambda c: Poly.const(RING, c)
+def spec():
+    return ParametricSpec(
+        parameters={"p": 10}, sense="max",
+        objective={"a": K(1), "b": K(1)},
+        constraints=[("big", {"a": K(2), "b": K(1)}, "<=", P * P),
+                     ("small", {"b": K(3)}, "<=", P - K(5))],
+        dual={"big": Fraction(1, 2), "small": Fraction(1, 3)},
+        title="t")
+"""
+    out = run(call("parametric", {"spec_source": src}))
+    assert out["verdict"] == "proved"
+    assert "p >= 10" in out["meta"]["floor"]
+    assert out["certificate"]["kind"] == "parametric_bound"
+
+    rep = run(call("verify", {"certificate_path": out["certificate"]["path"]}))
+    assert rep["ok"] and rep["solver_free"]
+    assert any("integer optimum" in w for w in rep["warnings"])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

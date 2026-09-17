@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Veintiséis comandos. Corre en milisegundos donde una
+CLI y MCP. Veintisiete comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -161,6 +161,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Dónde está el umbral de esta constante? | `bisect` | el par que lo acota, cada lado certificado |
 | ¿Es cierta esta desigualdad numérica? (`e`, `log`, `π`, `ζ`) | `bounds` | un encierro riguroso en racionales exactos |
 | ¿Decae este término en `n`, o es Θ(1)? | `order` | el **exponente**, sin solver |
+| Lo comprobé para `p = 5..12`. ¿Vale para TODO `p`? | `parametric` | una cota demostrada para toda la familia, desde un dual |
 
 ### ¿Vale para todos los casos?
 
@@ -192,7 +193,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
-[Los veintiséis comandos](#los-veintiséis-comandos).
+[Los veintisiete comandos](#los-veintisiete-comandos).
 
 ## Qué es y qué no es
 
@@ -314,7 +315,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los veintiséis comandos
+## Los veintisiete comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -331,6 +332,7 @@ esperar.
 | `bounds` | Una desigualdad numérica, con rigor (`e`, `log`, `π`, `ζ`) | Arb o mpmath | **envolvente en racionales exactos** |
 | `ideal` | Sistemas polinómicos: refutarlos, o certificar lo que se sigue | Gröbner, propio | **cofactores**, comprobados expandiendo |
 | `eliminate` | Quitar una variable de dos polinomios; quedarse con la condición | Sylvester + Bareiss | **Res = A·f + B·g**, sin solver |
+| `parametric` | Una cota para TODO valor de un parámetro, desde un dual que ya tienes | dualidad débil, simbólica | **y y los residuos desplazados**, sin solver |
 | `sos` | Un polinomio es no negativo, como suma de cuadrados | numérico + redondeo exacto | **cuadrados racionales**, sin solver |
 | `number` | Primalidad, o una factorización | Pratt | **árbol de exponenciación modular** |
 | `cases` | SAT con prueba DRAT verificada | CDCL propio o binario externo | prueba DRAT |
@@ -384,6 +386,7 @@ def spec():
 | `InductSpec` | `induct` |
 | `IdealSpec` | `ideal` |
 | `EliminateSpec` | `eliminate` |
+| `ParametricSpec` | `parametric` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -418,6 +421,7 @@ o propagación unitaria — no hay que confiar ni en Z3 ni en CBC:
 | `mixed_design` | una construcción existe y alcanza un valor; NO que sea óptima | **sí**, aritmética exacta |
 | `ideal` | `f = Σ hᵢgᵢ` | **sí**, expandir un producto |
 | `resultant` | `Res = A·f + B·g` | **sí**, expandir dos productos |
+| `parametric_bound` | `opt(p) ≤ b(p)·y` para todo p | **sí**, expandir y leer signos |
 | `sos` | `p = Σ dᵢqᵢ²` en racionales exactos | **sí**, expandir un producto |
 | `number` | primalidad, o una factorización | **sí**, exponenciación modular |
 | `mus` | insatisfacibilidad **y** minimalidad | **sí** |
@@ -1080,6 +1084,69 @@ Tres detalles que separan un certificado de un test:
 
 `--question factor` da la factorización, con cada factor llevando su propio
 certificado de primalidad, para que «y estos son primos» no quede colgando.
+
+## `parametric`: ¿comprobado para p = 5..12, o cierto para todo p?
+
+Esto es lo que certo insistía en que no podía hacer, y la frase que más peso
+sin ganar carga en la escritura matemática: *«y análogamente para n mayor»*.
+
+Para un programa lineal cuyos datos son **polinomios** en un parámetro, la
+dualidad débil está disponible simbólicamente. Cualquier `y >= 0` con
+`A(p)ᵀy >= c(p)` da `opt(p) <= b(p)·y` —para todo `p` a la vez, no para los
+que corriste—.
+
+```
+$ certo parametric examples/parametric_bound.py
+DEMOSTRADO  [unsat]
+  para todo p >= 10, el óptimo es a lo sumo 1/6*p^2 + 1/6*p - 2/3
+  y eso es todo valor con p >= 10 --no una muestra de ellos--
+```
+
+Y no es una cota floja. Resolviendo ese LP directamente:
+
+| p | cota | óptimo |
+|---|---|---|
+| 10 | 53/3 | 53/3 |
+| 11 | 64/3 | 64/3 |
+| 15 | 118/3 | 118/3 |
+| 30 | 463/3 | 463/3 |
+
+**Un dual, leído de una sola instancia resuelta en `p = 10`, da el óptimo
+exacto para todo `p` por encima.**
+
+### El reparto de trabajo
+
+certo no busca `y` aquí. `certo opt` sobre una instancia te da uno, y
+cualquier otro solver también. Lo que esto comprueba es que el `y` que ya
+tienes sirve para toda la familia —y esa comprobación es aritmética—:
+
+> sustituye `p = 10 + u`, expande, y lee los signos de los coeficientes
+
+Todos no negativos significa que el polinomio es no negativo sobre el rayo,
+porque `u` y sus potencias lo son. El mismo reparto que `farkas`, un nivel más
+arriba: allí los multiplicadores son constantes, aquí son constantes pegadas a
+una familia.
+
+### Qué no va a fingir
+
+El test del desplazamiento es **suficiente y no necesario**. `p² - 3p + 3` es
+positivo en todas partes y falla en `p₀ = 0`. Así que un fallo significa *«no
+establecido por esta ruta»*, nunca *«falso»* —y **no se emite certificado**,
+porque una ruta que no funcionó no es una cota—.
+
+`verify` repite el resto siempre: esto acota la **relajación LP**, no dice
+nada por debajo del piso, y no dice nada sobre un óptimo entero.
+
+### De dónde salió
+
+Una instancia real, y la estructura merece verse. Un LP simetrizado resuelto
+exactamente para `p = 5..12` con un simplex racional escrito a mano dio duales
+**constantes a trozos con umbrales** —un vértice en `p = 6`, otro en
+`p = 7, 8, 9`, un tercero desde `p = 10`—. En cada trozo la cota es un
+polinomio en `p` y el dual es fijo, que es exactamente la forma que este
+comando certifica. Los umbrales son parte de la respuesta, no algo que
+disimular.
+
 
 ## `eliminate`: quita una variable, quédate con la condición
 
@@ -1961,7 +2028,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Veintiséis comandos y treinta tipos de certificado, y la forma de un
+Veintisiete comandos y treinta tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

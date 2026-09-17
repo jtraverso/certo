@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Twenty-six commands. Runs in milliseconds where a formalisation
+CLI and MCP. Twenty-seven commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -161,6 +161,7 @@ Phrased as the question, because that is how anybody arrives.
 | Where is the threshold for this constant? | `bisect` | the pair that brackets it, each side certified |
 | Is this numeric inequality true? (`e`, `log`, `π`, `ζ`) | `bounds` | a rigorous enclosure in exact rationals |
 | Does this term decay in `n`, or is it Θ(1)? | `order` | the **exponent**, solver-free |
+| I checked it for `p = 5..12`. Does it hold for EVERY `p`? | `parametric` | a bound proved for the whole family, from one dual |
 
 ### Does it hold for every case?
 
@@ -192,7 +193,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The twenty-six commands](#the-twenty-six-commands).
+[The twenty-seven commands](#the-twenty-seven-commands).
 
 ## What it is and what it is not
 
@@ -320,7 +321,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The twenty-six commands
+## The twenty-seven commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -337,6 +338,7 @@ and what to expect.
 | `bounds` | A numeric inequality, rigorously (`e`, `log`, `π`, `ζ`) | Arb or mpmath | **enclosure in exact rationals** |
 | `ideal` | Polynomial systems: refute them, or certify what follows | Gröbner, ours | **cofactors**, checked by expanding |
 | `eliminate` | Remove a variable from two polynomials; keep the condition on the rest | Sylvester + Bareiss | **Res = A·f + B·g**, solver-free |
+| `parametric` | A bound for EVERY value of a parameter, from a dual you already have | weak duality, symbolic | **y and the shifted residuals**, solver-free |
 | `sos` | A polynomial is non-negative, as a sum of squares | numeric + exact rounding | **rational squares**, solver-free |
 | `number` | Primality, or a factorisation | Pratt | **modular-exponentiation tree** |
 | `cases` | SAT with a verified DRAT proof | own CDCL or external binary | DRAT proof |
@@ -390,6 +392,7 @@ def spec():
 | `InductSpec` | `induct` |
 | `IdealSpec` | `ideal` |
 | `EliminateSpec` | `eliminate` |
+| `ParametricSpec` | `parametric` |
 | `SOSSpec` | `sos` |
 | `NumberSpec` | `number` |
 | `BoundSpec` | `bounds` |
@@ -424,6 +427,7 @@ unit propagation — you need trust neither Z3 nor CBC:
 | `mixed_design` | a construction exists and attains a value; NOT that it is optimal | **yes**, exact arithmetic |
 | `ideal` | `f = Σ hᵢgᵢ` | **yes**, expand a product |
 | `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
+| `parametric_bound` | `opt(p) ≤ b(p)·y` for all p | **yes**, expand and read signs |
 | `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
 | `number` | primality, or a factorisation | **yes**, modular exponentiation |
 | `mus` | unsatisfiability **and** minimality | **yes** |
@@ -1082,6 +1086,68 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+## `parametric`: checked for p = 5..12, or true for every p?
+
+This is the thing certo kept saying it could not do, and the one sentence that
+carries the most unearned weight in mathematical writing: *"and similarly for
+larger n"*.
+
+For a linear program whose data are **polynomials** in a parameter, weak
+duality is available symbolically. Any `y >= 0` with `A(p)ᵀy >= c(p)` gives
+`opt(p) <= b(p)·y` — for every `p` at once, not for the ones you ran.
+
+```
+$ certo parametric examples/parametric_bound.py
+PROVED  [unsat]
+  for all p >= 10, the optimum is at most 1/6*p^2 + 1/6*p - 2/3
+  and that is every value with p >= 10 -- not a sample of them
+```
+
+And it is not a loose bound. Solving that LP outright:
+
+| p | bound | optimum |
+|---|---|---|
+| 10 | 53/3 | 53/3 |
+| 11 | 64/3 | 64/3 |
+| 15 | 118/3 | 118/3 |
+| 30 | 463/3 | 463/3 |
+
+**One dual, read off one solved instance at `p = 10`, gives the exact optimum
+for every `p` above it.**
+
+### The division of labour
+
+certo does not search for `y` here. `certo opt` on a single instance hands you
+one, and so would any other solver. What this checks is that the `y` you
+already have works for the whole family — and that check is arithmetic:
+
+> substitute `p = 10 + u`, expand, and read the signs off the coefficients
+
+All non-negative means the polynomial is non-negative on the ray, because `u`
+and its powers are. Same split as `farkas`, one level up: there the
+multipliers are constants, here they are constants attached to a family.
+
+### What it will not pretend
+
+The shift test is **sufficient and not necessary**. `p² - 3p + 3` is positive
+everywhere and fails it at `p₀ = 0`. So a failure means *"not established by
+this route"*, never *"false"* — and **no certificate is emitted**, because a
+route that did not work is not a bound.
+
+`verify` repeats the rest every time: this bounds the **LP relaxation**, it
+says nothing below the floor, and it says nothing about an integer optimum.
+
+### Where this came from
+
+A real instance, and the structure is worth seeing. A symmetrised LP solved
+exactly for `p = 5..12` with a hand-written rational simplex gave duals that
+are **piecewise constant with thresholds** — one vertex at `p = 6`, another
+across `p = 7, 8, 9`, a third from `p = 10`. On each piece the bound is a
+polynomial in `p` and the dual is fixed, which is exactly the shape this
+command certifies. The thresholds are part of the answer, not something to
+smooth over.
+
 
 ## `eliminate`: remove a variable, keep the condition
 
@@ -1915,7 +1981,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Twenty-six commands and thirty certificate kinds, and the shape of a
+Twenty-seven commands and thirty certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```

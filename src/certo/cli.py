@@ -64,7 +64,7 @@ _HIDDEN_META = ("trace", "errors", "describe", "counterexamples", "solution",
                 "achieved", "conditional", "discrete_gain", "selected",
                 "skeleton_from", "nodes", "by_bound", "infeasible",
                 "leaves", "closed", "integral_level", "tight",
-                "mu", "nu", "gap", "leading", "case", "resultant", "case",
+                "mu", "nu", "gap", "leading", "case", "resultant", "floor", "bound", "case",
                 # both are already said in the detail line, and once loudly
                 "constant_goal", "hypotheses_only", "clash")
 
@@ -428,6 +428,18 @@ def cmd_ideal(args):
         print("  " + t("cli.ideal.cofactors"))
         for i, h in res.meta["cofactors"].items():
             print("    g{} * ({})".format(i, h))
+    return rc
+
+
+def cmd_parametric(args):
+    from .engines import algebra
+    from .spec import ParametricSpec, load_spec
+
+    spec = load_spec(args.spec, ParametricSpec)
+    res = algebra.parametric(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.meta.get("bound"):
+        print("  " + t("cli.param.scope", floor=res.meta["floor"]))
     return rc
 
 
@@ -1355,6 +1367,11 @@ def build_parser():
                       "what follows, with Groebner cofactors")
     sp.add_argument("spec", help=".py file returning an IdealSpec")
     sp.set_defaults(func=cmd_ideal)
+
+    sp = add("parametric", "a bound that holds for EVERY value of a "
+                           "parameter, from a dual you already have")
+    sp.add_argument("spec", help=".py file returning a ParametricSpec")
+    sp.set_defaults(func=cmd_parametric)
 
     sp = add("eliminate", "remove a variable from two polynomials: the "
                           "resultant, with the Bezout identity attached")

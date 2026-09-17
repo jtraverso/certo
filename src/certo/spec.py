@@ -738,6 +738,38 @@ class IdealSpec:
 
 
 @dataclass
+class ParametricSpec:
+    """An LP whose data are POLYNOMIALS in a parameter, and a dual to check.
+
+        ParametricSpec(
+            parameters={"p": 10},                 # name -> lower bound
+            objective={"x": one, "y": p - 5},
+            constraints=[("cap", {"x": one, "y": one}, "<=", p * p)],
+            dual={"cap": Fraction(1, 3)},
+        )
+
+    Certifies `opt(p) <= b(p).y` for EVERY `p` at or above the bound, which is
+    the jump a finite sweep cannot make. Coefficients are z3 terms in the
+    parameter symbols, or `Poly` over the same ring.
+
+    The dual is an INPUT, not something this searches for. Solve one instance
+    with `opt`, read the dual off, hand it over. Finding a `y` can be as
+    numeric as it likes; checking one is arithmetic, and that split is the
+    whole design -- the same one `farkas` makes with its multipliers.
+
+    `max c.x` subject to `A x <= b, x >= 0` only. A min problem or a `>=` row
+    is refused rather than silently reinterpreted.
+    """
+
+    parameters: dict                 # name -> lower bound (a number)
+    objective: dict                  # variable -> coefficient polynomial
+    constraints: list                # [(name, {var: coef}, "<=", rhs)]
+    dual: dict                       # constraint name -> non-negative rational
+    sense: str = "max"
+    title: str = ""
+
+
+@dataclass
 class EliminateSpec:
     """Two polynomials and the variable to get rid of.
 

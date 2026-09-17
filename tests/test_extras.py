@@ -3718,6 +3718,119 @@ def test_a_variable_that_is_not_there_says_which_ones_are():
     assert "s, t" in r.detail
 
 
+
+# --- a bound for every parameter value, not the ones you tried ------------
+
+
+def _param(dual, low=10, sense="max", rows=None):
+    from certo import ParametricSpec
+    from certo.polynomials import Poly
+
+    ring = ("p",)
+    P = Poly.var(ring, "p")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+    return ParametricSpec(
+        parameters={"p": low}, sense=sense,
+        objective={"x_big": K(1), "x_mid": K(1), "x_small": K(1)},
+        constraints=rows if rows is not None else [
+            ("cap_big", {"x_big": K(3), "x_mid": K(1)}, "<=",
+             P * (P - K(1)) * K(Fraction(1, 2))),
+            ("cap_mid", {"x_mid": K(2), "x_small": K(1)}, "<=", P - K(5)),
+            ("cap_small", {"x_small": K(2)}, "<=", K(3)),
+        ],
+        dual=dual, title="t")
+
+
+def _run(spec):
+    from certo.engines import algebra
+
+    return algebra.parametric(spec, LIM)
+
+
+def test_one_dual_certifies_the_optimum_for_every_parameter_above_the_floor():
+    """The whole point: a finite computation becomes a statement about a family."""
+    from certo.parametric import evaluate
+    from certo.polynomials import Poly
+
+    r = _run(_param({"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
+                     "cap_small": Fraction(1, 3)}))
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["bound"] == "1/6*p^2 + 1/6*p - 2/3"
+
+    # Tight at the floor and far beyond it, against the LP solved outright.
+    bound = Poly.parse(("p",), r.certificate.payload["bound"])
+    for p, want in ((10, Fraction(53, 3)), (11, Fraction(64, 3)),
+                    (30, Fraction(463, 3))):
+        assert evaluate(bound, {"p": p}) == want, p
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("says nothing below it" in w for w in rep.warnings)
+
+
+def test_a_dual_that_is_infeasible_on_the_ray_yields_no_certificate():
+    """The shift is sufficient, not necessary, so a failure is not a refutation."""
+    r = _run(_param({"cap_big": Fraction(1, 100), "cap_mid": Fraction(0),
+                     "cap_small": Fraction(0)}))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None          # no bound, so no certificate
+    assert "NOT ESTABLISHED" in r.detail
+    assert r.meta["failed_columns"]
+
+
+def test_a_negative_dual_entry_is_refused_outright():
+    r = _run(_param({"cap_big": Fraction(1, 3), "cap_mid": Fraction(-1),
+                     "cap_small": Fraction(1, 3)}))
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "cap_mid" in r.detail
+
+
+def test_min_problems_and_ge_rows_are_refused_rather_than_reinterpreted():
+    d = {"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
+         "cap_small": Fraction(1, 3)}
+    assert "sense=min" in _run(_param(d, sense="min")).detail
+
+    from certo.polynomials import Poly
+    ring = ("p",)
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+    r = _run(_param({"only": Fraction(1)}, rows=[
+        ("only", {"x_big": K(1)}, ">=", K(1))]))
+    assert "only" in r.detail
+
+
+def test_the_shift_is_exact_and_sufficient_not_necessary():
+    """Pinned, because the gap is the honest limit of the whole command."""
+    from certo.parametric import nonneg_on_ray, shift
+    from certo.polynomials import Poly
+
+    ring = ("p",)
+    P = Poly.var(ring, "p")
+    K = lambda c: Poly.const(ring, c)                      # noqa: E731
+
+    # (p - 10) is non-negative on p >= 10, and the shift sees it immediately.
+    ok, shifted = nonneg_on_ray(P - K(10), {"p": 10})
+    assert ok and str(shifted) == "p"
+
+    # p^2 - 3p + 3 is positive EVERYWHERE and the shift at 0 does not see it.
+    ok, shifted = nonneg_on_ray(P * P - K(3) * P + K(3), {"p": 0})
+    assert not ok
+    # ... and shifting far enough up does.
+    ok, _ = nonneg_on_ray(P * P - K(3) * P + K(3), {"p": 2})
+    assert ok
+
+    # the substitution itself is exact
+    assert str(shift(P * P, {"p": 1})) == "p^2 + 2*p + 1"
+
+
+def test_forging_the_bound_is_caught_by_re_expanding_it():
+    r = _run(_param({"cap_big": Fraction(1, 3), "cap_mid": Fraction(1, 3),
+                     "cap_small": Fraction(1, 3)}))
+    d = json.loads(json.dumps(r.certificate.to_dict()))
+    key = next(iter(d["payload"]["bound"]))
+    d["payload"]["bound"][key] = str(Fraction(d["payload"]["bound"][key]) - 1)
+    assert not verify(Certificate.from_dict(d), LIM).ok
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

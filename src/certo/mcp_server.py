@@ -697,6 +697,30 @@ async def ideal(spec_path: str | None = None, spec_source: str | None = None,
 
 
 @mcp.tool(description=(
+    "A bound that holds for EVERY value of a parameter, not the ones you "
+    "tried. Give an LP whose coefficients are POLYNOMIALS in a parameter plus "
+    "a dual y you already have (read it off `opt` on one instance), and this "
+    "certifies opt(p) <= b(p).y for all p at or above a floor. Weak duality "
+    "holds symbolically; the check is substituting p = p0 + u and reading the "
+    "signs off the coefficients, with no solver. This is the finite-to-"
+    "infinite jump: a sweep says 'checked for p = 5..12', this says 'holds "
+    "for every p >= 10'. The shift test is SUFFICIENT and not necessary, so a "
+    "failure means the route did not work and NEVER that the bound is false; "
+    "no certificate is emitted for one."))
+@_guard
+async def parametric(spec_path: str | None = None,
+                     spec_source: str | None = None,
+                     timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import ParametricSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), ParametricSpec)
+    res = await _off(algebra.parametric, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "ELIMINATE a variable from exactly two polynomials and get the condition "
     "on the ones that remain. The answer is the resultant: it vanishes "
     "exactly when the two share a root in the eliminated variable, so "

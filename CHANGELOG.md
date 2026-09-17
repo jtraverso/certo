@@ -6,6 +6,48 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### `certo parametric`: the finite-to-infinite jump
+
+The thing this project kept saying it could not do, and the sentence that
+carries the most unearned weight in mathematical writing: *"and similarly for
+larger n"*.
+
+For a linear program whose data are POLYNOMIALS in a parameter, weak duality
+is available symbolically: any `y >= 0` with `A(p)ᵀy >= c(p)` gives
+`opt(p) <= b(p)·y` for every `p` at once. So the certificate is `y`, the
+polynomial data, and per column the residual `A^T y - c` after substituting
+`p = p0 + u` — whose coefficients are all non-negative, which is the whole
+proof, because `u` and its powers are.
+
+```
+$ certo parametric examples/parametric_bound.py
+PROVED  [unsat]
+  for all p >= 10, the optimum is at most 1/6*p^2 + 1/6*p - 2/3
+  and that is every value with p >= 10 -- not a sample of them
+```
+
+Not a loose bound either: solving that LP outright gives 53/3, 64/3, 118/3 and
+463/3 at p = 10, 11, 15 and 30, and the polynomial gives exactly those. **One
+dual, read off one solved instance, gives the exact optimum for every p above
+the floor.**
+
+certo does not search for `y`. `opt` on a single instance hands you one and so
+would any other solver; what this checks is that it works for the whole
+family, and that check is arithmetic. Same split as `farkas`, one level up.
+
+The shift test is **sufficient and not necessary** — `p^2 - 3p + 3` is
+positive everywhere and fails it at `p0 = 0`. A failure therefore means "not
+established by this route", never "false", and **no certificate is emitted**,
+because a route that did not work is not a bound.
+
+Built against a real instance rather than in the abstract. A symmetrised LP
+solved exactly for `p = 5..12` with a hand-written rational simplex turned out
+to have duals that are piecewise constant with thresholds — one vertex at
+p = 6, another across 7..9, a third from 10 — which is exactly the shape this
+certifies. Reproducing that slice symbolically and certifying it was how the
+command got its interface.
+
+
 ### `certo eliminate`: remove a variable, keep the condition
 
 `ideal` says what follows from a system. This is the other question people ask
