@@ -1456,6 +1456,43 @@ certo opt examples/packing_mixed.py --by-type
 Whether mixing buys anything is the gap between the mixed optimum and the best
 single kind. Here, on K6, it buys nothing over pure K4.
 
+## Exact mode stopped depending on CBC's dual
+
+A user certified 56 LPs exactly and **3 needed the rational primal and dual
+injected by hand** — all of them on symmetric solutions. That is not bad luck.
+On a degenerate vertex several duals are optimal, CBC returns an arbitrary one
+of them, and rounding *that particular one* need not be dual-feasible at all.
+
+The fix is not a longer denominator ladder. Given an exact primal,
+complementary slackness determines the dual: `yᵢ = 0` on every row with slack,
+and `Σᵢ Aᵢⱼ yᵢ = cⱼ` for every `j` with `xⱼ > 0`. That is a linear system over
+the tight rows, solved in `Fraction` by Gaussian elimination with no floats
+anywhere. Where it underdetermines the dual — more tight rows than active
+variables, which is exactly what symmetry produces — the leftover freedom **is**
+the set of optimal duals, so each choice is offered in turn.
+
+```
+max 2x + 3y   s.t.  x + y ≤ 1,  x + 2y ≤ 1,  x, y ≥ 0
+```
+
+Both rows are tight at the optimum and only one variable is active. Certifying
+it now works with **no usable dual from the solver at all**:
+
+| what CBC returned | certified | dual used |
+|---|---|---|
+| nothing (`0, 0`) | yes | `(0, 2)` |
+| nonsense (`7.3, -2.1`) | yes | `(0, 2)` |
+| another vertex's dual | yes | `(0, 1.5)` → `(0, 2)` |
+
+A derived dual is **not** trusted for being derived. It is a candidate, like a
+rounded one, and it earns the certificate by passing the identical exact
+`check_lp`. What changed is where candidates come from: the structure of the
+problem rather than whatever a float solver landed on.
+
+Reconstruction still runs first, so every LP that certified before certifies
+the same way, with the same simplest denominator and the same digest.
+
+
 ## The most-used command stops needing a solver
 
 An `unsat_core` said "z3 agreed with me", and `verify` re-ran z3 to check.

@@ -3512,6 +3512,94 @@ def test_forged_multipliers_are_rejected_by_the_arithmetic():
     assert any(not ok for name, ok, _ in rep.checks)
 
 
+
+# --- deriving the dual instead of reconstructing CBC's --------------------
+
+
+def test_exact_certification_no_longer_needs_a_usable_dual():
+    """The headline of P1 #1: CBC's dual stops being on the critical path.
+
+    3 of 56 exact LPs needed the rational pair injected by hand, all on
+    symmetric solutions -- where several duals are optimal and CBC returns an
+    arbitrary one, which need not round onto anything dual-feasible.
+    """
+    from certo import exact
+
+    #   max 2x + 3y   s.t.  x + y <= 1,  x + 2y <= 1,  x, y >= 0
+    # The optimum is 2 at (1, 0), where BOTH rows are tight and only one
+    # variable is active: degenerate, so the dual is underdetermined.
+    A, b, c = [[1, 1], [1, 2]], [1, 1], [2, 3]
+
+    for useless in ([0.0, 0.0], [7.3, -2.1], [0.0, 1.5]):
+        x, y, rep, _ = exact.certify(A, b, c, [1.0, 0.0], useless)
+        assert x is not None, useless
+        assert rep["ok"] and rep["objective"] == 2
+        # Derived, not rounded from what was handed in.
+        assert y == [Fraction(0), Fraction(2)]
+
+
+def test_a_derived_dual_is_a_candidate_and_not_a_promise():
+    """Nothing is trusted for where it came from: check_lp still decides."""
+    from certo import exact
+
+    A, b, c = [[1, 1], [1, 2]], [1, 1], [2, 3]
+    # The first candidate complementary slackness allows here is infeasible --
+    # it satisfies the active column and fails the inactive one. The search
+    # has to go on rather than return it.
+    first = exact.dual_from_primal(A, b, c, [Fraction(1), Fraction(0)])
+    assert not exact.check_lp(A, b, c, [Fraction(1), Fraction(0)], first)["ok"]
+
+    good = [y for y in exact.dual_candidates(A, b, c, [Fraction(1), Fraction(0)])
+            if exact.check_lp(A, b, c, [Fraction(1), Fraction(0)], y)["ok"]]
+    assert good == [[Fraction(0), Fraction(2)]]
+
+
+def test_the_simplest_denominator_still_wins_when_reconstruction_works():
+    """Pass 1 runs first, so nothing that already certified changes."""
+    from certo import exact
+
+    A, b, c = [[1, 1]], [1], [1, 1]
+    x, y, _rep, denom = exact.certify(A, b, c, [0.5, 0.5], [1.0])
+    # 2, not 1: rung 1 cannot express 1/2, and the FIRST rung that works is
+    # the one returned -- which is the denominator worth citing.
+    assert denom == 2
+    assert x == [Fraction(1, 2)] * 2 and y == [Fraction(1)]
+
+
+def test_solve_exact_is_rational_throughout():
+    from certo import exact
+
+    # 2x + y = 1, x - y = 1  ->  x = 2/3, y = -1/3
+    sol = exact.solve_exact([[2, 1], [1, -1]], [1, 1])
+    assert sol == [Fraction(2, 3), Fraction(-1, 3)]
+    assert all(isinstance(v, Fraction) for v in sol)
+
+    # inconsistent: 0 = 1 after elimination
+    assert exact.solve_exact([[1, 1], [1, 1]], [1, 2]) is None
+
+    # underdetermined: the free position is pinned to zero, which is what
+    # complementary slackness wants for a row nothing forces.
+    assert exact.solve_exact([[1, 1]], [2]) == [Fraction(2), Fraction(0)]
+
+
+def test_a_coupled_denominator_ladder_was_never_the_problem():
+    """Pinned because the backlog claimed it was, and measurement said no.
+
+    `limit_denominator` is monotone in accuracy, so a rung high enough for the
+    harder of the two values is high enough for both. Reconstructing `x` and
+    `y` at independent rungs looks like a free win and buys nothing.
+    """
+    from certo.exact import DENOM_LADDER, reconstruct
+
+    for xf, yf in ((1 / 3, 0.5), (1 / 7, 0.5), (2 / 7, 3 / 11)):
+        want_x = Fraction(xf).limit_denominator(10 ** 6)
+        want_y = Fraction(yf).limit_denominator(10 ** 6)
+        shared = next((d for d in DENOM_LADDER
+                       if reconstruct([xf], d) == [want_x]
+                       and reconstruct([yf], d) == [want_y]), None)
+        assert shared is not None, (xf, yf)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

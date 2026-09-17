@@ -6,6 +6,35 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+### Exact LP certification stopped depending on CBC's dual
+
+A user certified 56 LPs exactly and **3 needed the rational primal and dual
+injected by hand**, all on symmetric solutions. On a degenerate vertex several
+duals are optimal, CBC returns an arbitrary one, and rounding that particular
+one need not be dual-feasible at all.
+
+Given an exact primal, complementary slackness determines the dual: `yᵢ = 0`
+on every slack row, `Σᵢ Aᵢⱼ yᵢ = cⱼ` for every active `xⱼ`. Solved in
+`Fraction` by Gaussian elimination, with no floats anywhere. Where it
+underdetermines the dual — more tight rows than active variables, which is
+what symmetry produces — the leftover freedom IS the set of optimal duals, and
+each choice is offered in turn.
+
+A derived dual is not trusted for being derived: it is a candidate, like a
+rounded one, and earns the certificate by passing the identical exact
+`check_lp`. Reconstruction still runs first, so every LP that certified before
+certifies the same way, with the same denominator and digest.
+
+**One thing the backlog claimed and measurement refuted.** It said the coupled
+denominator ladder was a second cause — that a primal wanting thirds and a
+dual wanting halves had no rung that worked. `limit_denominator` is monotone
+in accuracy, so a rung high enough for the harder of the two is high enough
+for both, and pass 1 already climbs to it. Checked on three such pairs before
+writing the fix; all were exact at one shared rung. The independent-ladder
+pass was dropped rather than shipped, and a test pins the reason so nobody
+adds it back.
+
+
 ### An unsat core over linear arithmetic no longer needs a solver
 
 A user's objection, quoted exactly: *`unsat_core` certificates depend on

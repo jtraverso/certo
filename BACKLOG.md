@@ -48,6 +48,7 @@ Last updated: 2026-09-16 (after the second user report: the integral-point hole 
 | ✅ | **`S**4` was refused as a non-constant exponent** *(user feedback)* | With a REAL base z3 makes the exponent a rational literal; `is_int_value` said no. The sort was never the question. |
 | ✅ | **`certo mixed`** *(user feedback)* | Per-variable kinds, and the search-then-certify flow a user was running by hand. Certifies the construction, the exact residual dual, and the link between them; states plainly that it does not claim MILP optimality. Throws in the relaxation bound, which certifies global optimality for free when the two meet. |
 | ✅ | **`certo number`** *(0.3.0)* | Pratt primality trees and factorisations. Checked by modular exponentiation alone. |
+| ✅ | **Derive the LP dual instead of reconstructing it** *(user feedback P1)* | 3 of 56 exact LPs needed the rational pair injected by hand, all on symmetric solutions: on a degenerate vertex CBC returns an arbitrary one of many optimal duals and rounding it need not be dual-feasible. Complementary slackness determines the dual from the primal in exact `Fraction`, and where it underdetermines it the choices ARE the optimal duals. Certifies now with no usable dual from the solver at all. The second cause this item claimed — a coupled denominator ladder — was **measured and refuted**; that pass was dropped rather than shipped. |
 | ✅ | **A solver-free certificate for linear-arithmetic proofs** *(user feedback P1)* | An `unsat_core` meant re-running z3 to check it. Now the Farkas search runs over the core's own rows and the multipliers travel as optional fields: verification expands the combination in `Fraction` and reads off the contradiction. Floats in the search do not compromise it — the LP finds the vector, exact arithmetic accepts or rejects it. Fell out of it: the Lean export emits `linarith` instead of `sorry`, so the two gaps this user reported separately had one fix. |
 | ✅ | **`check --hypotheses-only`** *(user feedback)* | Asking "is my regime non-empty?" by claiming `False` returned UNSATISFIABLE on regimes that have models -- correct, and the opposite of what it reads as. The flag asks it directly: a solver-free model when the regime is inhabited, the minimal clash when it is not. A constant claim is named in `check` and in `lint` for whoever does not know the flag exists. |
 | ✅ | **`export --lean` for `unsat_core`** *(user feedback)* | The kind the most-used command produces used to be refused. Linear arithmetic gets real binders, hypotheses and a positively stated goal with `sorry`; a vacuous core becomes `h₁ → … → False`, the emptiness of the regime stated in Lean. The sort is read off the formulas. Everything else carries the SMT-LIB2 and says so. |
@@ -102,30 +103,7 @@ items below still say "build against a real problem".
 
 ## P1 — next
 
-### 1. Derive the LP dual instead of reconstructing it *(user feedback)*
-
-**3 of 56 exact LPs needed the rational primal/dual injected by hand**, all on
-symmetric solutions. The cause is in `exact.certify`: it reconstructs `x` and
-`y` at the SAME rung of the denominator ladder and requires all five checks to
-pass together. Two ways that fails on a symmetric instance, both real:
-
-* the primal needs denominator 3 and the dual needs 2, so no single rung
-  works — the coupling is gratuitous;
-* on a degenerate vertex CBC returns one of MANY optimal duals, and rounding
-  an arbitrary one need not be dual-feasible at all.
-
-The fix is not a longer ladder. Given the reconstructed primal, complementary
-slackness DETERMINES the dual: `y_i = 0` on every slack row, and
-`sum_i A_ij y_i = c_j` for every `j` with `x_j > 0`. That is a linear system
-over the tight rows, solvable exactly in `Fraction` by Gaussian elimination,
-and then checked for `y >= 0` and `A^T y >= c` as now.
-
-That removes the dependence on CBC's dual entirely — which is precisely the
-fragile part, since on a symmetric optimum CBC's choice among the optimal
-duals is arbitrary. Decoupling the two ladders is worth doing on its own and
-is three lines.
-
-### 2. Local loads as part of a packing certificate *(user feedback)*
+### 1. Local loads as part of a packing certificate *(user feedback)*
 
 The user is building a resource-packing / hypergraph-matching layer AROUND
 certo: generate the physical rows automatically, and ask for "preserve these
@@ -137,7 +115,7 @@ record that the solution holds them.
 and whether they are equalities or bounds, is a property of the problem; the
 same argument as P2 #7, and guessing produced a bad check once already.
 
-### 3. Parametric certificates — the jump from finite case to theorem
+### 2. Parametric certificates — the jump from finite case to theorem
 
 `order` is the first step of this and it shipped. The rest: an LP dual given
 as rational FUNCTIONS of `s`, whose feasibility `A^T y >= c` becomes polynomial

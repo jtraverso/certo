@@ -1500,6 +1500,45 @@ certificados**, guarda su ruta y su digest. `ledger verify` los relee y los
 re-verifica, así que un certificado manipulado o ausente sale como fallo en
 vez de quedar duplicado en el log.
 
+## El modo exacto dejó de depender del dual de CBC
+
+Un usuario certificó 56 LPs de forma exacta y **3 necesitaron que inyectara a
+mano el primal y el dual racionales** —todos en soluciones simétricas—. Eso no
+es mala suerte. En un vértice degenerado hay varios duales óptimos, CBC
+devuelve uno arbitrario, y redondear *ese en concreto* puede no ser ni
+dual-factible.
+
+La solución no es una escalera de denominadores más larga. Dado un primal
+exacto, la holgura complementaria determina el dual: `yᵢ = 0` en cada fila con
+holgura, y `Σᵢ Aᵢⱼ yᵢ = cⱼ` para cada `j` con `xⱼ > 0`. Eso es un sistema
+lineal sobre las filas tensas, resuelto en `Fraction` por eliminación
+gaussiana sin un solo flotante. Donde lo deja subdeterminado —más filas tensas
+que variables activas, que es justo lo que produce la simetría— la libertad
+sobrante **es** el conjunto de duales óptimos, así que cada elección se ofrece
+por turno.
+
+```
+max 2x + 3y   s.a.  x + y ≤ 1,  x + 2y ≤ 1,  x, y ≥ 0
+```
+
+Las dos filas están tensas en el óptimo y solo una variable está activa.
+Certificarlo funciona ahora **sin ningún dual utilizable del solver**:
+
+| lo que devolvió CBC | certifica | dual usado |
+|---|---|---|
+| nada (`0, 0`) | sí | `(0, 2)` |
+| basura (`7.3, -2.1`) | sí | `(0, 2)` |
+| el dual de otro vértice | sí | `(0, 1.5)` → `(0, 2)` |
+
+Un dual derivado **no** se cree por ser derivado. Es un candidato, igual que
+uno redondeado, y se gana el certificado pasando el mismo `check_lp` exacto.
+Lo que cambia es de dónde salen los candidatos: de la estructura del problema
+en vez de donde aterrizara un solver de flotantes.
+
+La reconstrucción sigue corriendo primero, así que todo LP que certificaba
+antes certifica igual, con el mismo denominador mínimo y el mismo digest.
+
+
 ## El comando más usado deja de necesitar solver
 
 Un `unsat_core` decía «z3 estuvo de acuerdo conmigo», y `verify` volvía a
