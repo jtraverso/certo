@@ -218,20 +218,56 @@ Empty. The three items that were here landed; what was P2 is next.
 
 ## P2 — high value, more work
 
-### 1. A canonical form that scales, by consuming an automorphism group
+### 1. A canonical form that scales — and the measurement that kills the plan
 
-Finding 3. The instance exists and is in the corpus — a 1-factorisation of K6,
-fifteen points and five blocks, hits the cap — and the missing ingredient is
-computed by an adjacent tool.
+**The item as written does not work, and here is the number.** The plan was:
+take a generating set for the automorphism group as INPUT and prune the search
+with it, the way `parametric` takes a dual. Measured on the instance that
+motivates it, a 1-factorisation of K6 — 15 points, 5 blocks, and 1-WL
+refinement returns ONE class because the object is vertex-transitive:
 
-So the shape is: take a generating set for the automorphism group as INPUT,
-prune the individualisation-refinement search with it, and check the result
-against the exhaustive reference wherever that can still run. certo does not
-compute the group, the same way `parametric` does not search for its dual.
+    candidate relabellings          15! = 1,307,674,368,000
+    |Aut|, computed exhaustively    120
+    cosets, with the FULL group     10,897,286,400
+    the cap                         200,000
 
-This also unblocks matchings and coloured hypergraphs, which were a separate
-item and turn out to be the same blocker: the structure that hits the cap IS
-a family of matchings.
+Consuming the whole automorphism group leaves the search 54,000 times over the
+cap. Coset pruning is not the missing ingredient, because `|Aut|` is small and
+`n!` is not. The earlier negative result on individualisation-refinement said
+the same thing from the other side, and this says why: the win in nauty is
+pruning INSIDE the search tree, not quotienting the outside of it.
+
+**And tree pruning needs a different canonical form.** Pruning a partial
+labelling requires comparing a PREFIX of the form against the best complete
+one. The current form is the lexicographically smallest sorted tuple of
+blocks, and that is not prefix-comparable: fixing labels `0..k` does not
+determine any prefix of the sorted block list, because a block with a small
+first label and large later ones sorts before a block that is already fully
+determined.
+
+So the real decision is not "consume a group". It is:
+
+**(a) Change the canonical form to a prefix-comparable one** — the bipartite
+incidence matrix of points and blocks, read row-major, which is what nauty
+canonicalises. Then branch and bound on the lex-min works, orbit pruning from
+a supplied group slots in, and the motivating instance becomes feasible. The
+cost is a **blast radius**: every canonical value certo computes changes.
+Orbit DECOMPOSITIONS are unaffected — both forms are complete invariants, so
+the partition is identical — but stored representatives and ids move, and
+anything that pinned a literal canonical string has to be re-pinned.
+
+**(b) Take the canonical labelling as INPUT, and make the dedup checkable.**
+Today `verify` re-derives certo's own canonical form and trusts the algorithm.
+With a supplied labelling per item, each orbit carries an explicit permutation
+to its representative, and membership becomes checkable by applying it — no
+trust in certo, no cap, and nauty does the part it is good at. What stays
+uncertified is the other direction, that two representatives are NOT
+isomorphic, and that would be named rather than implied.
+
+(b) is the smaller change and the one shaped like the rest of the tool; (a) is
+the one that makes `certo canonical` actually scale on its own. They are not
+exclusive. **This needs a decision before it is built**, which is why it is
+written down rather than started.
 
 ### 2. Flag algebras
 
