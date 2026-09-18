@@ -18,10 +18,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.12", "3.13"]
-        # 3.13 is where the wheels for the optional numerics are thinnest, so
-        # it runs without them: the CLI has to work on an install that has
-        # only z3 and pulp, and that is the configuration nobody tests by
-        # accident.
         exclude:
           - {os: macos-latest, python: "3.11"}
     runs-on: ${{ matrix.os }}
@@ -30,14 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: install
-        shell: bash
-        run: |
-          if [ "${{ matrix.python }}" = "3.13" ]; then
-            pip install -e ".[mcp]"        # no numerics wheels to rely on yet
-          else
-            pip install -e ".[mcp,numerics]"
-          fi
+      - run: pip install -e ".[mcp,numerics]"
       - name: capabilities
         run: certo doctor
       # `determinism` was the one cross-cutting rule CI did not check, which
@@ -49,6 +38,45 @@ jobs:
           for t in smoke mcp i18n extras adversarial determinism; do
             python tests/test_$t.py
           done
+
+  # The install with no extras at all: z3 and pulp, nothing else. It is a
+  # supported configuration -- `doctor` says which capabilities are missing
+  # and what each gap costs -- and it is the one nobody exercises by accident.
+  #
+  # It does NOT run the full suite. Most of `extras` needs an interval backend
+  # or numpy, and an earlier attempt to run it here failed dozens of tests
+  # that were right to assume what the extras provide. What this job claims is
+  # narrower and true: the CLI starts, reports the gaps honestly, and the
+  # solver-free commands work.
+  minimal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: it starts, and says what is missing
+        run: |
+          certo --version
+          certo doctor
+          certo commands --table
+      - name: the commands that need nothing extra still work
+        run: |
+          certo prove examples/refute_density.py
+          certo matrix examples/integer_matrix.py
+          certo cone examples/toric_cone.py
+          certo range examples/variable_range.py --var a
+          certo cycle examples/dependency_cycle.py
+          certo opt examples/lp_as_data.json
+      - name: and the ones that need an extra say so rather than crashing
+        shell: bash
+        run: |
+          set -e
+          out=$(certo bounds examples/bounds_constant.py 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "python-flint" || {
+            echo "::error::bounds did not name the missing backend"; exit 1; }
 
   # The examples are the documentation, and documentation that no longer runs
   # is worse than none. Each one is executed exactly as the README shows it.
