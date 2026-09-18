@@ -43,6 +43,7 @@ class NotRangeable(ValueError):
 
 
 UNBOUNDED = "unbounded"
+UNKNOWN = "unknown"
 EMPTY = "empty"
 STRICT = "strict"
 
@@ -95,6 +96,56 @@ def variables_of(spec) -> list:
     return sorted(seen)
 
 
+def _ray(rows, names, var, sign):
+    """A direction the regime never leaves and `sign*var` increases along.
+
+    `max sign*var` over `A x <= b` is unbounded exactly when the polyhedron is
+    non-empty AND there is a `d` with `A d <= 0` and `sign * d[var] > 0`:
+    from any feasible point you may walk along `d` forever, and the objective
+    grows without limit. That `d` is the evidence, and without it "unbounded"
+    is a word rather than a claim -- which is what it was: a payload edited to
+    say `unbounded` verified happily, turning `[0, 1]` into `[0, +inf)`.
+
+    Found by the same exact simplex, with `d` split into non-negative halves
+    because the direction may point either way and the solver takes `y >= 0`.
+    """
+    from . import simplex
+
+    A = [[row[1].get(v, Fraction(0)) for v in names] for row in rows]
+    n, m = len(names), len(A)
+    at = names.index(var)
+
+    # variables are (d+, d-), so the matrix `minimise` wants has 2n rows and
+    # one column per constraint: `A d <= 0` rewritten `>=`, then `sign*d[var]`
+    # pinned to exactly 1 so the ray is normalised and the search bounded.
+    M, b = [], []
+    for j in range(2 * n):
+        col, plus = [], j < n
+        k = j if plus else j - n
+        for i in range(m):
+            col.append(-A[i][k] if plus else A[i][k])
+        one = Fraction(sign) if k == at else Fraction(0)
+        col.append(one if plus else -one)
+        col.append(-one if plus else one)
+        M.append(col)
+        b.append(Fraction(1))            # minimise the size of the ray
+    c = [Fraction(0)] * m + [Fraction(1), Fraction(-1)]
+
+    try:
+        y = simplex.minimise(M, b, c)
+    except Exception:                    # noqa: BLE001 - no ray exists
+        return None
+    d = [y[j] - y[n + j] for j in range(n)]
+    # Checked here as well as in `check`: a ray this function believed and
+    # nobody re-derived would be the same failure one level down.
+    if sign * d[at] <= 0:
+        return None
+    for i in range(m):
+        if sum((A[i][k] * d[k] for k in range(n)), Fraction(0)) > 0:
+            return None
+    return d
+
+
 def _endpoint(rows, names, var, sign, limits):
     """`max sign*var` over the rows, as a dual. Returns None when unbounded.
 
@@ -115,8 +166,17 @@ def _endpoint(rows, names, var, sign, limits):
         y = simplex.minimise(wide, b, target)
     except Exception as exc:                       # noqa: BLE001
         # No feasible dual means the primal is unbounded in this direction --
-        # a legitimate answer, and a different one from "no range".
-        return {"bound": None, "why": UNBOUNDED, "detail": str(exc)}
+        # a legitimate answer, and a different one from "no range". It still
+        # has to be EVIDENCED: the ray is what a reader re-checks.
+        if var is None:
+            return {"bound": None, "why": UNBOUNDED, "detail": str(exc)}
+        d = _ray(rows, names, var, sign)
+        if d is None:
+            # The dual says unbounded and no ray can be produced. That is not
+            # a range and it is not "unbounded" either: say which.
+            return {"bound": None, "why": UNKNOWN, "detail": str(exc)}
+        return {"bound": None, "why": UNBOUNDED, "ray": d,
+                "detail": str(exc)}
 
     value = sum((bi * yi for bi, yi in zip(b, y)), Fraction(0))
     used = [rows[i][0] for i, yi in enumerate(y) if yi != 0]
@@ -179,17 +239,61 @@ def bounds_of(spec, var, limits=None) -> dict:
 
 def _serial(end) -> dict:
     if end["bound"] is None:
-        return {"bound": None, "why": end["why"]}
+        out = {"bound": None, "why": end["why"]}
+        if end.get("ray") is not None:
+            out["ray"] = [str(v) for v in end["ray"]]
+        return out
     return {"bound": str(end["bound"]),
             "multipliers": {k: str(v) for k, v in end["multipliers"].items()},
             "used": end["used"], "strict": end["strict"], "why": None}
 
 
+
+def _check_ray(payload, rows, names, at, end, sign) -> dict:
+    """`A d <= 0` and `sign*d[var] > 0`, re-derived from the rows.
+
+    Three products and a comparison. The regime's non-emptiness is asked
+    again too: a ray over an empty polyhedron proves nothing, and the two
+    together are what unboundedness means.
+    """
+    ray = end.get("ray")
+    if ray is None or at is None or len(ray) != len(names):
+        return {"ok": False, "why": end.get("why"),
+                "reason": "an unbounded end with no ray to check"}
+
+    d = [Fraction(v) for v in ray]
+    if sign * d[at] <= 0:
+        return {"ok": False, "reason": "the ray does not move the variable"}
+
+    bad = []
+    for name, row in rows.items():
+        walk = sum((Fraction(row["coeffs"].get(v, 0)) * d[i]
+                    for i, v in enumerate(names)), Fraction(0))
+        if walk > 0:
+            bad.append(name)
+    if bad:
+        return {"ok": False, "reason": "the ray leaves the regime",
+                "rows": sorted(bad)[:4]}
+
+    linear = [(n, {k: Fraction(v) for k, v in r["coeffs"].items()},
+               Fraction(r["const"]), r["strict"]) for n, r in rows.items()]
+    if not _inhabited(linear, names, None):
+        return {"ok": False,
+                "reason": "a ray over an empty regime establishes nothing"}
+    return {"ok": True, "why": UNBOUNDED, "ray": [str(v) for v in d]}
+
+
 def _interval(lo, hi) -> str:
-    left = "(-inf" if lo["bound"] is None else \
-        ("(" if lo["strict"] else "[") + str(lo["bound"])
-    right = "+inf)" if hi["bound"] is None else \
-        str(hi["bound"]) + (")" if hi["strict"] else "]")
+    def end(e, side):
+        if e["bound"] is not None:
+            return None
+        # "unbounded" and "not established" are different answers, and an
+        # interval that prints them the same is the reason this fix exists.
+        return "(-inf" if side == "lo" and e["why"] == UNBOUNDED else \
+               "+inf)" if side == "hi" and e["why"] == UNBOUNDED else "?"
+
+    left = end(lo, "lo") or (("(" if lo["strict"] else "[") + str(lo["bound"]))
+    right = end(hi, "hi") or (str(hi["bound"]) + (")" if hi["strict"] else "]"))
     return left + ", " + right
 
 
@@ -201,11 +305,24 @@ def check(payload) -> dict:
     a comparison.
     """
     rows = {r["name"]: r for r in payload["rows"]}
+    names = payload["variables"]
+    at = names.index(payload["variable"]) if payload["variable"] in names \
+        else None
     out = {}
     for side, sign in (("upper", 1), ("lower", -1)):
         end = payload[side]
         if end["bound"] is None:
-            out[side] = {"ok": True, "why": end.get("why")}
+            # An UNBOUNDED end is a claim and needs its ray. Accepting the
+            # word alone let a payload edited to say `unbounded` verify, and
+            # `[0, 1]` came back as `[0, +inf)`. Anything else -- empty,
+            # unknown -- establishes nothing and must not read as checked.
+            if payload.get("empty"):
+                out[side] = {"ok": True, "why": EMPTY}
+            elif end.get("why") != UNBOUNDED:
+                out[side] = {"ok": False, "why": end.get("why"),
+                             "reason": "no bound and no ray"}
+            else:
+                out[side] = _check_ray(payload, rows, names, at, end, sign)
             continue
         mult = {k: Fraction(v) for k, v in end["multipliers"].items()}
         bad = [k for k, v in mult.items() if v < 0 or k not in rows]

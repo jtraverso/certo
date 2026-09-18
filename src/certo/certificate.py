@@ -2373,8 +2373,14 @@ def _verify_variable_range(cert, limits) -> VerifyReport:
                       ("lower", "verify.varrange.lower")):
         end, res = p[side], got[side]
         if end["bound"] is None:
+            # A refusal has to say what is missing. "no bound in this
+            # direction" told a reader nothing about WHY the check failed,
+            # which is half of what a failed check is for.
             checks.append((t(key), res["ok"],
-                           t("verify.varrange.open", why=end.get("why", "?"))))
+                           t("verify.varrange.open", why=end.get("why", "?"))
+                           if res["ok"] else
+                           t("verify.varrange.unproven",
+                             reason=res.get("reason", "?"))))
         else:
             checks.append((t(key), res["ok"],
                            t("verify.varrange.combines",

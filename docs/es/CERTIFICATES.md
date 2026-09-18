@@ -39,7 +39,7 @@ abajo es el mapa; la cabecera es el territorio.
 | `lp_dual` | optimalidad exacta de un LP | **sí**, aritmética racional |
 | `branch_bound` | un óptimo entero, cada hoja cerrada por su propio certificado | **sí**, aritmética exacta |
 | `mixed_design` | una construcción existe y alcanza un valor; **no** que sea óptima | **sí**, aritmética exacta |
-| `gap` | una cota superior y una inferior, y la distancia entre ellas | **sí** |
+| `gap` | una cota superior y una inferior, y la distancia entre ellas | no: el lado entero vuelve a resolver |
 | `drat` | insatisfacibilidad de un CNF | **sí**, RUP/RAT |
 | `graph_set` | una familia no isomorfa que pasa los filtros | **sí** |
 | `sweep` | familia + certificados del predicado | depende del predicado |
@@ -69,7 +69,7 @@ abajo es el mapa; la cabecera es el territorio.
 | `toric_cone` | primitividad, multiplicidad, altura, discrepancias | **sí**, determinante y resolución exactos |
 | `family_extremum` | el mayor de una familia, y un dual para el resto | reconstruye el programa de cada ítem |
 | `hypothesis_audit` | un veredicto por hipótesis, con la asignación que la rompe | no — sustituir un testigo deja una fórmula cerrada, y decidirla sigue siendo una llamada al solver |
-| `variable_range` | el intervalo que puede tomar una variable, cada extremo una combinación de Farkas | **sí**, sumar fracciones |
+| `variable_range` | el intervalo que puede tomar una variable: una combinación de Farkas en un extremo acotado, un rayo factible en uno no acotado | **sí**, sumar fracciones y caminar el rayo |
 | `dependency_cycle` | un ciclo en las dependencias de un parámetro, y la comparación que lo cierra | **sí**, aritmética de clases |
 | `lean_binding` | lo que un certificado supuso, contra lo que provee una declaración | no, vuelve a preguntar la implicación |
 | `cegis` | el objeto no tiene contraejemplos en el dominio acotado | no, vuelve a resolver |

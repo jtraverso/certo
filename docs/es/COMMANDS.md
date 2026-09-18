@@ -685,10 +685,23 @@ Los multiplicadores **son** la prueba: `1/3` por la fila `3a - 1 <= 0` da
 ser negativa— y un dual derivado bajo `x >= 0` certificaría una cota que no
 vale. La restricción dual es una igualdad justo por eso.
 
+**Un extremo no acotado lleva un rayo, o no queda establecido.** `max x` sobre
+un poliedro es no acotado exactamente cuando el poliedro es no vacío *y* alguna
+dirección `d` cumple `A d <= 0` con `d[x] > 0`: desde cualquier punto factible
+puedes caminar por `d` para siempre. Ese `d` viaja en el certificado y `verify`
+lo camina contra cada fila.
+
+Sin él, `unbounded` es una palabra y no una afirmación — y eso fue hasta 0.11.2.
+Un payload editado para decir `unbounded` verificaba tan contento, y `[0, 1]`
+volvía como `[0, +inf)`: el único extremo sin evidencia adjunta era el único que
+nadie miraba. Un certificado emitido antes de 0.11.2 con un extremo no acotado
+no verifica, porque afirma algo de lo que nunca llevó la evidencia.
+
 **Un régimen vacío es su propia respuesta, no un intervalo infinito.** Sobre un
-régimen vacío toda dirección es no acotada, y leer eso como *la variable
-recorre todo* es el error de aspecto permisivo, así que la habitación se
-pregunta primero.
+régimen vacío toda dirección es no acotada, y leer eso como *la variable recorre
+todo* es el error de aspecto permisivo, así que la habitación se pregunta
+primero — y un rayo sobre un poliedro vacío no establece nada, que es por lo que
+se comprueban ambas mitades.
 
 **Una fila estricta que ata deja el extremo abierto**: `a < 1/3` y `a <= 1/3`
 tienen el mismo supremo y solo uno lo contiene.

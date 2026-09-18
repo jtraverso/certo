@@ -7,6 +7,121 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.11.2] — 2026-09-18
+
+**A certificate that verified and was wrong.** A user editing payloads found
+it, and it is the failure this project exists to refuse.
+
+### `variable_range` accepted an unbounded end with nothing behind it
+
+Take `0 <= x <= 1`, whose range is `[0, 1]`. Change the upper end of the
+certificate to `unbounded`. Until this release:
+
+```
+$ certo verify forged.json
+VALID  variable_range certificate
+  [ok] the upper end follows from the hypotheses  (no bound in this direction)
+  x in [0, +inf)
+```
+
+The check validated multipliers **where a bound existed** and returned `ok` for
+an end that had none:
+
+```python
+if end["bound"] is None:
+    out[side] = {"ok": True, "why": end.get("why")}
+```
+
+So the one end carrying no evidence was the one end nothing looked at. It
+shipped in 0.10.0 and it was in every release since.
+
+`max x` over a polyhedron is unbounded exactly when the polyhedron is
+**non-empty** and some direction `d` has `A d <= 0` with `d[x] > 0`: from any
+feasible point you may walk along `d` forever and the objective grows without
+limit. That `d` is now computed by the same exact simplex, travels in the
+payload, and `verify` walks it against every row and asks inhabitation again.
+Three products and a comparison — still no solver.
+
+```
+no ray          -> INVALID: claimed unbounded, and not established: no ray to check
+invented ray    -> INVALID: claimed unbounded, and not established: the ray leaves the regime
+genuine         -> VALID, and `(-inf, 1/3]` still comes back, with ray [-1]
+```
+
+A ray over an EMPTY regime establishes nothing, so both halves are checked: a
+payload with `empty` flipped off and a ray attached does not pass either.
+
+`unbounded` and `not established` also print differently now. Both rendered as
+`+inf)`, which is part of why the forged interval looked ordinary.
+
+**This rejects certificates.** A `variable_range` certificate issued by 0.10.x
+or 0.11.0/0.11.1 with an unbounded end does not verify against 0.11.2, because
+it asserts something it never carried the evidence for. That is the correct
+direction — the alternative is a verifier that keeps saying VALID to a claim
+nobody can check — and it is a real break for artefacts already on disk.
+Re-run `certo range` to get one that carries its ray.
+
+### Six commands understated what they deliver
+
+A user comparing tools wrote that `opt`/`ratio`/`farkas` re-check without a
+solver and `prove`/`sos` need one. They were right about the first three and
+half wrong about the second pair -- `sos` re-checks by expanding a product,
+with no solver anywhere -- and the reason the mistake was available is that
+**the table said so too**.
+
+`certo commands --table` read its solver-free column off a hand-written set,
+and that set was wrong for six commands: `check`, `mixed`, `opt`, `prove`,
+`shrink` and `sweep`. Every error ran the same way -- it UNDERSTATED what is
+solver-free -- which sends a reader to archive a weaker artefact than the one
+they already hold. `opt` was among them, and `lp_dual` is the most re-checked
+certificate in this project.
+
+The column now comes from `routing.TIER`, which has three values because a
+boolean could never say the true thing:
+
+| | |
+|---|---|
+| `yes` | arithmetic, evaluation, counting: `opt`, `farkas`, `ratio`, `sos`, `cone`, … |
+| `depends` | `prove` (a `model` always, an `unsat_core` only when linear), `core`, `sweep` (on the predicate), `bisect` (on its children), **`opt --gap`** |
+| `no` | `audit`, `compose`, `induct`, `synth`, `family`, `bind` |
+
+**And it is checked against what the commands emit.** `tests/run_examples` is
+the one place that runs every command for real, so the declaration meets the
+emission there. On its first run it found two more: `opt --gap` produces a
+`gap` certificate that is **not** solver-free -- it carries an integer optimum
+proved by branch and bound -- which is why `opt` is `depends` rather than
+`yes`, and `docs/CERTIFICATES.md` had `gap` listed as solver-free when it is
+not.
+
+It also found that six commands emit more than one kind, which `KIND_OF` was
+declaring as one: `core` on a `MultiSpec` gives a table of cores, `cases` gives
+a model when the CNF is satisfiable, `reduce --parametric` and
+`synth --prove-candidate` give their own. All declared now, and all checked.
+
+The suggestion the report made -- that each command say up front which tier it
+delivers -- is the right one, and the answer to it had been shipped wrong.
+
+### What could not be reproduced
+
+The same report listed three other payloads as still accepted: incomplete
+`branch_bound` trees, and a `mixed_design` global optimality not tied to the
+right bound. Every reconstruction attempted here was caught:
+
+| attempted | result |
+|---|---|
+| `branch_bound` with the root system removed | INVALID, and it warns that nothing ties a node's certificate to its subproblem |
+| `branch_bound` pruned to one branch node | INVALID: `2 missing` children |
+| `mixed_design` claiming `global_optimum` with a forged bound | INVALID: the achieved value does not meet it |
+
+That does not mean the report is wrong; it means the reconstructions are not
+the originals. The payloads are needed to say anything useful about them, and
+a fix invented against a guessed failure is how a working check gets "fixed"
+into a broken one.
+
+`integral_point` is not a certificate kind here — the forty-seven are listed in
+`docs/CERTIFICATES.md` — so whatever that fourth payload is, it did not come
+from this tool under that name.
+
 ## [0.11.1] — 2026-09-18
 
 Two documents and a CI correction. No code changed.

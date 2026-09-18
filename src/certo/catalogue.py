@@ -63,11 +63,17 @@ def rows() -> list:
             "spec": routing.SPEC_OF.get(name),
             "engine": runner[0].rsplit(".", 1)[-1] if runner else None,
             "entry": runner[1] if runner else None,
-            "kind": routing.KIND_OF.get(name),
+            "kind": _one_kind(routing.KIND_OF.get(name)),
             "solver_free": name in routing.SOLVER_FREE,
+            "tier": routing.TIER.get(name),
             "question_key": questions.get(name),
         })
     return out
+
+
+def _one_kind(v):
+    """The kind a command usually emits; a tuple names the common one first."""
+    return v if v is None or isinstance(v, str) else "/".join(v)
 
 
 def kinds() -> list:
@@ -122,8 +128,16 @@ def as_markdown(lang: str = "en") -> str:
             else "—",
             "`{}`".format(r["engine"]) if r["engine"] else "—",
             "`{}`".format(r["kind"]) if r["kind"] else "—",
-            ("yes" if lang == "en" else "sí") if r["solver_free"] else "—"))
+            _tier_word(r["tier"], lang)))
     return "\n".join(lines)
+
+
+def _tier_word(tier, lang="en") -> str:
+    if tier is None:
+        return "—"
+    if lang == "es":
+        return {"yes": "sí", "depends": "depende", "no": "no"}[tier]
+    return tier
 
 
 def as_text() -> str:
@@ -132,5 +146,6 @@ def as_text() -> str:
     for r in sorted(rows(), key=lambda r: r["command"]):
         out.append("{:<11} {:<24} {:<18} {:<22} {}".format(
             r["command"], r["spec"] or "-", r["engine"] or "-",
-            r["kind"] or "-", "solver-free" if r["solver_free"] else ""))
+            r["kind"] or "-",
+            "" if r["tier"] is None else "solver-free: " + r["tier"]))
     return "\n".join(out)

@@ -11,6 +11,7 @@ join the repository without joining this file.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -161,6 +162,48 @@ def _tracked_examples():
     return {line.split("/")[-1] for line in p.stdout.split() if line}
 
 
+def _declared_against_emitted(produced):
+    """`KIND_OF` and `TIER`, against what the commands actually emitted.
+
+    Both are DECLARED, because an engine emits different kinds on different
+    paths and a boolean cannot say the true thing about `prove`: a `model` on
+    a refutation re-checks by substitution, an `unsat_core` on a proof only
+    when the core is linear.
+
+    Declared and unchecked is how the old `SOLVER_FREE` set came to be wrong
+    for six commands -- `opt` among them, whose `lp_dual` is the most
+    re-checked certificate here. Every error ran the same way: it UNDERSTATED
+    what is solver-free, which sends a reader to archive a weaker artefact
+    than the one they already hold. A user comparing tools reported
+    `opt`/`ratio`/`farkas` as solver-free and was right while the table said
+    otherwise.
+
+    This is the one place that runs every command for real, so it is where the
+    declaration meets the emission.
+    """
+    from certo import routing
+
+    out = []
+    for cmd, seen in sorted(produced.items()):
+        kinds = {k for k, _sf in seen if k}
+        want_kind = routing.KIND_OF.get(cmd)
+        allowed = ({want_kind} if isinstance(want_kind, str)
+                   else set(want_kind or ()))
+        if allowed and kinds and not (kinds <= allowed):
+            out.append((cmd, "KIND_OF", "/".join(sorted(allowed)),
+                        ", ".join(sorted(kinds - allowed))))
+
+        tier = routing.TIER.get(cmd)
+        if tier in (None, routing.DEPENDS):
+            continue
+        flags = {bool(sf) for _k, sf in seen}
+        want = tier == routing.YES
+        if flags and flags != {want}:
+            out.append((cmd, "TIER", tier,
+                        "solver_free=" + ",".join(sorted(map(str, flags)))))
+    return out
+
+
 def main() -> int:
     OUT.mkdir(exist_ok=True)
     listed = {case[0] for case in CASES}
@@ -173,6 +216,9 @@ def main() -> int:
     missing = sorted(present - listed)
 
     failures = 0
+    #: command -> the (kind, solver_free) of every certificate it emitted,
+    #: so the declarations can be met with what actually came out.
+    produced: dict = {}
     for case in CASES:
         name, command, flags = case[0], case[1], case[2]
         expect = case[3] if len(case) > 3 else None
@@ -198,6 +244,10 @@ def main() -> int:
         if not ok:
             failures += 1
             continue
+        if cert.exists():
+            payload = json.loads(cert.read_text(encoding="utf-8"))
+            produced.setdefault(command, []).append(
+                (payload.get("kind"), payload.get("solver_free")))
         if cert.exists() and not run(["verify", str(cert)],
                                      "verify {}".format(cert.name)):
             failures += 1
@@ -217,6 +267,12 @@ def main() -> int:
         # Not a failure, but it must not be silent: an example nobody runs is
         # an example nobody notices breaking.
         print("\nNOT COVERED by this file: " + ", ".join(missing))
+
+    wrong = _declared_against_emitted(produced)
+    for cmd, what, said, got in wrong:
+        print("[XX] {} declares {}={} and emitted {}".format(
+            cmd, what, said, got))
+    failures += len(wrong)
 
     print("\n{}/{} examples ran and verified".format(
         len(CASES) + 1 - failures, len(CASES) + 1))

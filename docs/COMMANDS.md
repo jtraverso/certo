@@ -678,10 +678,24 @@ The multipliers **are** the proof: `1/3` times the row `3a - 1 <= 0` gives
 and a dual derived under `x >= 0` would certify a bound that does not hold. The
 dual constraint here is an equality for exactly that reason.
 
+**An unbounded end carries a ray, or it is not established.** `max x` over a
+polyhedron is unbounded exactly when the polyhedron is non-empty *and* some
+direction `d` has `A d <= 0` with `d[x] > 0`: from any feasible point you may
+walk along `d` forever. That `d` travels in the certificate and `verify` walks
+it against every row.
+
+Without it, `unbounded` is a word rather than a claim — and that is what it
+was until 0.11.2. A payload edited to say `unbounded` verified happily, and
+`[0, 1]` came back as `[0, +inf)`: the one end with no evidence attached was
+the one end nothing looked at. A certificate issued before 0.11.2 with an
+unbounded end does not verify, because it asserts something it never carried
+the evidence for.
+
 **An empty regime is its own answer, not an infinite interval.** Over an empty
 regime every direction is unbounded, and reading that as *the variable ranges
 over everything* is the permissive-looking mistake, so inhabitation is asked
-first.
+first — and a ray over an empty polyhedron establishes nothing, which is why
+both halves are checked.
 
 **A strict binding row leaves the endpoint open**: `a < 1/3` and `a <= 1/3`
 have the same supremum and only one contains it.

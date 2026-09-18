@@ -8266,8 +8266,15 @@ def test_the_catalogue_is_derived_and_covers_every_command():
     # and every kind named is one the registry can actually verify
     from certo.certificate import VERIFIERS
 
-    unknown = sorted({k for k in routing.KIND_OF.values()
-                      if k is not None and k not in VERIFIERS})
+    # A command may declare several kinds -- `core` on a `MultiSpec` gives a
+    # table of cores, `cases` a model when the CNF is satisfiable -- so the
+    # declaration is flattened before it is looked up.
+    declared = set()
+    for v in routing.KIND_OF.values():
+        if v is None:
+            continue
+        declared.update({v} if isinstance(v, str) else set(v))
+    unknown = sorted(declared - set(VERIFIERS))
     assert not unknown, {"kinds nothing verifies": unknown}
 
 
@@ -8582,6 +8589,119 @@ def test_the_lean_boundary_is_exactly_one_route():
                 "--out", str(out / "C.lean"))
         assert r.returncode != 0, "an unsat_core emitted Lean"
         assert not (out / "C.lean").exists()
+
+
+# --- `unbounded` was a word, not a claim ----------------------------------
+
+
+def _box_range():
+    """`0 <= x <= 1`, whose range is `[0, 1]` and nothing wider."""
+    import z3
+
+    from certo import Spec, rangebound
+
+    x = z3.Real("x")
+    s = Spec(title="0 <= x <= 1")
+    s.assume("lo", x >= 0)
+    s.assume("hi", x <= 1)
+    s.claim(z3.BoolVal(True))
+    return rangebound.bounds_of(s, "x")
+
+
+def test_an_edited_unbounded_end_no_longer_verifies():
+    """A user changed the upper end of `[0, 1]` to `unbounded` and the
+    verifier accepted `[0, +inf)`.
+
+    The check validated multipliers WHERE A BOUND EXISTED and returned `ok`
+    for an end that had none -- so the one claim with no evidence attached was
+    the one nothing looked at. That is a certificate that verifies and is
+    wrong, which is the failure this whole project exists to refuse, and it
+    shipped in 0.10.0.
+
+    `max x` over a polyhedron is unbounded exactly when the polyhedron is
+    non-empty AND some `d` has `A d <= 0` with `d[x] > 0`. That `d` is the
+    evidence. Without it the word means nothing."""
+    from certo import rangebound
+
+    out = _box_range()
+    assert out["interval"] == "[0, 1]"
+    assert all(v["ok"] for v in rangebound.check(out).values())
+
+    forged = json.loads(json.dumps(out))
+    forged["upper"] = {"bound": None, "why": "unbounded"}
+    forged["interval"] = "[0, +inf)"
+    got = rangebound.check(forged)
+    assert not got["upper"]["ok"], "an unbounded end with no ray verified"
+    assert "ray" in got["upper"]["reason"]
+
+
+def test_an_invented_ray_is_caught_by_walking_it():
+    """The ray is re-derived, not believed: `d = 1` on `0 <= x <= 1` walks
+    straight out of the row `x <= 1`, and three products say so."""
+    from certo import rangebound
+
+    forged = json.loads(json.dumps(_box_range()))
+    forged["upper"] = {"bound": None, "why": "unbounded", "ray": ["1"]}
+    got = rangebound.check(forged)
+    assert not got["upper"]["ok"]
+    assert "leaves the regime" in got["upper"]["reason"]
+
+    # and one that does not move the variable at all
+    forged["upper"] = {"bound": None, "why": "unbounded", "ray": ["0"]}
+    assert not rangebound.check(forged)["upper"]["ok"]
+
+
+def test_a_genuinely_unbounded_end_carries_a_ray_that_checks():
+    """The answer stays available -- this is a fix, not a retreat. `3a <= 1`
+    bounds `a` above and not below, and the ray is the direction you may walk
+    forever."""
+    import z3
+
+    from certo import Spec, rangebound
+
+    a = z3.Real("a")
+    s = Spec(title="only bounded above")
+    s.assume("hi", 3 * a <= 1)
+    s.claim(z3.BoolVal(True))
+    out = rangebound.bounds_of(s, "a")
+
+    assert out["interval"] == "(-inf, 1/3]"
+    assert out["lower"]["ray"] == ["-1"]
+    assert all(v["ok"] for v in rangebound.check(out).values())
+
+
+def test_a_ray_over_an_empty_regime_establishes_nothing():
+    """Both halves are needed. Over an empty polyhedron every direction is a
+    ray and no point exists to walk from, so the pair is what unboundedness
+    means -- and the empty regime is reported as itself, not as an interval."""
+    import z3
+
+    from certo import Spec, rangebound
+
+    a = z3.Real("a")
+    s = Spec(title="no a at all")
+    s.assume("hi", a <= 1)
+    s.assume("lo", a >= 3)
+    s.claim(z3.BoolVal(True))
+    out = rangebound.bounds_of(s, "a")
+    assert out["empty"] is True
+    assert out["interval"] == "(empty)"
+
+    # an empty payload dressed up as an unbounded range does not pass
+    forged = json.loads(json.dumps(out))
+    forged["empty"] = False
+    forged["upper"] = {"bound": None, "why": "unbounded", "ray": ["1"]}
+    assert not rangebound.check(forged)["upper"]["ok"]
+
+
+def test_unbounded_and_not_established_print_differently():
+    """`+inf)` and `?` are different answers. An interval that rendered them
+    the same is how the first version let the forged one look ordinary."""
+    from certo import rangebound
+
+    out = json.loads(json.dumps(_box_range()))
+    out["upper"] = {"bound": None, "why": "unknown"}
+    assert rangebound._interval(out["lower"], out["upper"]).endswith("?")
 
 
 if __name__ == "__main__":

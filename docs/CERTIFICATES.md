@@ -39,7 +39,7 @@ answers"*. The table below is the map; the header is the territory.
 | `lp_dual` | exact optimality of an LP | **yes**, rational arithmetic |
 | `branch_bound` | an integer optimum, every leaf closed by its own certificate | **yes**, exact arithmetic |
 | `mixed_design` | a construction exists and attains a value; **not** that it is optimal | **yes**, exact arithmetic |
-| `gap` | an upper and a lower bound, and the distance between them | **yes** |
+| `gap` | an upper and a lower bound, and the distance between them | no: the integer side re-solves |
 | `drat` | unsatisfiability of a CNF | **yes**, RUP/RAT |
 | `graph_set` | a non-isomorphic family passing the filters | **yes** |
 | `sweep` | family + predicate certificates | depends on the predicate |
@@ -69,7 +69,7 @@ answers"*. The table below is the map; the header is the territory.
 | `toric_cone` | primitivity, multiplicity, height, discrepancies | **yes**, exact determinant and solve |
 | `family_extremum` | the largest of a family, and a dual for the rest | rebuilds each item's program |
 | `hypothesis_audit` | a verdict per hypothesis, with the breaking assignment | no — substituting a witness leaves a ground formula, and deciding that is still a solver call |
-| `variable_range` | the interval a variable may take, both ends a Farkas combination | **yes**, adding fractions |
+| `variable_range` | the interval a variable may take: a Farkas combination at a bounded end, a feasible ray at an unbounded one | **yes**, adding fractions and walking the ray |
 | `dependency_cycle` | a cycle in a parameter's own dependencies, and the comparison that closes it | **yes**, class arithmetic |
 | `lean_binding` | what a certificate assumed, against what a declaration provides | no, re-asks the entailment |
 | `cegis` | the object has no counterexamples in the bounded domain | no, re-solves |

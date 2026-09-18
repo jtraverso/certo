@@ -171,22 +171,92 @@ def prepared(spec):
 #: the answer, and `shrink` gives `mus` or `shrink_graph` depending on the
 #: spec. What keeps it honest is `tests/run_examples`, which compares this
 #: against the kind every example actually produces.
+#: What tier of certificate each command delivers, because that is the
+#: question somebody asks BEFORE running it: a certificate re-checkable by
+#: arithmetic is what you archive, and one that needs a solver is a weaker
+#: artefact to hand a referee.
+#:
+#: `SOLVER_FREE` below is the set this used to be read off, and it was wrong
+#: for six commands -- `opt` among them, whose `lp_dual` is the most re-checked
+#: certificate in the project. Every error ran the same way: the table
+#: UNDERSTATED what is solver-free, which pushes a reader away from an artefact
+#: they already have. A user comparing tools reported `opt`/`ratio`/`farkas` as
+#: solver-free and was right while the table said otherwise.
+#:
+#: Three values, because a boolean cannot say the true thing about `prove`: it
+#: gives a `model` on a refutation, which re-checks by substitution, and an
+#: `unsat_core` on a proof, which is solver-free only when the core is linear
+#: arithmetic and carries its Farkas multipliers.
+#:
+#: `tests/run_examples` compares this against the `solver_free` flag of every
+#: certificate the examples actually produce.
+YES, DEPENDS, NO = "yes", "depends", "no"
+
+TIER = {
+    # Arithmetic, evaluation, counting: nothing to trust.
+    "mixed": YES, "farkas": YES, "ratio": YES, "parametric": YES,
+    "peak": YES, "entry": YES, "moment": YES, "cover": YES, "exists": YES,
+    "cases": YES, "number": YES, "sos": YES, "ideal": YES, "eliminate": YES,
+    "matrix": YES, "solve": YES, "quotient": YES, "cone": YES, "reduce": YES,
+    "order": YES, "bounds": YES, "check": YES, "enum": YES, "shrink": YES,
+    "range": YES, "cycle": YES,
+
+    # It depends on the answer, or on what you handed in.
+    # `opt` alone gives `lp_dual`, which re-checks by rational arithmetic.
+    # `opt --gap` gives a `gap`, which carries an INTEGER optimum proved by
+    # branch and bound and re-solves. Same command, two tiers, and the flag
+    # decides -- which is why a per-command boolean was never going to be
+    # right. Found by the check below, on its first run.
+    "opt": DEPENDS,
+    "prove": DEPENDS,      # `model` always; `unsat_core` only when linear
+    "core": DEPENDS,       # same, per goal
+    "sweep": DEPENDS,      # on the predicate: bare bool replays the spec
+    "bisect": DEPENDS,     # on its children
+
+    # Re-solves, and says so.
+    "audit": NO, "compose": NO, "induct": NO, "synth": NO, "family": NO,
+    "bind": NO,
+
+    # Report or route; they make no claim of their own.
+    "lint": None, "status": None, "doctor": None, "ask": None,
+    "commands": None, "repro": None, "verify": None, "export": None,
+    "ledger": None,
+}
+
+
 KIND_OF = {
-    "prove": "unsat_core", "check": "model", "core": "unsat_core",
+    # A command may emit more than one kind, and a single name would make the
+    # check below fail on a spec that is simply a different shape: `core` on a
+    # `MultiSpec` gives a table of cores, not one core.
+    "prove": ("unsat_core", "model"), "check": "model",
+    "core": ("unsat_core", "core_matrix", "mus"),
     "audit": "hypothesis_audit", "farkas": "farkas", "compose": "proof",
-    "induct": "induction", "synth": "cegis", "opt": "lp_dual",
+    "induct": "induction",
+    # `--prove-candidate` adds the universal half to the bounded one.
+    "synth": ("cegis", "synth_proved"),
+    # `--gap` pairs the relaxation with an integer optimum, and that
+    # pairing is its own kind -- the same flag that makes the tier
+    # `depends` rather than `yes`.
+    "opt": ("lp_dual", "gap"),
     "mixed": "mixed_design", "order": "asymptotic", "bounds": "ball",
     "ideal": "ideal", "eliminate": "resultant",
     "parametric": "parametric_bound", "peak": "integer_peak",
-    "reduce": "symmetry_reduction", "matrix": "integer_matrix",
+        # `--parametric` asks the same question about a family.
+    "reduce": ("symmetry_reduction", "parametric_symmetry"),
+    "matrix": "integer_matrix",
     "solve": "linear_system", "quotient": "equitable_quotient",
     "cone": "toric_cone", "range": "variable_range",
     "cycle": "dependency_cycle", "bind": "lean_binding",
     "family": "family_extremum", "ratio": "ratio_bound",
     "moment": "first_moment", "entry": "first_entry", "exists": "drat",
     "cover": "exact_cover", "sos": "sos", "number": "number",
-    "cases": "drat", "enum": "graph_set", "sweep": "sweep",
-    "shrink": "mus", "bisect": "bisect",
+    # A satisfiable CNF gives a model; an unsatisfiable one gives the proof.
+    "cases": ("drat", "cnf_model"), "enum": "graph_set",
+    # A sweep over a graph family, any finite domain, or with the orbits of
+    # its counterexamples decomposed: three shapes, three kinds.
+    "sweep": ("sweep", "domain_sweep", "sweep_range", "orbit_witnesses"),
+    "shrink": ("mus", "shrink_graph", "shrink_domain"),
+    "bisect": "bisect",
     # These report or route; they make no claim of their own.
     "lint": None, "status": None, "doctor": None, "ask": None,
     "commands": None, "repro": None, "verify": None, "export": None,

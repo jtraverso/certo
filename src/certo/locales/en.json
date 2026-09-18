@@ -1338,5 +1338,7 @@
   "dataspec.bad_fields": "{kind} could not be built: {why}",
   "dataspec.bad_json": "{path} is not valid JSON: {why}",
   "dataspec.no_type": "a data spec needs a \"type\" naming what to build. One of: {known}",
-  "spec.exec_refused": "{path} is Python and would be EXECUTED. This run asked for no code execution, so it is refused. A `.json` spec of one of these types runs without it: {known}"
+  "spec.exec_refused": "{path} is Python and would be EXECUTED. This run asked for no code execution, so it is refused. A `.json` spec of one of these types runs without it: {known}",
+  "verify.varrange.unproven": "claimed unbounded, and not established: {reason}",
+  "verify.varrange.ray": "the ray stays in the regime and moves the variable"
 }
