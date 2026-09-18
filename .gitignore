@@ -26,3 +26,9 @@ Thumbs.db
 # reproducible from lake-manifest.json, which IS committed -- the manifest is
 # the pin, the checkout is the cache.
 .lake/
+
+# A user's feedback is about THEIR work, not about certo's. It arrives as a
+# paste, it belongs in a private note, and a filename is as public as a file:
+# one of these named somebody's unpublished project in the repository name
+# list until it was noticed.
+FEEDBACK*.md
