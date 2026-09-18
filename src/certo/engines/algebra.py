@@ -47,6 +47,8 @@ ENGINE_COVER = "certo/counting"
 ENGINE_SOS = "certo/sos"
 ENGINE_NUM = "certo/pratt"
 ENGINE_LATTICE = "certo/unimodular"
+ENGINE_ORBIT = "certo/orbit-quotient"
+ENGINE_EXACT = "certo/exact-elimination"
 
 
 def _poly(expr, variables):
@@ -228,6 +230,109 @@ def moment(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
                            threshold=str(out["threshold"]),
                            n=len(out["terms"])),
                   meta={"expectation": shown, "exists": out["concludes"]})
+
+
+def reduce_parametric(spec, limits: Limits | None = None,
+                      spec_path: str = "") -> Result:
+    """The symbolic quotient of a family, tested against a finite window."""
+    from ..certificate import parametric_symmetry_certificate
+    from ..paramsym import NotParametricSymmetry, certify as run
+
+    t0 = time.perf_counter()
+    try:
+        out = run(spec, limits)
+    except NotParametricSymmetry as e:
+        return Result("reduce", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_ORBIT, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    if not out["ok"]:
+        first = out["failed"][0]
+        return Result(
+            "reduce", Status.SAT, Verdict.REFUTED, ENGINE_ORBIT, ms, None,
+            detail=t("engine.paramsym.failed", n=len(out["failed"]),
+                     total=out["checked"],
+                     at=", ".join("{}={}".format(k, v)
+                                  for k, v in sorted(first.items()))),
+            meta={"checked": out["checked"], "failed": len(out["failed"])})
+
+    cert = parametric_symmetry_certificate(
+        out, title=spec.title).stamp(spec_path or None)
+    return Result(
+        "reduce", Status.UNSAT, Verdict.PROVED, ENGINE_ORBIT, ms, cert,
+        detail=t("engine.paramsym.proved", n=out["checked"],
+                 orbits=len(out["orbits"]),
+                 params=", ".join(out["parameters"]),
+                 regimes=len(out["regimes"])),
+        meta={"points": out["checked"], "orbits": len(out["orbits"]),
+              "regimes": sorted(out["regimes"]),
+              "objects": out["objects_text"]})
+
+
+def linear_system(spec, limits: Limits | None = None,
+                  spec_path: str = "") -> Result:
+    """`A x = b` exactly, with a witness whichever way it goes."""
+    from ..certificate import linear_system_certificate
+    from ..linsolve import MANY, NONE, NotSolvable, UNIQUE, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotSolvable as e:
+        return Result("solve", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_EXACT, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = linear_system_certificate(out, title=spec.title).stamp(
+        spec_path or None)
+
+    rows, cols = len(out["matrix"]), out["columns"]
+    if out["status"] == NONE:
+        detail = t("engine.solve.none", rows=rows, cols=cols,
+                   domain=out["domain"])
+        verdict, status = Verdict.REFUTED, Status.UNSAT
+    elif out["status"] == MANY:
+        detail = t("engine.solve.many", n=len(out["kernel"]), cols=cols)
+        verdict, status = Verdict.PROVED, Status.SAT
+    else:
+        detail = t("engine.solve.unique", cols=cols, domain=out["domain"])
+        verdict, status = Verdict.PROVED, Status.SAT
+        _ = UNIQUE
+
+    return Result("solve", status, verdict, ENGINE_EXACT, ms, cert,
+                  detail=detail,
+                  meta={"status": out["status"], "rank": out["rank"],
+                        "rows": rows, "columns": cols,
+                        "kernel_dimension": len(out["kernel"]),
+                        "domain": out["domain"],
+                        "solution": out["solution"]})
+
+
+def equitable_quotient(spec, limits: Limits | None = None,
+                       spec_path: str = "") -> Result:
+    """The quotient as an equivalence: same attainable values, by two maps."""
+    from ..certificate import equitable_quotient_certificate
+    from ..equitable import NotEquitable, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotEquitable as e:
+        return Result("quotient", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_ORBIT, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = equitable_quotient_certificate(out, title=spec.title).stamp(
+        spec_path or None)
+    return Result(
+        "quotient", Status.UNSAT, Verdict.PROVED, ENGINE_ORBIT, ms, cert,
+        detail=t("engine.quotient.proved",
+                 prows=out["physical_rows"], pcols=out["physical_columns"],
+                 rows=len(out["N"]), cols=len(out["M"])),
+        meta={"physical_rows": out["physical_rows"],
+              "physical_columns": out["physical_columns"],
+              "rows": len(out["N"]), "columns": len(out["M"]),
+              "identities": len(out["B"])})
 
 
 def integer_matrix(spec, limits: Limits | None = None,

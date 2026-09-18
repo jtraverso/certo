@@ -1326,6 +1326,68 @@ async def doctor() -> dict:
 
 
 @mcp.tool(description=(
+    "QUOTIENT: a partition of a program's rows and columns, and the "
+    "EQUIVALENCE it induces -- the physical program and the quotient have the "
+    "same SET of attainable values, by an explicit projection `z_j = sum over "
+    "the class of x_C` and lifting `x_C = z_j / M_j`. Equality of optima is a "
+    "corollary, and no duality is needed. This is strictly stronger than "
+    "comparing two computed optima, which is what `reduce` does after "
+    "checking a group: two numbers agreeing is also what a wrong reduction "
+    "with a compensating error produces. THE PARTITION IS AN INPUT -- a group "
+    "action produces one, so does a colour refinement, so does a person who "
+    "knows the classes -- which separates the finite-sum core from the group "
+    "theory. WHAT IS CHECKED against the matrix: the classes partition with "
+    "no empty fibre; capacities and senses constant on row classes, weights "
+    "and bounds on column classes; and REGULARITY both ways, since `H_ij` "
+    "(one resource, how much of object class j uses it) and `B_ij` (one "
+    "object, how much of resource class i it uses) are different quantities "
+    "tied by `N_i H_ij = M_j B_ij`. A partition failing any of them is "
+    "REFUSED naming the two rows that disagree: one edge at capacity zero "
+    "among capacity-one edges breaks it, and the aggregate would otherwise "
+    "report an optimum the physical program cannot attain. It says NOTHING "
+    "about integrality: an integer orbit mass need not lift to integer "
+    "objects."))
+@_guard
+async def quotient(spec_path: str | None = None,
+                   spec_source: str | None = None,
+                   timeout_ms: int = 120_000) -> dict:
+    from .engines import algebra
+    from .spec import EquitableQuotientSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), EquitableQuotientSpec)
+    res = await _off(algebra.equitable_quotient, spec, _limits(timeout_ms),
+                     str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "SOLVE: an exact linear system `A x = b`, over the rationals or the "
+    "integers, with a witness whichever way it goes. The certificate is the "
+    "solution and the system it solves, so re-checking is ONE matrix-vector "
+    "product -- and because `A` and `b` travel with `x`, the check is against "
+    "the system that was stated rather than the one somebody remembers "
+    "stating. UNSOLVABLE is certified too: `y` with `y.A = 0` and `y.b != 0`. "
+    "UNDERDETERMINED returns a particular solution plus a basis of the kernel, "
+    "because reporting one point of an affine subspace as the answer is how a "
+    "free parameter disappears. `domain=\"integer\"` decides it by the Smith "
+    "normal form instead, and \"no integer solution\" is a different answer "
+    "from \"no solution\". It establishes NEITHER non-negativity NOR, over "
+    "the rationals, integrality: a rational solution to the equations of a "
+    "packing is not a packing. Use `opt` or `farkas` for the first."))
+@_guard
+async def solve(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import LinearSystemSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), LinearSystemSpec)
+    res = await _off(algebra.linear_system, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "MATRIX: exact integer linear algebra -- rank, determinant, Hermite and "
     "Smith normal form -- with the unimodular transforms carried alongside "
     "their inverses, so every answer is checkable by integer matrix "
@@ -1364,15 +1426,35 @@ async def matrix(spec_path: str | None = None, spec_source: str | None = None,
     "orbit with coefficients summed. WHERE THE GROUP COMES FROM is not "
     "certo's job -- nauty computes it, this checks it -- and a generator that "
     "is not an automorphism is REFUSED by name, because a wrong group does "
-    "not give a weaker reduction, it gives a wrong one."))
+    "not give a weaker reduction, it gives a wrong one. A "
+    "ParametricSymmetrySpec asks the same question about a FAMILY: orbits "
+    "with multiplicities that are POLYNOMIALS in the parameters, and rows "
+    "that exist only where their conditions hold. The objective is not "
+    "declared -- substituting one variable per orbit sums each orbit, so the "
+    "objective IS the multiplicities. The regimes (the distinct row sets the "
+    "conditions cut parameter space into) are DERIVED, so a piecewise closed "
+    "form can be compared against them: a formula with three branches over a "
+    "program with four regimes is missing a case. TWO LEVELS, kept apart: the "
+    "quotient's SHAPE is symbolic, while that the declared group really has "
+    "these orbits is checked per instance on a finite window. Agreement on a "
+    "window is falsifiability, not proof, and the certificate says so."))
 @_guard
 async def reduce(spec_path: str | None = None, spec_source: str | None = None,
                  timeout_ms: int = 60_000) -> dict:
     from .engines import algebra
-    from .spec import SymmetrySpec, load_spec
+    from .spec import ParametricSymmetrySpec, SymmetrySpec, load_spec
 
     f = _spec_file(spec_path, spec_source)
-    spec = load_spec(str(f), SymmetrySpec)
+    spec = load_spec(str(f))
+    if isinstance(spec, ParametricSymmetrySpec):
+        res = await _off(algebra.reduce_parametric, spec, _limits(timeout_ms),
+                         str(f))
+        return _emit(res, spec_file=f)
+    if not isinstance(spec, SymmetrySpec):
+        from .i18n import t as _t
+
+        raise TypeError(_t("spec.wrong_type", got=type(spec).__name__,
+                           want="SymmetrySpec or ParametricSymmetrySpec"))
     res = await _off(algebra.reduce_symmetry, spec, _limits(timeout_ms), str(f))
     return _emit(res, spec_file=f)
 
@@ -1383,13 +1465,20 @@ async def reduce(spec_path: str | None = None, spec_source: str | None = None,
     "which hypotheses an unsat core NEEDED -- and catches a theorem stated "
     "with slack. This catches the opposite and more expensive mistake: a "
     "theorem stated TOO STRONGLY, formalised, and only then found to be about "
-    "a smaller class than claimed. Three answers per hypothesis and they are "
+    "a smaller class than claimed. FOUR answers per hypothesis and they are "
     "different: NEEDED with a witness assignment that shows HOW it matters, "
-    "REDUNDANT so the theorem can be stated without it, and UNKNOWN when the "
-    "budget ran out -- never folded into the others, because not finding a "
-    "counterexample is not the absence of one. Run it BEFORE formalising. It "
-    "does NOT prove the hypothesis set is minimal: dropping them one at a "
-    "time says nothing about dropping two."))
+    "REDUNDANT so the theorem can be stated without it, DOMAIN when it was "
+    "holding up a well-definedness condition rather than a mathematical one, "
+    "and UNKNOWN when the budget ran out -- never folded into the others, "
+    "because not finding a counterexample is not the absence of one. DOMAIN "
+    "exists because division is TOTAL in SMT: `n/0` is a value the solver "
+    "invents, so dropping a hypothesis that guards a denominator would "
+    "otherwise yield an instant counterexample that is about the solver and "
+    "not about the theorem. Every divisor that could vanish is collected up "
+    "front and every search is guarded by it; a DOMAIN hypothesis must NOT be "
+    "dropped -- discharge it as a side condition in the proof assistant. Run "
+    "it BEFORE formalising. It does NOT prove the hypothesis set is minimal: "
+    "dropping them one at a time says nothing about dropping two."))
 @_guard
 async def audit(spec_path: str | None = None, spec_source: str | None = None,
                 timeout_ms: int = 60_000) -> dict:

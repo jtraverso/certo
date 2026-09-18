@@ -233,14 +233,71 @@ from .routing import BY_QUESTION  # noqa: E402  (the table moved)
 
 
 def cmd_reduce(args):
-    from .engines import algebra
-    from .spec import SymmetrySpec, load_spec
+    """One program, or a whole family -- the spec says which.
 
-    spec = load_spec(args.spec, SymmetrySpec)
-    res = algebra.reduce_symmetry(spec, limits_from(args), spec_path=args.spec)
+    `--parametric` does not switch a mode, it ASSERTS one: a user who came for
+    the symbolic quotient and silently got the single-instance answer would
+    have a weaker result than they think, which is the one failure mode worth
+    a flag.
+    """
+    from .engines import algebra
+    from .spec import ParametricSymmetrySpec, SymmetrySpec, load_spec
+
+    spec = load_spec(args.spec)
+    parametric = isinstance(spec, ParametricSymmetrySpec)
+    if getattr(args, "parametric", False) and not parametric:
+        print(t("cli.reduce.not_parametric", got=type(spec).__name__))
+        return 3
+    if not parametric and not isinstance(spec, SymmetrySpec):
+        print(t("spec.wrong_type", got=type(spec).__name__,
+                want="SymmetrySpec or ParametricSymmetrySpec"))
+        return 3
+
+    run = algebra.reduce_parametric if parametric else algebra.reduce_symmetry
+    res = run(spec, limits_from(args), spec_path=args.spec)
     rc = emit(res, args)
     if not args.json and res.certificate is not None:
-        print("  " + t("verify.symmetry.scope"))
+        if parametric:
+            print("  " + t("verify.paramsym.scope",
+                           n=len(res.certificate.payload["points"])))
+        else:
+            print("  " + t("verify.symmetry.scope"))
+    return rc
+
+
+def cmd_solve(args):
+    from .engines import algebra
+    from .spec import LinearSystemSpec, load_spec
+
+    spec = load_spec(args.spec, LinearSystemSpec)
+    res = algebra.linear_system(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        p = res.certificate.payload
+        if p["solution"]:
+            print("  x = " + ", ".join(p["solution"][:8])
+                  + (" ..." if len(p["solution"]) > 8 else ""))
+        for k in p["kernel"][:3]:
+            print("  " + t("cli.solve.kernel",
+                           values=", ".join(k[:8])))
+        if p.get("witness"):
+            print("  " + t("cli.solve.witness",
+                           values=", ".join(p["witness"][:8])))
+        print("  " + t("verify.solve.scope"))
+    return rc
+
+
+def cmd_quotient(args):
+    from .engines import algebra
+    from .spec import EquitableQuotientSpec, load_spec
+
+    spec = load_spec(args.spec, EquitableQuotientSpec)
+    res = algebra.equitable_quotient(spec, limits_from(args),
+                                     spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        print("  " + t("verify.quotient.scope"))
+        print("  " + t("verify.quotient.integrality"))
     return rc
 
 
@@ -266,13 +323,21 @@ def cmd_audit(args):
     if not args.json and res.certificate is not None:
         for row in res.certificate.payload["rows"]:
             mark = {"needed": "[needed]", "redundant": "[REDUNDANT]",
+                    "domain": "[DOMAIN]",
                     "unknown": "[unknown]"}[row["verdict"]]
             line = "  {:<12} {}".format(mark, row["hypothesis"])
             if row["verdict"] == "needed":
                 w = row["witness"] or {}
                 line += "   " + t("cli.audit.witness", values=", ".join(
                     "{}={}".format(k, v[1]) for k, v in sorted(w.items())[:5]))
+            elif row["verdict"] == "domain":
+                line += "   " + t("cli.audit.obligation", values=", ".join(
+                    row.get("obligations") or []))
             print(line)
+        duties = res.certificate.payload.get("obligations")
+        if duties:
+            print("  " + t("cli.audit.guarded", n=len(duties),
+                           values=", ".join(duties[:5])))
         print("  " + t("verify.audit.not_minimal"))
     return rc
 
@@ -1758,8 +1823,21 @@ def build_parser():
                        "averaging argument checked")
     sp.add_argument("spec", help=".py file returning a SymmetrySpec")
     sp.set_defaults(func=cmd_reduce)
+    sp.add_argument("--parametric", action="store_true",
+                    help="require a ParametricSymmetrySpec: the symbolic "
+                         "quotient of a family, not one instance")
 
 
+
+
+    sp = add("quotient", "a partition of a program's rows and columns, and "
+                         "the equivalence it induces: same attainable values")
+    sp.add_argument("spec", help=".py file returning an EquitableQuotientSpec")
+    sp.set_defaults(func=cmd_quotient)
+    sp = add("solve", "an exact linear system: A x = b over the rationals "
+                      "or the integers, with a witness either way")
+    sp.add_argument("spec", help=".py file returning a LinearSystemSpec")
+    sp.set_defaults(func=cmd_solve)
     sp = add("matrix", "exact integer linear algebra: rank, determinant, "
                        "Hermite and Smith, with the transforms")
     sp.add_argument("spec", help=".py file returning a MatrixSpec")

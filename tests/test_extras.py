@@ -1660,13 +1660,15 @@ def test_a_forged_witness_does_not_verify():
     assert not bent(lambda p: p["counts"].__setitem__("needed", 9))
 
 
-def test_unknown_is_never_folded_into_the_other_two():
-    """Not finding a counterexample is not the absence of one, and a report
-    that counted `unknown` as `needed` would say the theorem is tight when
-    nobody checked."""
-    from certo.audit import NEEDED, REDUNDANT, UNKNOWN
+def test_no_verdict_is_ever_folded_into_another():
+    """Each of the four says something the others do not, and collapsing any
+    pair would be a lie in a specific direction: `unknown` as `needed` says
+    the theorem is tight when nobody checked, and `domain` as `redundant`
+    tells you to delete the hypothesis that keeps the statement meaningful."""
+    from certo.audit import DOMAIN, NEEDED, REDUNDANT, UNKNOWN, VERDICTS
 
-    assert len({NEEDED, REDUNDANT, UNKNOWN}) == 3
+    assert len({NEEDED, REDUNDANT, DOMAIN, UNKNOWN}) == 4
+    assert set(VERDICTS) == {NEEDED, REDUNDANT, DOMAIN, UNKNOWN}
 
     def build(spec, z3):
         n = z3.Int("n")
@@ -1675,7 +1677,7 @@ def test_unknown_is_never_folded_into_the_other_two():
 
     r = _audit(build)
     counts = r.certificate.payload["counts"]
-    assert set(counts) == {"needed", "redundant", "unknown"}
+    assert set(counts) == set(VERDICTS)
     assert sum(counts.values()) == len(r.certificate.payload["rows"])
 
 
@@ -1907,8 +1909,8 @@ def test_every_command_is_in_the_readme_table_and_the_count_is_right():
               43: "forty-three", 44: "forty-four", 45: "forty-five"}
 
     SPANISH = {28: "veintiocho", 29: "veintinueve", 30: "treinta",
-               39: "treinta y nueve", 40: "cuarenta", 41: "cuarenta y uno",
-               42: "cuarenta y dos"}
+               39: "treinta y nueve", 40: "cuarenta", 41: "cuarenta y un",
+               42: "cuarenta y dos", 43: "cuarenta y tres"}
 
     root = pathlib.Path(__file__).resolve().parent.parent
     commands = set(_subcommands())
@@ -2217,6 +2219,829 @@ def test_a_message_is_called_with_the_arguments_it_declares():
                 bad.append((path.name, node.lineno, key.value,
                             sorted(want - passed)))
     assert not bad, bad
+
+
+# --- 0.8 defect: a denominator is not a free variable ----------------------
+
+
+def test_a_hypothesis_guarding_a_denominator_is_not_reported_as_needed():
+    """Reported after 0.8, and reproduced exactly.
+
+    Division is TOTAL in SMT: `n/0` is some value Z3 invents. So dropping
+    `d != 0` produced an instant counterexample -- `d = 0`, with the invented
+    value chosen to break the goal -- and the hypothesis read `needed` for a
+    reason that was about the solver, not the theorem.
+    """
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    n, d = z3.Ints("n d")
+    spec = Spec(title="d != 0 only protects the denominator")
+    spec.assume("d_nonzero", d != 0)
+    spec.assume("n_zero", n == 0)
+    spec.claim(n / d == 0)
+
+    r = smt.audit(spec, LIM)
+    rows = {row["hypothesis"]: row for row in r.certificate.payload["rows"]}
+
+    assert rows["d_nonzero"]["verdict"] == "domain"
+    assert rows["d_nonzero"]["obligations"] == ["d"]
+    assert rows["d_nonzero"]["witness"] is None
+    # and the OTHER hypothesis is still audited normally
+    assert rows["n_zero"]["verdict"] == "needed"
+
+    # the certificate now verifies, which on this spec it did NOT before:
+    # every witness carried Z3's `div0`/`mod0`, which nothing could re-apply
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok, [c for c in rep.checks if not c[1]]
+    assert any("must NOT be dropped" in w for w in rep.warnings)
+
+
+def test_no_witness_carries_the_solvers_own_bookkeeping():
+    """`div0` and `mod0` are functions Z3 invents to make division total. They
+    are not variables of the problem, and a witness carrying them could not be
+    re-applied by anybody -- which is why every row used to fail re-checking
+    on any spec containing a division."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    n, d = z3.Ints("n d")
+    spec = Spec()
+    spec.assume("d_big", d >= 2)
+    spec.assume("n_big", n >= 100)
+    spec.claim(n / d >= 1)
+
+    r = smt.audit(spec, LIM)
+    for row in r.certificate.payload["rows"]:
+        for name, (sort, _value) in (row.get("witness") or {}).items():
+            assert name not in ("div0", "mod0", "rem0"), name
+            assert sort in ("Int", "Real", "Bool"), (name, sort)
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_domain_and_redundant_are_asked_apart_not_assumed():
+    """The same hypothesis, two verdicts, depending on whether anything ELSE
+    still forces the obligation. If `domain` were read off the shape of the
+    formula this would come back wrong."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    n, d = z3.Ints("n d")
+
+    alone = Spec()
+    alone.assume("d_nonzero", d != 0)
+    alone.assume("n_nonneg", n >= 0)
+    alone.claim(n / d >= 0)
+
+    guarded = Spec()
+    guarded.assume("d_positive", d >= 1)
+    guarded.assume("d_nonzero", d != 0)
+    guarded.assume("n_nonneg", n >= 0)
+    guarded.claim(n / d >= 0)
+
+    def verdict_of(spec, name):
+        r = smt.audit(spec, LIM)
+        assert verify(_roundtrip(r.certificate), LIM).ok
+        return {row["hypothesis"]: row["verdict"]
+                for row in r.certificate.payload["rows"]}[name]
+
+    # `d != 0` alone does not make the claim true -- d = -1 breaks it -- so it
+    # is genuinely needed here, obligations or not
+    assert verdict_of(alone, "d_nonzero") == "needed"
+    # beside `d >= 1` it carries nothing: the obligation is still forced
+    assert verdict_of(guarded, "d_nonzero") == "redundant"
+
+
+def test_modulo_is_guarded_too_and_a_numeral_divisor_is_not():
+    """`n % d` has the same hole, and `n / 3` has none: an obligation for a
+    divisor that cannot vanish would be noise in every certificate."""
+    import z3
+
+    from certo import Spec
+    from certo.audit import obligations_for
+    from certo.engines import smt
+
+    n, d = z3.Ints("n d")
+
+    mod = Spec()
+    mod.assume("d_nonzero", d != 0)
+    mod.assume("n_pos", n >= 1)
+    mod.claim(n % d >= 0)
+    assert [text for text, _g in obligations_for(mod)] == ["d"]
+    rows = {r["hypothesis"]: r["verdict"]
+            for r in smt.audit(mod, LIM).certificate.payload["rows"]}
+    assert rows["d_nonzero"] == "domain"
+
+    fixed = Spec()
+    fixed.assume("n_pos", n >= 3)
+    fixed.claim(n / 3 >= 1)
+    assert obligations_for(fixed) == []
+
+    # a compound divisor is one obligation, named as it appears
+    compound = Spec()
+    compound.assume("safe", d >= 1)
+    compound.claim(n / (d + 1) >= 0)
+    assert len(obligations_for(compound)) == 1
+
+
+def test_the_obligations_are_derived_during_verification_not_believed():
+    """A certificate declaring fewer divisors than its own formulas contain is
+    one whose searches ran unguarded -- so the list is recomputed from the
+    formulas that travelled, the same way a branch-and-bound node rebuilds its
+    own linear program."""
+    import copy
+
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    n, d = z3.Ints("n d")
+    spec = Spec()
+    spec.assume("d_nonzero", d != 0)
+    spec.assume("n_zero", n == 0)
+    spec.claim(n / d == 0)
+
+    base = json.loads(json.dumps(smt.audit(spec, LIM).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+    assert base["payload"]["obligations"] == ["d"]
+
+    def bent(fn):
+        c = copy.deepcopy(base)
+        fn(c["payload"])
+        return verify(Certificate.from_dict(c), LIM).ok
+
+    # claiming there was nothing to guard
+    assert not bent(lambda p: p.__setitem__("obligations", []))
+    # a `domain` verdict with no obligation behind it is `redundant` wearing
+    # a kinder label
+    assert not bent(lambda p: p["rows"][0].__setitem__("obligations", []))
+    # and the tally still has to match
+    assert not bent(lambda p: p["counts"].__setitem__("domain", 7))
+    # a verdict the tally does not declare at all
+    assert not bent(lambda p: p["counts"].pop("domain"))
+
+
+def test_an_audit_certificate_from_before_the_fourth_verdict_still_verifies():
+    """0.8 wrote three counts and no obligations. Those certificates are on
+    disk in other people's repositories and must keep verifying -- the schema
+    is frozen at 4, and this is exactly the compatibility that promises."""
+    import z3
+
+    from certo import Spec
+    from certo.engines import smt
+
+    n = z3.Int("n")
+    spec = Spec()
+    spec.assume("n_large", n >= 5)
+    spec.assume("m_bounded", n >= 1)
+    spec.claim(n >= 1)
+
+    d = json.loads(json.dumps(smt.audit(spec, LIM).certificate.to_dict()))
+    # rewind the payload to the 0.8 shape
+    d["payload"].pop("obligations", None)
+    d["payload"]["counts"].pop("domain")
+    assert set(d["payload"]["counts"]) == {"needed", "redundant", "unknown"}
+    assert verify(Certificate.from_dict(d), LIM).ok
+
+
+# --- by symmetry, for a family rather than an instance ---------------------
+
+
+def _family(**changes):
+    """The split family, as `examples/parametric_symmetry.py` declares it."""
+    import importlib.util
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    path = root / "examples" / "parametric_symmetry.py"
+    spec = importlib.util.spec_from_file_location("certo_ps_example", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    out = mod.spec()
+    for key, value in changes.items():
+        setattr(out, key, value)
+    return out, mod
+
+
+def _parametric(spec):
+    from certo.engines import algebra
+
+    return algebra.reduce_parametric(spec, LIM)
+
+
+def test_the_symbolic_quotient_agrees_with_the_family_it_describes():
+    """Two orbits, four regimes, and every window point checked against a
+    program built from the OBJECTS rather than from the formulas."""
+    spec, _mod = _family()
+    r = _parametric(spec)
+
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["points"] == 35 and r.meta["orbits"] == 2
+    assert r.meta["regimes"] == ["(none)", "KKI", "KKK", "KKK,KKI"]
+    # C(p,2) + pq, which is what a split graph has
+    assert r.meta["objects"] == "1/2*p^2 + p*q - 1/2*p"
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("not the same claim" in w for w in rep.warnings)
+    assert any("not a proof of it" in w for w in rep.warnings)
+
+
+def test_a_condition_carried_past_its_boundary_is_refuted():
+    """The error the boundary regimes hide, and the reason this command
+    exists: `3x >= 1` comes from three mutually adjacent clique vertices, and
+    at p = 2 there are not three of them."""
+    spec, mod = _family()
+    spec.rows = [("KKK", {"clique": mod.K(3)}, ">=", mod.K(1), []),
+                 spec.rows[1]]
+
+    r = _parametric(spec)
+    assert r.verdict is Verdict.REFUTED
+    assert r.certificate is None            # nothing is certified about it
+    assert r.meta["failed"] == 7 and r.meta["checked"] == 35
+    assert "p=2, q=0" in r.detail
+
+
+def test_every_way_of_misstating_the_declaration_is_caught():
+    """Five, each a real mistake somebody makes in a write-up, and each
+    showing up as a disagreement at some parameter value."""
+    from fractions import Fraction
+
+    def refuted(label, **changes):
+        spec, mod = _family()
+        for key, value in changes.items():
+            if callable(value):
+                setattr(spec, key, value(mod, spec))
+            else:
+                setattr(spec, key, value)
+        r = _parametric(spec)
+        assert r.verdict is Verdict.REFUTED, label
+        assert r.meta["failed"] > 0, label
+        return r.meta["failed"]
+
+    # a multiplicity that halves the cross orbit
+    assert refuted("pq/2", orbits=lambda m, s: {
+        "clique": m.CLIQUE, "cross": m.CROSS.scaled(Fraction(1, 2))}) == 30
+    # p^2/2 where the family has C(p,2)
+    assert refuted("p^2/2", orbits=lambda m, s: {
+        "clique": (m.P * m.P).scaled(Fraction(1, 2)), "cross": m.CROSS}) == 35
+    # an orbit that is not there at all
+    assert refuted("ghost", orbits=lambda m, s: {
+        "clique": m.CLIQUE, "cross": m.CROSS, "ghost": m.K(1)}) == 35
+    # a coefficient inside a row
+    assert refuted("coefficient", rows=lambda m, s: [
+        s.rows[0],
+        ("KKI", {"clique": m.K(1), "cross": m.K(3)}, ">=", m.K(1),
+         [m.P - m.K(2), m.Q - m.K(1)])]) == 30
+    # a condition off by one
+    assert refuted("off by one", rows=lambda m, s: [
+        ("KKK", {"clique": m.K(3)}, ">=", m.K(1), [m.P - m.K(2)]),
+        s.rows[1]]) == 7
+
+
+def test_the_regimes_are_derived_from_the_conditions_not_listed():
+    """A piecewise closed form has one branch per regime. Deriving them is
+    what lets a formula be compared against the program it claims to solve --
+    three branches over four regimes is a formula missing a case."""
+    from certo import paramsym
+
+    spec, _mod = _family()
+    got = paramsym.regimes(spec, spec.window)
+    assert set(got) == {"(none)", "KKI", "KKK", "KKK,KKI"}
+    # no triangles at all, exactly once: p = 2, q = 0
+    assert got["(none)"] == [{"p": 2, "q": 0}]
+    # p = 2 with an independent vertex: the clique triangle is absent
+    assert all(v["p"] == 2 and v["q"] >= 1 for v in got["KKI"])
+    # q = 0: no cross edges, so no mixed triangle
+    assert all(v["q"] == 0 and v["p"] >= 3 for v in got["KKK"])
+
+
+def test_an_orbit_is_present_exactly_where_its_multiplicity_is_positive():
+    """Not a convention -- a measurement. The family has TWO edge orbits for
+    q >= 1 and ONE for q = 0, because there are no cross edges to be an orbit
+    of, and writing "two orbits" for every q is how a degenerate case gets a
+    constraint it has no right to."""
+    from certo import paramsym
+
+    spec, _mod = _family()
+    assert paramsym.live_orbits(spec, {"p": 5, "q": 3}) == ["clique", "cross"]
+    assert paramsym.live_orbits(spec, {"p": 5, "q": 0}) == ["clique"]
+    assert paramsym.live_rows(spec, {"p": 5, "q": 0}) == ["KKK"]
+    assert paramsym.live_rows(spec, {"p": 2, "q": 0}) == []
+
+    # a negative multiplicity is a wrong polynomial, not a small orbit
+    spec.orbits = dict(spec.orbits, broken=_neg_poly(spec))
+    try:
+        paramsym.live_orbits(spec, {"p": 2, "q": 0})
+        raise AssertionError("expected a refusal")
+    except paramsym.NotParametricSymmetry as e:
+        assert "not a small orbit" in str(e)
+
+
+def _neg_poly(spec):
+    from certo.polynomials import Poly
+
+    ring = tuple(spec.parameters)
+    return Poly.var(ring, "p") - Poly.const(ring, 5)
+
+
+def test_a_declaration_with_no_window_is_refused():
+    """Unfalsifiable is worse than unchecked, so it is refused rather than
+    certified with nothing behind it."""
+    from certo import paramsym
+
+    spec, _mod = _family()
+    spec.window = []
+    try:
+        paramsym.certify(spec, LIM)
+        raise AssertionError("expected a refusal")
+    except paramsym.NotParametricSymmetry as e:
+        assert "unfalsifiable" in str(e)
+
+    spec, _mod = _family()
+    spec.instance = None
+    try:
+        paramsym.certify(spec, LIM)
+        raise AssertionError("expected a refusal")
+    except paramsym.NotParametricSymmetry as e:
+        assert "falsifiable" in str(e)
+
+
+def test_a_forged_parametric_certificate_does_not_verify():
+    """The symbolic side is re-derived, so a payload edited to agree with
+    itself still has to agree with the numbers the instances produced."""
+    import copy
+
+    spec, _mod = _family()
+    base = json.loads(json.dumps(_parametric(spec).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a point relabelled as agreeing when it did not
+    assert not bent(lambda p: p["points"][0].__setitem__("ok", False))
+    # the recorded orbit sizes moved away from the multiplicities
+    assert not bent(lambda p: p["points"][3]["sizes"].__setitem__(
+        "clique", "99"))
+    # a row claimed present in a regime where its condition fails
+    assert not bent(lambda p: p["points"][0].__setitem__("rows", ["KKK"]))
+    # the object count no longer matches what the instances had
+    assert not bent(lambda p: p["orbits"].__setitem__(
+        "clique", {"1 0": "1"}))
+
+
+def test_the_lean_file_separates_what_lean_can_close_from_the_bridge():
+    """The identity goes in as a theorem `ring` closes, the window points as
+    examples `norm_num` closes, and the step from the window to the region
+    gets exactly one `sorry` with a name that says what it is."""
+    from certo import leanexport
+
+    spec, _mod = _family()
+    text = leanexport.parametric_symmetry_to_lean(
+        _parametric(spec).certificate.to_dict())
+
+    assert "theorem multiplicities_partition" in text
+    assert "ring" in text and "norm_num" in text
+    assert leanexport.hollow_count(text) == 1
+    assert "orbits_are_uniform_in_the_parameters_HOLLOW" in text
+    # the real theorem is not the hollow one
+    identity = text.split("theorem multiplicities_partition", 1)[1]
+    assert "sorry" not in identity.split("/-!", 1)[0]
+
+
+# --- an exact linear system, with a witness either way ---------------------
+
+
+def _solve(matrix, rhs, domain="rational"):
+    from certo import LinearSystemSpec
+    from certo.engines import algebra
+
+    return algebra.linear_system(
+        LinearSystemSpec(matrix=matrix, rhs=rhs, domain=domain), LIM)
+
+
+K4_INCIDENCE = [[1, 1, 0, 0], [1, 0, 1, 0], [0, 1, 1, 0],
+                [1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]]
+
+
+def test_a_solution_is_checked_against_the_system_that_travelled():
+    """Not against the one somebody remembers stating. A solution to a
+    slightly different matrix is the failure mode here."""
+    import copy
+
+    r = _solve(K4_INCIDENCE, [2, 2, 2, 0, 0, 0])
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.payload["solution"] == ["1", "1", "1", "-1"]
+
+    base = json.loads(json.dumps(r.certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    assert not bent(lambda p: p["solution"].__setitem__(3, "1"))
+    assert not bent(lambda p: p["rhs"].__setitem__(0, "3"))
+    assert not bent(lambda p: p["matrix"][0].__setitem__(0, "0"))
+    assert not bent(lambda p: p.__setitem__("rank", 3))
+
+
+def test_a_rational_solution_says_nothing_about_non_negativity():
+    """`y` is non-negative everywhere, the representation is UNIQUE, and it
+    uses a weight of -1. The matrix has full column rank, so there is no other
+    answer to pick instead -- the negative weight is not an artefact of how
+    the elimination went."""
+    r = _solve(K4_INCIDENCE, [2, 2, 2, 0, 0, 0])
+    x = r.certificate.payload["solution"]
+
+    assert r.certificate.payload["status"] == "unique"
+    assert r.certificate.payload["rank"] == 4        # full column rank
+    assert any(v.startswith("-") for v in x)
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("non-negative" in w for w in rep.warnings)
+
+
+def test_the_same_system_answers_differently_over_Z_and_over_Q():
+    """Which is why the domain is a declaration and not a default somebody
+    discovers later."""
+    ones = [1, 1, 1, 1, 1, 1]
+
+    over_q = _solve(K4_INCIDENCE, ones)
+    assert over_q.verdict is Verdict.PROVED
+    assert over_q.certificate.payload["solution"] == ["1/2"] * 4
+
+    over_z = _solve(K4_INCIDENCE, ones, domain="integer")
+    assert over_z.verdict is Verdict.REFUTED
+    assert over_z.certificate.payload["solution"] is None
+    # the invariant factor that blocks it
+    assert over_z.certificate.payload["invariants"] == [1, 1, 1, 2]
+
+    for r in (over_q, over_z):
+        assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_unsolvable_carries_the_obstruction_that_proves_it():
+    """`y.A = 0` and `y.b != 0`: a negative result with nothing behind it is
+    a claim, and this one is two more products."""
+    from fractions import Fraction
+
+    r = _solve(K4_INCIDENCE, [1, 1, 0, 0, 1, 1])
+    assert r.verdict is Verdict.REFUTED
+    y = [Fraction(v) for v in r.certificate.payload["witness"]]
+
+    cols = list(zip(*K4_INCIDENCE))
+    assert all(sum(a * c for a, c in zip(y, col)) == 0 for col in cols)
+    assert sum(a * c for a, c in zip(y, [1, 1, 0, 0, 1, 1])) != 0
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_forged_obstruction_does_not_verify():
+    import copy
+
+    base = json.loads(json.dumps(
+        _solve([[1, 1], [2, 2]], [1, 3]).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+    assert base["payload"]["witness"] == ["-2", "1"]
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a y that does not kill A
+    assert not bent(lambda p: p.__setitem__("witness", ["1", "1"]))
+    # a y that kills A but dies on b too, so it obstructs nothing
+    assert not bent(lambda p: p.__setitem__("witness", ["0", "0"]))
+    # no witness at all
+    assert not bent(lambda p: p.__setitem__("witness", None))
+
+
+def test_underdetermined_returns_the_set_and_not_a_point():
+    """Reporting one point of an affine subspace as though it were the answer
+    is how a free parameter disappears from a write-up."""
+    from fractions import Fraction
+
+    A = [[1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 1, 1]]
+    r = _solve(A, [1, 1, 1])
+    p = r.certificate.payload
+
+    assert p["status"] == "underdetermined"
+    assert len(p["kernel"]) == p["columns"] - p["rank"] == 1
+    k = [Fraction(v) for v in p["kernel"][0]]
+    assert all(sum(a * v for a, v in zip(row, k)) == 0 for row in A)
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("NOT unique" in w for w in rep.warnings)
+
+
+def test_the_kernel_over_Z_is_a_lattice_basis_and_not_merely_a_span():
+    """Which is the reason to go through Smith rather than reduce over Q and
+    clear denominators."""
+    from fractions import Fraction
+
+    A = [[2, 4]]
+    r = _solve(A, [6], domain="integer")
+    p = r.certificate.payload
+    assert p["status"] == "underdetermined"
+    assert all(Fraction(v).denominator == 1 for v in p["solution"])
+    for k in p["kernel"]:
+        vals = [Fraction(v) for v in k]
+        assert all(v.denominator == 1 for v in vals)
+        assert sum(a * v for a, v in zip(A[0], vals)) == 0
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_float_is_refused_rather_than_converted():
+    """A system read from floating point is a different system."""
+    r = _solve([[1.5, 1], [0, 1]], [1, 1])
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert "not exact" in r.detail
+
+    r = _solve([[1, 1], [0]], [1, 1])
+    assert r.verdict is Verdict.INCONCLUSIVE and "rectangular" in r.detail
+
+    r = _solve([[1, 1]], [1, 1])
+    assert r.verdict is Verdict.INCONCLUSIVE and "right-hand side" in r.detail
+
+    # a Fraction that happens to be integral is fine
+    from fractions import Fraction
+
+    r = _solve([[Fraction(4, 2)]], [Fraction(6, 3)])
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.payload["solution"] == ["1"]
+
+
+def test_solve_agrees_with_an_independent_elimination():
+    """Random systems against a solver nothing here shares code with."""
+    import random
+    from fractions import Fraction
+
+    rng = random.Random(20260917)
+    for _ in range(60):
+        n, m = rng.randint(1, 4), rng.randint(1, 4)
+        A = [[rng.randint(-5, 5) for _ in range(m)] for _ in range(n)]
+        b = [rng.randint(-5, 5) for _ in range(n)]
+        r = _solve(A, b)
+        p = r.certificate.payload
+
+        if p["solution"] is None:
+            # no solution: then no x can satisfy it, which sympy-free linear
+            # algebra confirms by the rank of [A|b] exceeding that of A
+            assert _rank_of(A) < _rank_of([row + [v] for row, v in zip(A, b)])
+        else:
+            x = [Fraction(v) for v in p["solution"]]
+            assert [sum(Fraction(a) * v for a, v in zip(row, x))
+                    for row in A] == [Fraction(v) for v in b]
+        assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def _rank_of(M):
+    """Plain Gaussian elimination, written here so the comparison is not
+    against the code under test."""
+    from fractions import Fraction
+
+    A = [[Fraction(v) for v in row] for row in M]
+    n, m = len(A), len(A[0])
+    r = 0
+    for c in range(m):
+        piv = next((i for i in range(r, n) if A[i][c]), None)
+        if piv is None:
+            continue
+        A[r], A[piv] = A[piv], A[r]
+        for i in range(n):
+            if i != r and A[i][c]:
+                f = A[i][c] / A[r][c]
+                A[i] = [a - f * b for a, b in zip(A[i], A[r])]
+        r += 1
+    return r
+
+
+# --- the quotient as an equivalence, not as two optima that agree ----------
+
+
+def _family_module():
+    import importlib.util
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    path = root / "examples" / "equitable_quotient.py"
+    spec = importlib.util.spec_from_file_location("certo_eq_example", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _quotient(spec):
+    from certo.engines import algebra
+
+    return algebra.equitable_quotient(spec, LIM)
+
+
+def test_the_two_programs_have_the_same_attainable_values():
+    """Not "the optima agree" -- the maps. A feasible physical point projects
+    to a feasible quotient point of the same value, and back."""
+    from fractions import Fraction
+
+    from certo import equitable, tree
+    from certo.engines import lp as lpe
+
+    mod = _family_module()
+    physical, _c, _t = mod.physical()
+    rows, columns = mod.partition()
+    data = equitable.analyse(physical, rows, columns)
+    reduced = equitable.quotient(physical, data)
+
+    def value(lp, x):
+        return sum(Fraction(str(c)) * Fraction(x.get(v, 0))
+                   for v, c in lp.obj.items())
+
+    def violated(lp, x):
+        for name, coeffs, sense, rhs in lp.cons:
+            s = sum(Fraction(str(c)) * Fraction(x.get(v, 0))
+                    for v, c in coeffs.items())
+            r = Fraction(str(rhs))
+            if (sense == "<=" and s > r) or (sense == ">=" and s < r):
+                return name
+        return None
+
+    # project an optimal physical point
+    x = {k: Fraction(str(v))
+         for k, v in lpe.opt(physical, LIM).meta["solution"].items()}
+    assert violated(physical, x) is None
+    z = {"z_" + j: v for j, v in equitable.project(x, data).items()}
+    assert violated(reduced, z) is None
+    assert value(reduced, z) == value(physical, x)
+
+    # lift an optimal quotient point
+    zs = {k[2:]: Fraction(str(v))
+          for k, v in lpe.opt(reduced, LIM).meta["solution"].items()}
+    back = equitable.lift(zs, data)
+    assert violated(physical, back) is None
+    assert value(physical, back) == value(
+        reduced, {"z_" + j: v for j, v in zs.items()})
+
+    _ = tree
+
+
+def test_the_quotient_reproduces_the_value_the_family_has():
+    """226 rows and 3147 columns down to 13 and 49, same optimum."""
+    from fractions import Fraction
+
+    from certo import tree
+    from certo.engines import lp as lpe
+
+    r = _quotient(_family_module().spec())
+    assert r.verdict is Verdict.PROVED
+    assert r.meta["physical_rows"] == 226
+    assert r.meta["physical_columns"] == 3147
+    assert (r.meta["rows"], r.meta["columns"]) == (13, 49)
+
+    reduced = tree.spec_of(r.certificate.payload["quotient"])
+    assert Fraction(lpe.opt(reduced, LIM).meta["objective"]) == 121
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+    assert any("EQUIVALENCE" in w for w in rep.warnings)
+    assert any("NOTHING about integrality" in w for w in rep.warnings)
+
+
+def test_a_class_mixing_two_capacities_is_refused_by_name():
+    """The acceptance control. Intact, the physical K4 and its quotient both
+    give 4. Cap one edge and the physical value is 2, while aggregating over a
+    class that mixes capacities would report 10/3 -- so the partition must be
+    refused, and it names the two rows."""
+    r = _quotient(_family_module().capacity_breaks_the_class())
+
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+    assert "not constant in capacity" in r.detail
+    assert "`e01`" in r.detail and "`e02`" in r.detail
+
+
+def test_the_two_regularities_are_not_the_same_quantity():
+    """Using one where the other belongs builds a quotient that is simply
+    wrong, and it took the physical program to notice: on K4 with triangles
+    only, `H` in place of `B` reports 6 where the value is 4."""
+    from fractions import Fraction
+
+    from certo import equitable, tree
+    from certo.engines import lp as lpe
+
+    mod = _family_module()
+    spec = mod.capacity_breaks_the_class()
+    # the same K4, uncapped
+    for i, (name, coeffs, sense, _rhs) in enumerate(list(spec.lp.cons)):
+        spec.lp.cons[i] = (name, coeffs, sense, 1)
+
+    data = equitable.analyse(spec.lp, spec.rows, spec.columns)
+    assert data["B"][("edge", "tri")] == 3        # a triangle uses 3 edges
+    assert data["H"][("edge", "tri")] == 2        # an edge is in 2 triangles
+    # N.H = M.B: 6*2 = 4*3
+    assert data["N"]["edge"] * data["H"][("edge", "tri")] == \
+        data["M"]["tri"] * data["B"][("edge", "tri")] == 12
+
+    reduced = equitable.quotient(spec.lp, data)
+    assert Fraction(lpe.opt(reduced, LIM).meta["objective"]) == 4
+    assert Fraction(lpe.opt(spec.lp, LIM).meta["objective"]) == 4
+    _ = tree
+
+
+def test_a_partition_that_is_not_one_is_refused():
+    from certo import equitable
+
+    mod = _family_module()
+    spec = mod.capacity_breaks_the_class()
+
+    missing = dict(spec.columns)
+    missing.pop(sorted(missing)[0])
+    try:
+        equitable.analyse(spec.lp, spec.rows, missing)
+        raise AssertionError("expected a refusal")
+    except equitable.NotEquitable as e:
+        assert "no class" in str(e)
+
+    stray = dict(spec.rows)
+    stray["not_a_row"] = "edge"
+    try:
+        equitable.analyse(spec.lp, stray, spec.columns)
+        raise AssertionError("expected a refusal")
+    except equitable.NotEquitable as e:
+        assert "does not have" in str(e)
+
+
+def test_regularity_is_checked_row_by_row_and_not_by_block_total():
+    """A block whose TOTAL is right while individual rows differ still breaks
+    lifting, and that is the case a total-only check waves through."""
+    from certo import LPSpec, equitable
+
+    # Two rows in one class, two columns in one class. The block totals 8
+    # either way, and an average of 4 per row -- but one row sees 2 and the
+    # other 6, so lifting a class mass evenly overloads the first. `1+3`
+    # against `3+1` would NOT be a counterexample: both rows see 4, the
+    # partition is equitable, and the equivalence genuinely holds.
+    p = LPSpec(sense="max", title="a block total that hides a difference")
+    p.variable("c1", 0, None)
+    p.variable("c2", 0, None)
+    p.objective({"c1": 1, "c2": 1})
+    p.constraint({"c1": 1, "c2": 1}, "<=", 10, name="r1")
+    p.constraint({"c1": 3, "c2": 3}, "<=", 10, name="r2")
+
+    rows = {"r1": "R", "r2": "R"}
+    cols = {"c1": "C", "c2": "C"}
+    try:
+        equitable.analyse(p, rows, cols)
+        raise AssertionError("expected a refusal")
+    except equitable.NotEquitable as e:
+        assert "regularity" in str(e)
+
+    # The same block total, made regular row by row, passes -- and so does
+    # the asymmetric `1+3 / 3+1`, because what the equivalence needs is the
+    # per-row SUM over a class and not the individual coefficients.
+    p.cons[0] = ("r1", {"c1": 2, "c2": 2}, "<=", 10)
+    p.cons[1] = ("r2", {"c1": 2, "c2": 2}, "<=", 10)
+    data = equitable.analyse(p, rows, cols)
+    assert data["H"][("R", "C")] == 4 and data["B"][("R", "C")] == 4
+
+    p.cons[0] = ("r1", {"c1": 1, "c2": 3}, "<=", 10)
+    p.cons[1] = ("r2", {"c1": 3, "c2": 1}, "<=", 10)
+    assert equitable.analyse(p, rows, cols)["H"][("R", "C")] == 4
+
+
+def test_a_forged_quotient_certificate_does_not_verify():
+    import copy
+
+    base = json.loads(json.dumps(
+        _quotient(_family_module().spec()).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    key = sorted(base["payload"]["B"])[0]
+    # B moved away from H: the double count stops holding
+    assert not bent(lambda p: p["B"].__setitem__(key, "99"))
+    assert not bent(lambda p: p["H"].__setitem__(key, "99"))
+    # a class size that is not the one the identities were checked against
+    assert not bent(lambda p: p["N"].__setitem__(sorted(p["N"])[0], 999))
+    # a quotient that is not the one the class data produces
+    assert not bent(lambda p: p["quotient"]["cons"].clear())
+    # an empty column class: lifting would divide by nothing
+    assert not bent(lambda p: p["M"].__setitem__(sorted(p["M"])[0], 0))
 
 
 # --- a level cannot be crossed silently ------------------------------------

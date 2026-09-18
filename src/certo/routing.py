@@ -35,12 +35,13 @@ SPEC_OF = {
     "sweep": "SweepSpec", "cases": "CNFSpec", "shrink": "SweepSpec",
     "ideal": "IdealSpec", "eliminate": "EliminateSpec", "sos": "SOSSpec",
     "number": "NumberSpec", "compose": "ProofSpec", "lint": "*",
-    "audit": "*", "reduce": "SymmetrySpec", "matrix": "MatrixSpec",
+    "audit": "*", "reduce": "SymmetrySpec", "matrix": "MatrixSpec", "solve": "LinearSystemSpec",
+    "quotient": "EquitableQuotientSpec",
 }
 
 #: Which commands leave a certificate that re-checks with NO solver.
 SOLVER_FREE = {
-    "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
+    "quotient", "solve", "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
     "cover", "ideal", "eliminate", "sos", "number", "order", "bounds",
     "cases",
 }
@@ -66,7 +67,9 @@ BY_QUESTION = (
         ("commands.q.bounds", "bounds"),
         ("commands.q.order", "order"),
         ("commands.q.reduce", "reduce"),
+        ("commands.q.quotient", "quotient"),
         ("commands.q.matrix", "matrix"),
+        ("commands.q.solve", "solve"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
         ("commands.q.entry", "entry"),
@@ -121,7 +124,8 @@ def table() -> dict:
 #: is a linear program once it is written out, a finite domain is a sweep. The
 #: CLI has always converted these; the routing table had not, so `ask` refused
 #: two of the most used spec types in the corpus.
-ALSO = {"PackingSpec": "opt", "DomainSpec": "sweep"}
+ALSO = {"PackingSpec": "opt", "DomainSpec": "sweep",
+        "ParametricSymmetrySpec": "reduce"}
 
 
 def command_for(spec) -> str | None:
@@ -170,7 +174,10 @@ RUNNERS = {
     "moment": ("certo.engines.algebra", "moment"),
     "ratio": ("certo.engines.algebra", "ratio"),
     "reduce": ("certo.engines.algebra", "reduce_symmetry"),
+    "reduce_parametric": ("certo.engines.algebra", "reduce_parametric"),
     "matrix": ("certo.engines.algebra", "integer_matrix"),
+    "solve": ("certo.engines.algebra", "linear_system"),
+    "quotient": ("certo.engines.algebra", "equitable_quotient"),
     "family": ("certo.engines.algebra", "family_max"),
     # `CoverSpec` answers two questions: `cover` checks one you have, and
     # `exists` asks whether any does. `ask` takes the first as the default,
@@ -203,10 +210,17 @@ def runner_for(spec):
     command = command_for(spec)
     if command is None:
         return None, None
-    # A finite domain and a family of graphs are both `sweep` to a reader and
-    # two different engines underneath.
-    key = "sweep_domain" if (command == "sweep"
-                             and type(spec).__name__ == "DomainSpec")         else command
+    # One command, two engines underneath, twice over: a finite domain and a
+    # family of graphs are both `sweep` to a reader, and one program and a
+    # whole family are both `reduce`. Routing on the command alone would hand
+    # a parametric spec to the single-instance engine, which is how `ask`
+    # would quietly answer a weaker question than the one it was asked.
+    name = type(spec).__name__
+    key = command
+    if command == "sweep" and name == "DomainSpec":
+        key = "sweep_domain"
+    elif command == "reduce" and name == "ParametricSymmetrySpec":
+        key = "reduce_parametric"
     where = RUNNERS.get(key)
     if where is None:
         return command, None

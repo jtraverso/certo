@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17, after 0.8. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
+Last updated: 2026-09-17. Nothing released past 0.8.0. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
 
 ---
 
@@ -28,7 +28,7 @@ the shape of the corpus LPs all changed the moment they were measured.
 | **P2** | Chow ring and toric intersection | **L** | **low** | none | — |
 | **P2** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
 
-Landed in 0.8, and struck from the table above: **certified symmetry
+Released in 0.8.0, and struck from the table above: **certified symmetry
 reduction** (`certo reduce`), **does this hypothesis earn its place**
 (`certo audit`), and **exact integer linear algebra** (`certo matrix`). The
 estimates held -- M, S and M -- and each of the three found a defect
@@ -68,7 +68,54 @@ project made that way changed on contact.
 
 ---
 
+## Built, not released
+
+The version is still 0.8.0. These are done and tested and are waiting on a
+decision about shipping them.
+
+### `reduce --parametric` — the symbolic quotient *(was P1, user feedback)*
+
+Estimated **M / med-high / low radius**, and it landed at that size. The
+estimate held for the reason the backlog said it would: both halves existed.
+
+**The risk resolved in the easy direction.** The open question was whether the
+orbit COUNT varies with the parameter, which would have needed either a stated
+range or a refusal. Measured against three write-ups: it does not — 2, 3 and 4
+orbits, fixed. What varies is the ROW SET, because a triangle type that does
+not exist contributes no constraint. So the feature is built around row
+existence conditions, and the regimes those conditions cut parameter space into
+are derived rather than declared.
+
+**One thing measuring did change.** An orbit is present exactly where its
+multiplicity is positive, not wherever it is declared: the split family has two
+edge orbits for `q >= 1` and one for `q = 0`. Declaring "two orbits" and
+meaning it everywhere is how a degenerate case gets a constraint it has no
+right to.
+
+Five ways of mis-stating a family are refuted on the window, the tightest being
+a single condition dropped: `3x >= 1` carried into `p = 2` fails at 7 of 35
+points. The Lean export splits the same way the certificate does — the
+multiplicity identity as a theorem `ring` closes, the window as examples
+`norm_num` closes, and one `sorry` on the step from the window to the region.
+
+---
+
 ## What landed in 0.8
+
+### Domain obligations in `audit` *(defect reported against 0.8)*
+
+Reported by a user within a day of 0.8. Division is total in SMT, so dropping
+a hypothesis that guards a denominator produced an instant counterexample at
+`d = 0` and the hypothesis read `needed` for a reason about the solver rather
+than the theorem. Worse than reported: the witnesses also carried Z3's
+internal `div0`/`mod0`, which nothing could re-apply, so on any spec
+containing a division `audit` emitted a certificate that did **not verify at
+all**.
+
+Divisors are now collected up front, every search is guarded by them, and a
+fourth verdict `domain` names the obligation a hypothesis was carrying. The
+distinction between `domain` and `redundant` is asked, not read off the shape
+of the formula.
 
 ### `certo reduce` — certified symmetry reduction *(was P1 #1)*
 

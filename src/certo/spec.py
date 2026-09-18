@@ -951,6 +951,133 @@ class EntrySpec:
 
 
 @dataclass
+class ParametricSymmetrySpec:
+    """A symmetric FAMILY: orbits with polynomial multiplicities, and rows
+    that exist only where they exist.
+
+        RING = ("p", "q")
+        p, q = Poly.var(RING, "p"), Poly.var(RING, "q")
+        K = lambda c: Poly.const(RING, c)
+
+        ParametricSymmetrySpec(
+            parameters=("p", "q"),
+            orbits={"clique": (p*p - p).scaled(Fraction(1, 2)),
+                    "cross": p * q},
+            rows=[("KKK", {"clique": K(3)}, ">=", K(1), [p - K(3)]),
+                  ("KKI", {"clique": K(1), "cross": K(2)}, ">=", K(1),
+                   [p - K(2), q - K(1)])],
+            sense="min",
+            instance=lambda p, q: (cover_lp(p, q), generators(p, q)),
+            window=[(a, b) for a in range(2, 7) for b in range(0, 7)],
+        )
+
+    `reduce` closes the averaging bridge on ONE program. This closes it for a
+    family: a write-up does not symmetrise `S(6,3)`, it symmetrises `S(p,q)`
+    and writes the answer as a formula.
+
+    THE OBJECTIVE IS NOT DECLARED. Substituting one variable per orbit into
+    `sum_e z_e` gives `sum_o |o| . x_o`, so the objective IS the
+    multiplicities. Declaring it separately would let it disagree with them.
+
+    A ROW CONDITION is a polynomial meant to be `>= 0` -- "present only when
+    p >= 3" is `p - 3`. An orbit is present exactly where its multiplicity is
+    positive, and a row is dropped when its conditions fail OR when every
+    orbit it mentions has vanished.
+
+    `instance` returns `(LPSpec, generators)` at a parameter point, built from
+    the OBJECTS rather than from the declaration -- that is what makes the
+    declaration falsifiable, and it is refused without one. `window` is where
+    the two are compared; the step from the window to the whole region is
+    named in the certificate and is not claimed to be proved.
+    """
+
+    parameters: tuple                # ("p", "q")
+    orbits: dict                     # name -> multiplicity polynomial
+    rows: list                       # (name, {orbit: coef}, sense, rhs, [when])
+    sense: str = "min"
+    instance: object = None          # callable(**values) -> (LPSpec, gens)
+    window: object = ()              # [(p, q), ...] or [{"p": .., "q": ..}]
+    title: str = ""
+
+
+@dataclass
+class LinearSystemSpec:
+    """`A x = b`, solved exactly, with a witness either way.
+
+        LinearSystemSpec(
+            matrix=[[2, 1], [1, 3]],
+            rhs=[5, 10],
+        )
+
+        LinearSystemSpec(matrix=A, rhs=b, domain="integer")
+
+    Entries are integers or `Fraction`; a float is refused rather than
+    converted, because a system read from floating point is a different
+    system. Over `domain="integer"` the Smith normal form decides it, and
+    "no integer solution" is a different answer from "no solution".
+
+    Three outcomes, kept apart. A UNIQUE solution. UNDERDETERMINED, reported
+    as a particular solution plus a basis of the kernel -- the solution SET,
+    because reporting one point of an affine subspace as though it were the
+    answer is how a free parameter disappears from a write-up. And NONE, with
+    `y` such that `y.A = 0` and `y.b != 0`, so a negative result is checkable
+    too.
+
+    IT ESTABLISHES NEITHER NON-NEGATIVITY NOR, over the rationals,
+    INTEGRALITY, and `verify` says so every time. A rational solution to the
+    equations of a packing is not a packing.
+    """
+
+    matrix: object                   # list of lists of int or Fraction
+    rhs: object                      # list of int or Fraction
+    domain: str = "rational"         # rational | integer
+    title: str = ""
+
+
+@dataclass
+class EquitableQuotientSpec:
+    """A program, a partition of its rows and columns, and the equivalence.
+
+        EquitableQuotientSpec(
+            lp=physical,
+            rows={"e_A0_B0": "AB", ...},        # resource -> class
+            columns={"x_A0_B0_C0": "k3_111000", ...},   # object -> class
+        )
+
+    `reduce` certifies a symmetry argument and then compares optima. Comparing
+    two computed optima does not show a reduction is correct -- it shows two
+    numbers agreed, which a wrong reduction with a compensating error also
+    does. This certifies the stronger and easier statement instead: the
+    physical program and the quotient have the SAME SET of attainable values,
+    by an explicit projection and lifting. Equality of optima is a corollary.
+
+    THE PARTITION IS AN INPUT. A group action produces one -- that is what
+    `reduce` is -- and so does a colour refinement, or a person who knows what
+    the classes are. Separating the finite-sum core from the group theory is
+    what a proof assistant wants anyway, and it means a partition nobody can
+    name a group for is still certifiable.
+
+    WHAT IS CHECKED, against the matrix and not assumed: that the classes are
+    a partition with no empty fibre; that capacities and senses are constant
+    on row classes and weights and bounds on column classes; and REGULARITY
+    in both directions -- every resource of a class is used by the same amount
+    of every object class, and every object of a class uses the same amount of
+    every resource class. The double count `N_i H_ij = M_j B_ij` ties the two
+    and is checked as well.
+
+    A partition failing any of them is refused, naming the two rows that
+    disagree. That is not a formality: one edge given capacity zero among
+    capacity-one edges breaks it, and the aggregated program would otherwise
+    report an optimum the physical program cannot attain.
+    """
+
+    lp: object                       # an LPSpec, or anything with `to_lp`
+    rows: dict                       # physical row name -> class name
+    columns: dict                    # physical column name -> class name
+    title: str = ""
+
+
+@dataclass
 class MatrixSpec:
     """An integer matrix, and which exact question to ask of it.
 

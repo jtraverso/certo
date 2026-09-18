@@ -715,6 +715,100 @@ def symmetry_reduction_certificate(sense, generators, orbits, system,
     )
 
 
+def parametric_symmetry_certificate(payload, title="") -> Certificate:
+    """The symbolic quotient of a family, and the window that tests it.
+
+    TWO LEVELS, and the certificate keeps them apart because they are not the
+    same claim.
+
+    SYMBOLIC, wherever the declaration holds: which orbits the quotient has,
+    which rows, with what coefficients, and which regimes the row conditions
+    cut parameter space into. The objective is the sum of the multiplicities,
+    which is what substituting one variable per orbit does -- so it is derived
+    here rather than declared, and cannot disagree with them.
+
+    PER INSTANCE, on a finite window: that the declared group really has these
+    orbits, that they really have these sizes, and that the quotient the
+    averaging argument produces really is the symbolic one evaluated there.
+
+    The second does not become the first by adding points. What it does is
+    make the first FALSIFIABLE -- a multiplicity that is wrong, a condition
+    off by one, a regime boundary in the wrong place, each shows up as a
+    disagreement at some parameter value. The step from the window to the
+    region is the multiplicity polynomials' assertion, and `verify` says so
+    every time rather than letting it pass as proved.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="parametric_symmetry", solver_free=True, payload=out,
+        note_key="cert.note.parametric_symmetry",
+    )
+
+
+def linear_system_certificate(payload, title="") -> Certificate:
+    """`A x = b`, and whatever makes the answer checkable.
+
+    The certificate for a solved system is almost embarrassing: it is `x`, and
+    checking it is one matrix-vector product. That IS the point -- a number
+    from a numerical library is a number to be trusted, while `x` with `A` and
+    `b` beside it is a number to be multiplied.
+
+    THE SYSTEM TRAVELS WITH THE ANSWER, so re-checking is against the system
+    that was stated rather than the one somebody remembers stating. A solution
+    to a slightly different matrix is the failure mode here, and without the
+    matrix in the payload it is invisible.
+
+    UNSOLVABLE IS CERTIFIED TOO: `y` with `y.A = 0` and `y.b != 0` turns a
+    negative result into two more products. An unsolvable system reported with
+    nothing behind it is a claim, not an answer.
+
+    WHAT IT DOES NOT SAY -- and `verify` repeats it every time -- is that the
+    solution is NON-NEGATIVE, or over the rationals that it is INTEGRAL. Those
+    are different questions, and letting a solved system stand in for either
+    is the substitution the warning exists to prevent.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="linear_system", solver_free=True, payload=out,
+        note_key="cert.note.linear_system",
+    )
+
+
+def equitable_quotient_certificate(payload, title="") -> Certificate:
+    """Two programs with the same attainable values, and why.
+
+    The claim is an EQUIVALENCE, not an agreement between two computed optima.
+    `Proj(x)_j = sum over the class of x_C` sends a feasible physical point to
+    a feasible quotient point of the same value; `Lift(z)_C = z_j / M_j` sends
+    one back; and `Proj(Lift(z)) = z`. Equality of optima follows, and no
+    duality is needed to get it.
+
+    WHAT MAKES THE MAPS WORK is regularity in both directions, and the two are
+    different quantities that are easy to confuse:
+
+        H_ij   one resource of class i is used by this much of object class j
+        B_ij   one object of class j uses this much of resource class i
+
+    Lifting needs H -- every physical row must see the same load -- and the
+    quotient's own matrix needs B. Using one where the other belongs builds a
+    quotient that is simply wrong, and no comparison of optima inside the
+    reduced world catches it. The double count `N_i H_ij = M_j B_ij` ties them
+    and travels as a check rather than as a remark.
+
+    WHAT IS NOT CLAIMED: INTEGRALITY. The equivalence is between the
+    fractional programs. An integer orbit mass need not lift to integer
+    objects, so this is never evidence about an integer program.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="equitable_quotient", solver_free=True, payload=out,
+        note_key="cert.note.equitable_quotient",
+    )
+
+
 def integer_matrix_certificate(question, matrix, result, title="") -> Certificate:
     """An exact answer about an integer matrix, with the transforms that
     make it checkable by multiplication instead of by elimination.
@@ -739,7 +833,7 @@ def integer_matrix_certificate(question, matrix, result, title="") -> Certificat
 
 
 def hypothesis_audit_certificate(rows, counts, goal_smt2, hypotheses_smt2,
-                                 title="") -> Certificate:
+                                 obligations=(), title="") -> Certificate:
     """Per hypothesis: needed and why, redundant, or not settled.
 
     `core` says which hypotheses an unsat core NEEDED, which catches a theorem
@@ -752,14 +846,25 @@ def hypothesis_audit_certificate(rows, counts, goal_smt2, hypotheses_smt2,
     wrote the right one, and checking it is evaluation rather than search:
     substitute, and the kept hypotheses must hold while the goal must not.
 
+    THE DOMAIN OBLIGATIONS travel with it. Division is total in SMT -- `n/0`
+    is a value the solver invents -- so a hypothesis guarding a denominator
+    would otherwise read `needed` for a counterexample that is about the
+    solver rather than the theorem. Every divisor that could vanish is listed,
+    every search is guarded by them, and a hypothesis whose only job was
+    holding one up is reported as `domain`: not needed, because the claim does
+    not become false, and emphatically not redundant, because removing it does
+    not generalise the theorem, it makes the statement meaningless.
+
     WHAT IT DOES NOT SAY, repeated on every verification: that the hypothesis
     set is MINIMAL. Dropping them one at a time says nothing about dropping
     two, and a pair can be jointly redundant with neither redundant alone.
     """
+    payload = {"rows": rows, "counts": counts, "goal_smt2": goal_smt2,
+               "hypotheses_smt2": hypotheses_smt2, "title": title}
+    if obligations:
+        payload["obligations"] = list(obligations)
     return Certificate(
-        kind="hypothesis_audit", solver_free=False,
-        payload={"rows": rows, "counts": counts, "goal_smt2": goal_smt2,
-                 "hypotheses_smt2": hypotheses_smt2, "title": title},
+        kind="hypothesis_audit", solver_free=False, payload=payload,
         note_key="cert.note.hypothesis_audit",
     )
 
@@ -1360,6 +1465,9 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "symmetry_reduction": _verify_symmetry_reduction,
         "hypothesis_audit": _verify_hypothesis_audit,
         "integer_matrix": _verify_integer_matrix,
+        "equitable_quotient": _verify_equitable_quotient,
+        "linear_system": _verify_linear_system,
+        "parametric_symmetry": _verify_parametric_symmetry,
         "ratio_bound": _verify_ratio_bound,
         "family_extremum": _verify_family_extremum,
         "integer_peak": _verify_integer_peak,
@@ -1877,6 +1985,267 @@ def _same_system(a, b) -> bool:
     return sorted(map(key, a["cons"])) == sorted(map(key, b["cons"]))
 
 
+def _verify_parametric_symmetry(cert, limits) -> VerifyReport:
+    """Re-derive the symbolic side; the per-instance side was recorded."""
+    from fractions import Fraction
+
+    from . import paramsym
+    from .polynomials import Poly
+
+    p = cert.payload
+    ring = tuple(p["parameters"])
+    spec = _paramsym_view(p, ring)
+    checks = []
+
+    # 1. the multiplicities give the orbit sizes recorded at each point
+    bad = []
+    for row in p["points"]:
+        want = {k: Fraction(v) for k, v in
+                paramsym.sizes_at(spec, row["point"]).items()}
+        got = {k: Fraction(str(v)) for k, v in row["sizes"].items()}
+        if want != got:
+            bad.append(paramsym._point_text(row["point"]))
+    checks.append((t("verify.paramsym.orbits"), not bad,
+                   t("verify.paramsym.sizes", n=len(p["points"]),
+                     orbits=len(p["orbits"]), params=", ".join(ring))))
+
+    # 2. the rows recorded present are the ones the conditions admit
+    wrong = []
+    for row in p["points"]:
+        if paramsym.live_rows(spec, row["point"]) != list(row["rows"]):
+            wrong.append(paramsym._point_text(row["point"]))
+    checks.append((t("verify.paramsym.rows"), not wrong,
+                   t("verify.paramsym.regimes", n=len(p["regimes"]),
+                     names=", ".join(sorted(p["regimes"]))[:80])))
+
+    # 3. the multiplicities account for every object. The count recorded at
+    # each point came from the INSTANCE, which was built from the objects, so
+    # this is the multiplicities against an independent number -- comparing
+    # the polynomial sum against itself would be a check with no content.
+    total = Poly(ring)
+    for data in p["orbits"].values():
+        total = total + Poly.parse(ring, data)
+    short = []
+    for row in p["points"]:
+        recorded = row.get("objects")
+        if recorded is None:
+            continue
+        if paramsym.evaluate(total, row["point"]) != Fraction(recorded):
+            short.append(paramsym._point_text(row["point"]))
+    checks.append((t("verify.paramsym.objects"),
+                   not short and total == Poly.parse(ring, p["objects"]),
+                   t("verify.paramsym.total", total=str(total),
+                     params=", ".join(ring))))
+
+    # 4. every window point agreed with the family when it was run
+    agreed = sum(1 for row in p["points"] if row["ok"])
+    checks.append((t("verify.paramsym.agreement"),
+                   agreed == len(p["points"]),
+                   t("verify.paramsym.points", ok=agreed, n=len(p["points"]))))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "parametric_symmetry", True, checks=checks,
+        warnings=[t("verify.paramsym.scope", n=len(p["points"])),
+                  t("verify.paramsym.window_bridge", n=len(p["points"]))],
+        method_key="verify.paramsym.method",
+        detail=t("verify.paramsym.detail", params=", ".join(ring),
+                 orbits=len(p["orbits"]), regimes=len(p["regimes"]),
+                 n=len(p["points"])),
+    )
+
+
+def _paramsym_view(payload, ring):
+    """The declaration, rebuilt from the payload so the checks can be redone.
+
+    Deliberately NOT the original spec object: what verification is allowed to
+    use is what travelled, and `instance` -- a Python callable -- did not.
+    """
+    import types
+
+    from .polynomials import Poly
+
+    return types.SimpleNamespace(
+        parameters=ring,
+        orbits={n: Poly.parse(ring, d) for n, d in payload["orbits"].items()},
+        sense=payload["sense"],
+        rows=[(r["name"],
+               {o: Poly.parse(ring, d) for o, d in r["coefficients"].items()},
+               r["sense"], Poly.parse(ring, r["rhs"]),
+               [Poly.parse(ring, g) for g in r["when"]])
+              for r in payload["rows"]],
+        instance=None, window=(), title=payload.get("title", ""),
+    )
+
+
+def _verify_linear_system(cert, limits) -> VerifyReport:
+    """One matrix-vector product, and the arithmetic around it."""
+    from fractions import Fraction
+
+    from . import linsolve
+
+    p = cert.payload
+    A = [[Fraction(v) for v in row] for row in p["matrix"]]
+    b = [Fraction(v) for v in p["rhs"]]
+    m = p["columns"]
+    checks = []
+
+    if p["status"] == linsolve.NONE:
+        # WHICH argument is required is decided by the DOMAIN, not by which
+        # evidence happens to be in the payload. Reading it off the payload
+        # let a certificate claiming "no rational solution" verify by an
+        # INTEGER argument once the witness was deleted -- and those are
+        # different claims, the integer one being strictly weaker.
+        if p["domain"] == "rational":
+            # `y.A = 0` and `y.b != 0`: the negative result, made checkable.
+            y = [Fraction(v) for v in (p.get("witness") or [])]
+            ok = False
+            if y and len(y) == len(A):
+                cols = list(zip(*A))
+                ok = (all(sum((a * c for a, c in zip(y, col)), Fraction(0)) == 0
+                          for col in cols)
+                      and sum((a * c for a, c in zip(y, b)), Fraction(0)) != 0)
+            checks.append((t("verify.solve.witness"), ok,
+                           t("verify.solve.no_solution")))
+        else:
+            # Over Z there is no such row vector -- `2x = 1` has no rational
+            # obstruction at all -- so the decision rests on the invariant
+            # factors, and it is redone rather than believed.
+            checks.append((t("verify.solve.integer_blocked"),
+                           _integer_unsolvable(A, b),
+                           t("verify.solve.blocked",
+                             values=", ".join(map(str, p.get("invariants")
+                                                  or [])) or "-")))
+        return VerifyReport(
+            all(c[1] for c in checks), "linear_system", True, checks=checks,
+            warnings=[t("verify.solve.scope")],
+            method_key="verify.solve.method",
+            detail=t("verify.solve.none", rows=len(A), cols=m))
+
+    x = [Fraction(v) for v in p["solution"]]
+    checks.append((t("verify.solve.satisfies"),
+                   len(x) == m and linsolve.multiply(A, x) == b,
+                   t("verify.solve.product", rows=len(A), cols=m)))
+
+    if p["domain"] == "integer":
+        checks.append((t("verify.solve.integral"),
+                       all(v.denominator == 1 for v in x),
+                       t("verify.solve.entries", n=len(x))))
+
+    kernel = [[Fraction(v) for v in k] for k in p["kernel"]]
+    zero = [Fraction(0)] * len(A)
+    checks.append((t("verify.solve.kernel"),
+                   all(linsolve.multiply(A, k) == zero for k in kernel),
+                   t("verify.solve.kernel_size", n=len(kernel))))
+
+    # The rank is DERIVED, not read: a payload claiming a smaller rank would
+    # be claiming a bigger solution set than the system has.
+    rank = _rational_rank(A)
+    ok_rank = rank == p["rank"]
+    if p["domain"] == "rational":
+        ok_rank = ok_rank and len(kernel) == m - rank
+    checks.append((t("verify.solve.rank"), ok_rank,
+                   t("verify.solve.rank_is", r=rank, cols=m)))
+
+    warnings = [t("verify.solve.scope")]
+    if p["status"] == linsolve.MANY:
+        warnings.append(t("verify.solve.many", n=len(kernel)))
+    return VerifyReport(
+        all(c[1] for c in checks), "linear_system", True, checks=checks,
+        warnings=warnings, method_key="verify.solve.method",
+        detail=t("verify.solve.detail", status=p["status"], rows=len(A),
+                 cols=m, domain=p["domain"]),
+    )
+
+
+def _rational_rank(A) -> int:
+    from fractions import Fraction
+
+    from . import linsolve
+
+    _aug, _T, pivots = linsolve._rref(A, [Fraction(0)] * len(A))
+    return len(pivots)
+
+
+def _integer_unsolvable(A, b) -> bool:
+    """Redo the Smith decision rather than take the payload's word."""
+    from . import linsolve
+
+    try:
+        return linsolve.solve_integer(A, b)["status"] == linsolve.NONE
+    except linsolve.NotSolvable:
+        return False
+
+
+def _verify_equitable_quotient(cert, limits) -> VerifyReport:
+    """Rebuild the quotient from the class data, and redo the double count."""
+    from fractions import Fraction
+
+    from . import equitable, tree
+
+    p = cert.payload
+    N = {k: int(v) for k, v in p["N"].items()}
+    M = {k: int(v) for k, v in p["M"].items()}
+    B = {tuple(k.split("|", 1)): Fraction(v) for k, v in p["B"].items()}
+    H = {tuple(k.split("|", 1)): Fraction(v) for k, v in p["H"].items()}
+    checks = []
+
+    # 1. the double count. Both regularities were established against the
+    # physical matrix when this was produced; that they COHERE is arithmetic,
+    # and it is what catches one of them having been used as the other.
+    off = [(i, j) for (i, j) in set(B) | set(H)
+           if N[i] * H.get((i, j), Fraction(0))
+           != M[j] * B.get((i, j), Fraction(0))]
+    checks.append((t("verify.quotient.double_count"), not off,
+                   t("verify.quotient.identities",
+                     n=len(set(B) | set(H)),
+                     bad=", ".join("{}|{}".format(*x) for x in off[:2]) or "-")))
+
+    # 2. the quotient is REBUILT from B, N, the capacities and the weights,
+    # not read from the payload.
+    data = {"rows": {i: [None] * n for i, n in N.items()},
+            "columns": {j: [None] * m for j, m in M.items()},
+            "B": B, "N": N, "M": M,
+            "capacities": {i: Fraction(v)
+                           for i, v in p["capacities"].items()},
+            "weights": {j: Fraction(v) for j, v in p["weights"].items()},
+            "senses": p["senses"],
+            "bounds": {j: tuple(v) if v else None
+                       for j, v in (p.get("bounds") or {}).items()}}
+    for j in data["columns"]:
+        data["bounds"].setdefault(j, None)
+    want = equitable.quotient(_sense_holder(p["sense"]), data)
+    checks.append((t("verify.quotient.rebuilt"),
+                   _same_system(tree.system_of(want), p["quotient"]),
+                   t("verify.quotient.shape",
+                     rows=len(N), cols=len(M),
+                     prows=p["physical_rows"], pcols=p["physical_columns"])))
+
+    # 3. `Proj(Lift(z)) = z` is an identity about the fibre sizes, and a
+    # class of size zero would make lifting a division by nothing.
+    empty = sorted(j for j, m in M.items() if m <= 0)
+    checks.append((t("verify.quotient.roundtrip"),
+                   not empty and not p.get("roundtrip_failures"),
+                   t("verify.quotient.fibres", n=len(M),
+                     bad=", ".join(empty[:3]) or "-")))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "equitable_quotient", True, checks=checks,
+        warnings=[t("verify.quotient.scope"),
+                  t("verify.quotient.integrality")],
+        method_key="verify.quotient.method",
+        detail=t("verify.quotient.detail", rows=len(N), cols=len(M),
+                 prows=p["physical_rows"], pcols=p["physical_columns"]),
+    )
+
+
+class _sense_holder:
+    """The two fields `equitable.quotient` reads off the physical program."""
+
+    def __init__(self, sense):
+        self.sense = sense
+        self.title = ""
+
+
 def _verify_integer_matrix(cert, limits) -> VerifyReport:
     """Every claim as integer multiplication, and the one sign as a modulus."""
     from . import lattice
@@ -1951,10 +2320,20 @@ def _verify_hypothesis_audit(cert, limits) -> VerifyReport:
     p = cert.payload
     rows = p["rows"]
     counts = {v: sum(1 for r in rows if r["verdict"] == v)
-              for v in ("needed", "redundant", "unknown")}
-    checks = [(t("verify.audit.counts"), counts == p["counts"],
+              for v in _audit.VERDICTS}
+    # A certificate written before `domain` existed declares three counts, not
+    # four. Comparing on the keys it declares keeps those verifying, and the
+    # verdicts check below is what stops a forger from deleting a key to hide
+    # a row.
+    declared = {k: counts.get(k, 0) for k in p["counts"]}
+    checks = [(t("verify.audit.counts"), declared == p["counts"],
                t("verify.audit.tally", needed=counts["needed"],
-                 redundant=counts["redundant"], unknown=counts["unknown"]))]
+                 redundant=counts["redundant"], domain=counts["domain"],
+                 unknown=counts["unknown"]))]
+
+    stray = sorted({r["verdict"] for r in rows} - set(p["counts"]))
+    checks.append((t("verify.audit.verdicts"), not stray,
+                   ", ".join(stray) or "-"))
 
     got = _audit.recheck(p, limits)
     checks.append((t("verify.audit.witnesses"), not got["bad"],
@@ -1968,14 +2347,34 @@ def _verify_hypothesis_audit(cert, limits) -> VerifyReport:
     checks.append((t("verify.audit.every_witness"), not missing,
                    ", ".join(missing[:3]) or "-"))
 
+    # The obligations are DERIVED, not believed: a certificate that listed
+    # fewer divisors than the formulas contain would be one whose searches ran
+    # unguarded, which is exactly the defect this check exists for.
+    duties = _audit.declared_obligations(p)
+    checks.append((t("verify.audit.obligations"), duties["ok"],
+                   t("verify.audit.divisors",
+                     n=len(duties["found"]),
+                     values=", ".join(duties["found"][:4]) or "-",
+                     missing=", ".join(duties["missing"][:3]) or "-")))
+
+    # And a `domain` verdict must name an obligation the kept hypotheses no
+    # longer force -- otherwise it is `redundant` wearing a kinder label.
+    bare = [r["hypothesis"] for r in rows
+            if r["verdict"] == "domain" and not r.get("obligations")]
+    checks.append((t("verify.audit.every_obligation"), not bare,
+                   ", ".join(bare[:3]) or "-"))
+
     warnings = [t("verify.audit.not_minimal")]
     if counts["unknown"]:
         warnings.append(t("verify.audit.unknown", n=counts["unknown"]))
+    if counts["domain"]:
+        warnings.append(t("verify.audit.domain_scope", n=counts["domain"]))
     return VerifyReport(
         all(c[1] for c in checks), "hypothesis_audit", False, checks=checks,
         warnings=warnings, method_key="verify.audit.method",
         detail=t("verify.audit.detail", needed=counts["needed"],
-                 redundant=counts["redundant"], unknown=counts["unknown"]),
+                 redundant=counts["redundant"], domain=counts["domain"],
+                 unknown=counts["unknown"]),
     )
 
 

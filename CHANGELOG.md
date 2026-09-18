@@ -6,6 +6,234 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
+Not released. Four pieces of work sit here awaiting a decision on whether and
+how to ship them; the version in `pyproject.toml` is still 0.8.0.
+
+## `quotient`: the reduction as an equivalence
+
+Asked for after `reduce --parametric`: *"demostrar algo más preciso que los
+óptimos coinciden: una equivalencia constructiva entre los valores factibles
+del LP físico y los de su cociente"*. The criticism was right. Comparing two
+computed optima does not show a reduction is correct — it shows two numbers
+agreed, which is also what a wrong reduction with a compensating error does.
+
+So the claim is now the equivalence itself: the physical program and the
+quotient have the **same set of attainable values**, by an explicit projection
+`z_j = Σ_{C∈j} x_C` and lifting `x_C = z_j / M_j`, both preserving the
+objective, with `Proj(Lift(z)) = z`. Equality of optima is a corollary and no
+duality is needed to get it.
+
+**The partition is an input, and the group is gone.** A group action produces
+a partition; so does a colour refinement; so does somebody who knows what the
+classes are. Separating the finite-sum core from the group theory is what a
+proof assistant wants anyway, and it means a partition nobody can name a group
+for is still certifiable. `reduce` becomes one route to the input rather than
+the thing certified.
+
+**Two regularities, and they are different quantities.** `H_ij` is how much of
+object class `j` uses one resource of class `i`; `B_ij` is how many resources
+of class `i` one object of class `j` uses. Lifting needs `H`, the quotient's
+own matrix needs `B`, and the double count `N_i H_ij = M_j B_ij` ties them —
+so it is a consequence of the two rather than a third hypothesis, and it is
+checked anyway. Getting this wrong is not hypothetical: the first
+implementation used one where the other belonged and reported 6 on a K₄ whose
+value is 4. Nothing inside the reduced world catches that; the physical
+program did.
+
+**Per-row regularity, not block totals.** A block can have the right total
+while individual rows inside a class see different amounts, and then projection
+still works while lifting does not. That is checked row by row.
+
+The acceptance control passes: K₄ with triangles only gives 4 physically and 4
+in the quotient; drop one edge to capacity zero and the physical value is 2,
+while aggregating over a class that now mixes capacities would report 10/3 —
+so the partition is **refused**, naming `e01` and `e02`.
+
+It says **nothing about integrality**. The equivalence is between the
+fractional programs: on that same K₄ both give 4 while the integer packing
+gives 2.
+
+### Checked against a reconstructed family
+
+The reference family was rebuilt from its description alone — six vertex
+classes, three forming a clique and three hosts each complete to the core
+classes it serves — with the orbit structure derived from an adjacency table
+rather than transcribed. It reproduces every number it was given: 13 edge
+orbits and 55 clique orbits (22 triangle types, 33 K₄ types); the boundary
+strata 12/31, 13/49, 13/54, 13/55 at t = 1, 2, 3, ≥4; the optimum
+`133/4·t² − 6t` for t ≥ 2 and **27** rather than `109/4` at t = 1; and 71,474
+physical cliques across t = 1..4.
+
+## `solve`: `A x = b` exactly, with a witness either way
+
+Asked for after a user pointed out that a neighbouring tool was doing this and
+certo was not. It half was: `solve_exact` had been sitting in `exact.py` since
+early on, reachable from exactly one internal caller and from no command.
+
+The certificate is the solution and the system it solves, so re-checking is one
+matrix-vector product — and because `A` and `b` travel with `x`, the check is
+against the system that was stated rather than the one somebody remembers
+stating.
+
+**Unsolvable is certified too**: `y` with `y·A = 0` and `y·b ≠ 0`, a row
+operation the elimination already performed and which turns a negative result
+into two more products. **Underdetermined returns the solution set** — a
+particular solution plus a basis of the kernel — because reporting one point of
+an affine subspace as the answer is how a free parameter disappears.
+
+**Over ℤ the Smith normal form decides it**, which finishes something `matrix`
+had listed in its own documentation and never exposed. The kernel there is a
+basis of the *lattice*, not merely of the space it spans, which is the reason
+to go through Smith rather than reduce over ℚ and clear denominators.
+
+It establishes **neither non-negativity nor, over ℚ, integrality**, and
+`verify` says so every time. The example makes that concrete rather than
+sloganeering: on `K₄`, the edge vector `(2,2,2,0,0,0)` is non-negative
+everywhere, its representation by triangles is unique, and it uses a weight of
+−1 — with full column rank, so there is no other answer to choose instead.
+
+One defect found while writing the tests: verification picked which argument
+to require from **which evidence was in the payload** rather than from the
+declared domain, so deleting the rational obstruction from a certificate let it
+verify by an integer argument instead. Those are different claims and the
+integer one is strictly weaker. It now branches on the domain.
+
+## `reduce --parametric`: the same question about a family
+
+The same question about a family rather than an instance. Asked for by the
+user who put `reduce` through a real argument, and built around a case they
+pointed at.
+
+### The gap it closes
+
+`reduce` checks the averaging argument on one program. A write-up does not
+symmetrise one program — it symmetrises `S(p,q)` and writes the answer as a
+formula. Everything between "I checked the instances I ran" and "the symbolic
+identity the proof uses" was a step nobody was checking.
+
+A family is now declared as orbits whose multiplicities are **polynomials** in
+the parameters, and rows that exist only under stated conditions. The
+**objective is not declared**: substituting one variable per orbit into `Σ z_e`
+sums each orbit, so the objective *is* the multiplicities, and deriving it is
+what stops the two from disagreeing.
+
+### What measuring the real family changed
+
+The design question going in was whether the orbit *count* varies with the
+parameter. Across three write-ups it does not — it is fixed at 2, 3 and 4.
+What varies is the **row set**: a triangle type that does not exist contributes
+no constraint, and the program's shape changes at the boundary.
+
+So the feature is built around row existence conditions rather than around
+varying orbit structure, and the **regimes** — the distinct row sets the
+conditions cut parameter space into — are derived rather than listed. A
+piecewise closed form has one branch per regime, which makes the two directly
+comparable: three branches over four regimes is a formula missing a case.
+
+One thing measuring *did* change: an orbit is present exactly where its
+multiplicity is **positive**, not wherever it is declared. The split family has
+two edge orbits for `q ≥ 1` and one for `q = 0`, because there are no cross
+edges to be an orbit of.
+
+### Two levels, kept apart
+
+**Symbolic**, wherever the declaration holds: which orbits, which rows, what
+coefficients, which regimes, and that the multiplicities account for every
+object. **Per instance**, on a finite window: that the declared group really
+*has* these orbits at these sizes, and that the quotient averaging produces is
+the symbolic one evaluated there.
+
+The second does not become the first by adding points, and `verify` says so
+every time. What the window buys is falsifiability — and it delivers:
+
+| A declaration that is wrong | Window points where it fails |
+|---|---|
+| `3x ≥ 1` carried into `p = 2` | 7 of 35 |
+| a coefficient of 3 where the row wants 2 | 30 |
+| multiplicity `pq/2` instead of `pq` | 30 |
+| multiplicity `p²/2` instead of `C(p,2)` | 35 |
+| an orbit declared that does not exist | 35 |
+
+The object count is checked against the instance's own variable count rather
+than against the polynomial sum — comparing that sum with itself would have
+been a check with no content.
+
+### The Lean file splits the same way
+
+`certo export --lean` on one of these certificates writes the multiplicity
+identity as a theorem `ring` closes outright, the window points as examples
+`norm_num` closes, and exactly **one** `sorry` — on the claim that the orbit
+structure is uniform in the parameters. That is the step from the window to the
+region, and marking it rather than stating it is the whole design.
+
+### Also
+
+`certo ask` routed a parametric spec to the single-instance engine, which would
+have answered a weaker question than the one asked. The routing now picks the
+engine from the spec type, the same way it already did for `sweep` over a
+finite domain.
+
+### Compatibility
+
+One new spec type, `ParametricSymmetrySpec`, and one new certificate kind,
+`parametric_symmetry`. `reduce` without the flag is unchanged and existing
+`symmetry_reduction` certificates verify untouched. Schema stays at 4.
+
+
+
+## `audit`: a denominator is not a free variable
+
+One defect, reported against 0.8 within a day of it shipping, and it was two
+defects in the same place.
+
+Division is **total** in SMT. `n/0` is not an error in Z3; it is some fixed
+value supplied by an internal function the solver may interpret however it
+likes. So dropping a hypothesis that guards a denominator produced an instant
+"counterexample" — `d = 0`, with the invented value chosen to break the goal —
+and the hypothesis came back `needed` for a reason that was about the solver
+rather than about the theorem.
+
+The second half was worse than reported: those witnesses also carried Z3's
+internal `div0` and `mod0`, which are not variables of the problem and which
+re-checking could not parse. So on **any** spec containing a division, `audit`
+emitted a certificate that did not verify at all — every row failed, including
+the ones whose witnesses were mathematically fine.
+
+Now every divisor that could vanish is collected up front, every search is
+guarded by it, and the witnesses carry only arity-zero declarations of a sort
+that can be written back down.
+
+### A fourth verdict: `domain`
+
+A hypothesis whose drop leaves a counterexample only outside the domain is not
+`needed` — the claim does not become false without it — and emphatically not
+`redundant`, because removing it does not give a more general theorem, it
+gives a statement about a value nobody defined. It gets its own answer, naming
+the obligation it was carrying:
+
+```
+[DOMAIN]     d_nonzero   holds up: d != 0
+[needed]     n_zero      without it: d=-1, n=1
+every search was guarded by 1 domain obligation(s): d != 0
+```
+
+**The distinction is asked, not read off the shape of the formula.** Put
+`d >= 1` beside `d != 0` and the same `d != 0` comes back `redundant`, because
+what remains still forces the obligation. The question is whether the dropped
+hypothesis was carrying a well-definedness condition *nothing else carries*.
+
+Verification derives the obligation list from the formulas that travelled
+rather than reading it from the payload, for the same reason a branch-and-bound
+node rebuilds its own linear program: a certificate declaring fewer divisors
+than its formulas contain is one whose searches ran unguarded.
+
+### Compatibility
+
+`counts` gains a `domain` key and the payload gains an optional `obligations`
+list. Certificates written by 0.8 declare three counts and no obligations, and
+they keep verifying — the tally is compared on the keys the payload declares,
+and a separate check refuses any row whose verdict the tally does not declare,
+so deleting a key to hide a row does not work. Schema stays at 4.
 
 ## [0.8.0] — 2026-09-17
 

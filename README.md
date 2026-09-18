@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Forty commands. Runs in milliseconds where a formalisation
+CLI and MCP. Forty-two commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -247,7 +247,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The forty commands](#the-forty-commands).
+[The forty-two commands](#the-forty-two-commands).
 
 ## What it is and what it is not
 
@@ -375,7 +375,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The forty commands
+## The forty-two commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -397,6 +397,8 @@ and what to expect.
 | `peak` | The best INTEGER choice for a family of concave quadratics, and the value there | exact, no search | **the maximiser and two step inequalities**, solver-free |
 | `reduce` | "By symmetry": the three hypotheses of the averaging argument, checked | exact, no search | **generators, orbits and the quotient**, solver-free |
 | `matrix` | Exact integer linear algebra: rank, determinant, Hermite and Smith | unimodular transforms | **U, V and their inverses**, checked by multiplication, solver-free |
+| `solve` | `A x = b` exactly, over ℚ or ℤ | exact elimination, Smith | **the solution and the system**, one product to check; an obstruction when there is none |
+| `quotient` | A partition of a program, and the equivalence it induces | exact counting | **the class data and both regularities**, solver-free |
 | `family` | The largest of ten thousand linear programs, and why nothing beats it | exact LP | **the winner and a dual for the rest**, solver-free |
 | `ratio` | A fraction inequality for EVERY n | exact polynomials | **the cleared numerator and the sign of the denominator**, solver-free |
 | `moment` | Is the expected number of bad events below one, so a good object exists? | exact rationals | **the moment and the mass it leaves over**, solver-free |
@@ -796,6 +798,71 @@ The quotient is **rebuilt** during verification rather than believed, for the
 same reason a branch-and-bound node derives its own linear program: a payload
 nobody recomputes is a payload anybody can edit.
 
+### `reduce --parametric`: the same question about a FAMILY
+
+A write-up does not symmetrise one program. It symmetrises `S(p,q)` and writes
+the answer as a formula in `p` and `q` — and between the instances somebody ran
+and the symbolic identity the proof uses there is a step. That step is this
+flag.
+
+A family is declared as orbits whose multiplicities are **polynomials**, and
+rows that exist only under stated conditions:
+
+```python
+orbits = {"clique": C(p,2), "cross": p*q}
+rows   = [("KKK", {"clique": 3},             ">=", 1, [p - 3]),
+          ("KKI", {"clique": 1, "cross": 2}, ">=", 1, [p - 2, q - 1])]
+```
+
+**The objective is not declared.** Substituting one variable per orbit into
+`Σ z_e` sums each orbit, so the objective *is* the multiplicities. Declaring it
+separately would let the two disagree, and an objective that disagrees with the
+orbit sizes is an accounting error no amount of solving catches.
+
+**An orbit is present exactly where its multiplicity is positive** — a
+measurement, not a convention. The split family has two edge orbits for `q ≥ 1`
+and **one** for `q = 0`, because there are no cross edges to be an orbit of.
+
+**The regimes are derived, not listed.** The row conditions cut parameter space
+into the distinct programs that actually occur:
+
+```
+$ certo reduce --parametric examples/parametric_symmetry.py
+PROVED  [unsat]
+  the symbolic quotient agrees with the family at all 35 window points:
+  2 orbits over parameters (p, q), in 4 regime(s) of the row conditions
+  objects: 1/2*p^2 + p*q - 1/2*p
+  regimes: ['(none)', 'KKI', 'KKK', 'KKK,KKI']
+```
+
+A piecewise closed form has one branch per regime, so a formula with three
+branches over a program with four regimes is a formula missing a case. That
+comparison is the point: the boundary is where the errors are.
+
+**Two levels, and the certificate keeps them apart.**
+
+| Level | What it covers | Needs an instance? |
+|---|---|---|
+| symbolic | which orbits, which rows, what coefficients, which regimes; that the multiplicities account for every object | no |
+| per instance | that the declared group really *has* these orbits at these sizes, and that the quotient averaging produces is the symbolic one evaluated there | yes, on a finite window |
+
+The second does not become the first by adding points, and `verify` repeats
+that every time. What the window buys is **falsifiability**: drop one condition
+— carry `3x ≥ 1` into `p = 2`, where there are no triangles on three clique
+vertices — and it is refuted at 7 of the 35 points, the first being `p=2, q=0`.
+A multiplicity of `pq/2` instead of `pq` fails at 30; `p²/2` instead of `C(p,2)`
+at all 35.
+
+**The Lean file splits the same way.** `certo export --lean` writes the
+multiplicity identity as a theorem `ring` closes outright, the window points as
+examples `norm_num` closes, and exactly one `sorry` — on the claim that the
+orbit structure is uniform in the parameters, which certo checked on 35 points
+and nowhere else.
+
+It says nothing about the **value**. Solve the quotient with `opt` at a point,
+or bound it for every parameter with `parametric`, which is the command built
+for that hand-off.
+
 ## `audit`: does each hypothesis earn its place?
 
 `core` reports which hypotheses an unsat core *needed*, which catches a theorem
@@ -827,10 +894,36 @@ whether you wrote the hypothesis you meant. Re-checking substitutes the
 assignment and confirms the kept hypotheses hold while the goal does not — so
 the certificate asks you to take the *statement* on trust, never the search.
 
-**Three answers, and the third is not folded into the others.** `needed`,
-`redundant`, and `unknown` when the budget ran out. Not finding a
-counterexample is not the absence of one, and a report that counted `unknown`
-as `needed` would say the theorem is tight when nobody checked.
+**Four answers, and none is folded into another.** `needed`, `redundant`,
+`domain`, and `unknown` when the budget ran out. Not finding a counterexample
+is not the absence of one, and a report that counted `unknown` as `needed`
+would say the theorem is tight when nobody checked.
+
+**`domain` exists because division is total in SMT.** `n/0` is not an error in
+Z3; it is some fixed value the solver invents. So dropping a hypothesis that
+guards a denominator used to yield an instant "counterexample" — `d = 0`, with
+the invented value chosen to break the goal — and the hypothesis read `needed`
+for a reason that was about the solver rather than the theorem. Every divisor
+that could vanish is now collected up front, every search is guarded by it,
+and a hypothesis whose only job was holding one up is reported separately:
+
+```
+$ certo audit guarded.py
+SATISFIABLE  [sat]
+  1 hypotheses are DOMAIN obligations (d_nonzero): dropping one does not
+  make the claim false, it makes it meaningless
+  [DOMAIN]     d_nonzero   holds up: d != 0
+  [needed]     n_zero      without it: d=-1, n=1
+  every search was guarded by 1 domain obligation(s): d != 0
+```
+
+Not `needed`, because the claim does not become false without it; and
+emphatically not `redundant`, because removing it does not give a more general
+theorem — it gives a statement about a value nobody defined. A `domain`
+hypothesis must **not** be dropped; discharge it as a side condition in the
+proof assistant. And the distinction is asked rather than read off the shape
+of the formula: put `d >= 1` beside `d != 0` and the same `d != 0` becomes
+genuinely `redundant`, because what remains still forces the obligation.
 
 It does **not** claim the hypothesis set is minimal, and `verify` repeats that
 every time. Hypotheses are dropped one at a time, and a pair can be jointly
@@ -1297,6 +1390,49 @@ Three details that are the difference between a certificate and a test:
 
 `--question factor` gives the factorisation instead, each factor carrying its
 own primality certificate, so "and these are prime" is not left hanging.
+
+### `solve` — `A x = b` exactly, with a witness either way
+
+The certificate for a solved linear system is almost embarrassing: it is the
+solution, and checking it is one matrix-vector product. That is the point. A
+number from a numerical library is a number to be **trusted**; `x` with `A` and
+`b` beside it is a number to be **multiplied**. And because the system travels
+with the answer, the check is against the system that was *stated* rather than
+the one somebody remembers stating — a solution to a slightly different matrix
+being the failure mode that is otherwise invisible.
+
+```
+$ certo solve examples/linear_system.py
+PROVED  [sat]
+  one solution, exactly, in 4 unknown(s) over the rationals
+  x = 1, 1, 1, -1
+```
+
+**Unsolvable is certified too.** "No solution" is a claim, and it has a
+witness: `y` with `y·A = 0` and `y·b ≠ 0`. That is a row operation the
+elimination already performed, kept instead of thrown away, and it turns a
+negative result into two more products.
+
+**Underdetermined is not rounded to "a solution".** A particular solution plus
+a basis of the kernel says what the solution *set* is. Reporting one point of
+an affine subspace as though it were the answer is how a free parameter
+disappears from a write-up.
+
+**Over ℤ it is the Smith normal form that decides it**, and "no integer
+solution" is a different answer from "no solution". The example above is the
+edge-by-triangle incidence matrix of `K₄`: with `y` all ones the answer is
+`(½,½,½,½)` over ℚ and *nothing* over ℤ, blocked by the last invariant factor.
+Which is why the domain is a declaration here and not a default somebody
+discovers later.
+
+**What it does not say, and `verify` repeats both every time:** that the
+solution is **non-negative**, or over ℚ that it is **integral**. The headline
+example makes the first concrete — `y = (2,2,2,0,0,0)` is non-negative
+everywhere, its representation by triangles is *unique*, and it uses a weight
+of −1. The matrix has full column rank, so that negative weight is not an
+artefact of how the elimination went; there is no other answer to choose. A
+rational solution to the equations of a packing is not a packing. Use `opt` or
+`farkas` for non-negativity, `domain="integer"` or `matrix` for integrality.
 
 ### `matrix` — integer linear algebra, checked by multiplying
 
@@ -2516,7 +2652,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Forty commands and forty certificate kinds, and the shape of a
+Forty-two commands and forty-three certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```

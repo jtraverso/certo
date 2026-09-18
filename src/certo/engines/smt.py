@@ -325,7 +325,7 @@ def _hypotheses_only(spec, lim, t0) -> Result:
 def audit(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
     """Drop each hypothesis in turn and hunt a counterexample to what remains."""
     from ..audit import NotAuditable, audit as run
-    from ..audit import NEEDED, REDUNDANT, UNKNOWN
+    from ..audit import DOMAIN, NEEDED, REDUNDANT, UNKNOWN
     from ..certificate import hypothesis_audit_certificate
     from .. import z3util
 
@@ -341,14 +341,23 @@ def audit(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
         rows=out["rows"], counts=out["counts"],
         goal_smt2=z3util.smt2(spec.goal),
         hypotheses_smt2={n: z3util.smt2(f) for n, f in spec.assumptions},
+        obligations=out["obligations"],
         title=spec.title,
     ).stamp(spec_path or None)
 
     c = out["counts"]
-    if out["redundant"]:
+    if out["redundant"] and c[DOMAIN]:
+        detail = t("engine.audit.both", n=len(out["redundant"]),
+                   names=", ".join(out["redundant"][:4]),
+                   d=c[DOMAIN], dnames=", ".join(out["domain"][:4]),
+                   needed=c[NEEDED])
+    elif out["redundant"]:
         detail = t("engine.audit.redundant", n=len(out["redundant"]),
                    names=", ".join(out["redundant"][:4]),
                    needed=c[NEEDED])
+    elif c[DOMAIN]:
+        detail = t("engine.audit.domain", n=c[DOMAIN],
+                   names=", ".join(out["domain"][:4]), needed=c[NEEDED])
     elif c[UNKNOWN]:
         detail = t("engine.audit.unknown", n=c[UNKNOWN], needed=c[NEEDED])
     else:
@@ -356,8 +365,10 @@ def audit(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
     return Result("audit", Status.SAT, Verdict.SATISFIABLE, ENGINE, ms, cert,
                   detail=detail,
                   meta={"needed": c[NEEDED], "redundant": c[REDUNDANT],
-                        "unknown": c[UNKNOWN],
-                        "redundant_names": out["redundant"]})
+                        "domain": c[DOMAIN], "unknown": c[UNKNOWN],
+                        "redundant_names": out["redundant"],
+                        "domain_names": out["domain"],
+                        "obligations": out["obligations"]})
 
 
 def core(spec, limits: Limits | None = None) -> Result:

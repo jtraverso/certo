@@ -47,6 +47,26 @@ jointly redundant with neither redundant alone. That is a different and much
 larger search, and claiming it here would be the overstatement this command
 exists to catch.
 
+A FOURTH ANSWER, AND IT EXISTS BECAUSE OF A BUG THIS COMMAND SHIPPED WITH.
+Division is TOTAL in SMT: `n/0` is not an error, it is some fixed value the
+solver invents. So dropping a hypothesis that guards a denominator used to
+produce an instant "counterexample" -- `d = 0`, with the invented value chosen
+to break the goal -- and the hypothesis read `needed` for a reason that was
+about Z3 rather than about the theorem.
+
+Now every divisor that could vanish is collected up front, every search is
+guarded by it, and a hypothesis whose only job was holding one up is reported
+as DOMAIN. Not `needed`, because the claim does not become false without it;
+and emphatically not `redundant`, because removing it does not give a more
+general theorem -- it gives a statement about a value nobody defined. See
+`guarded()` below.
+
+The distinction is doing real work, not just labelling: in `guarded()` the
+hypothesis `d_nonzero` is a DOMAIN obligation, but add `d >= 1` beside it and
+the same `d_nonzero` becomes genuinely REDUNDANT, because what is left still
+forces the denominator non-zero. The question "is this hypothesis carrying a
+well-definedness condition nothing else carries" is asked, not assumed.
+
 `tight()` below is a theorem where every hypothesis is genuinely needed, which
 is what a healthy one looks like: three witnesses and no redundancy.
 """
@@ -81,4 +101,36 @@ def tight():
     s.assume("m_positive", M >= 1)
     s.assume("m_bounded", M <= N - 2)
     s.claim(z3.And(M >= 1, M + 2 <= N, N >= 5))
+    return s
+
+
+def guarded():
+    """A hypothesis that protects a denominator rather than the mathematics.
+
+    `n = 0` gives `n / d = 0` for every non-zero `d`, so `d_nonzero` is not
+    doing mathematical work -- but dropping it does not generalise anything,
+    it makes the claim a statement about `0/0`, which is whatever the solver
+    decided that day.
+    """
+    d = z3.Int("d")
+    s = Spec(title="a hypothesis holding up a well-definedness condition")
+    s.assume("d_nonzero", d != 0)
+    s.assume("n_zero", N == 0)
+    s.claim(N / d == 0)
+    return s
+
+
+def domain_carried_elsewhere():
+    """The same `d_nonzero`, now genuinely redundant.
+
+    `d >= 1` already forces the denominator non-zero, so nothing is lost by
+    dropping `d_nonzero` -- which is why the verdict is asked for rather than
+    assumed from the shape of the formula.
+    """
+    d = z3.Int("d")
+    s = Spec(title="the obligation is carried by another hypothesis")
+    s.assume("d_positive", d >= 1)
+    s.assume("d_nonzero", d != 0)
+    s.assume("n_nonneg", N >= 0)
+    s.claim(N / d >= 0)
     return s

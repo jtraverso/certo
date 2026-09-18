@@ -90,6 +90,10 @@ IN_PROCESS = [
     # row order depends on which pivot came first; both are places where an
     # iteration order that follows string hashing would show up here.
     "symmetry_reduction.py", "integer_matrix.py",
+    # the parametric quotient walks a dict of orbits and a dict of
+    # generators per window point: plenty of places for an iteration
+    # order that follows string hashing to reach a payload.
+    "parametric_symmetry.py", "linear_system.py",
 ]
 
 

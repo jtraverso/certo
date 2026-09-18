@@ -666,8 +666,123 @@ def check(path, project=None, timeout=900) -> dict:
             "hollow": hollow, "output": text.strip()[:4000]}
 
 
+# ---------------------------------------------------------------------------
+# a symbolic quotient -> the identity `ring` closes, the window `decide` does
+# ---------------------------------------------------------------------------
+
+
+def _poly_over(poly: dict, ring) -> str:
+    """A serialised `Poly` as Lean source, in the parameter names."""
+    terms = {}
+    for key, coef in poly.items():
+        exps = [int(x) for x in key.split(" ")]
+        mono = []
+        for name, e in zip(ring, exps):
+            mono.extend([name] * e)
+        terms[tuple(mono)] = coef
+    return _poly_to_lean(terms)
+
+
+def parametric_symmetry_to_lean(data: dict, source="") -> str:
+    """Three kinds of statement, and the file keeps them apart.
+
+    The ARITHMETIC Lean can confirm outright: the multiplicities are
+    polynomials, and that they sum to the object count is an identity `ring`
+    closes. No `sorry`, no hand-waving, and it is the piece a formalisation
+    actually wants -- the accounting behind "one variable per orbit".
+
+    The WINDOW, as examples `decide` closes: at each parameter point the
+    orbits have these sizes and the program has these rows. Finite facts about
+    numbers, which is exactly what a proof assistant is cheap at.
+
+    The BRIDGE, and it gets a `sorry` and a name that says so: that the
+    declared group really has these orbits for EVERY parameter value. certo
+    checked that on the window and nowhere else, so claiming it here would be
+    the one move this whole design exists to refuse.
+    """
+    p = data["payload"]
+    ring = tuple(p["parameters"])
+    args = " ".join(ring)
+    binder = "({} : ℕ)".format(" ".join(ring))
+
+    lines = [_header("parametric_symmetry", data.get("digest", "?"), source),
+             ""]
+    lines.append("/-! ## The orbit multiplicities, as polynomials -/")
+    lines.append("")
+    for name, poly in sorted(p["orbits"].items()):
+        lines.append("/-- The size of the `{}` orbit. -/".format(name))
+        lines.append("def mult_{} {} : ℚ := {}".format(
+            _safe(name), binder, _poly_over(poly, ring)))
+        lines.append("")
+
+    lines.append("/-- Every object lies in exactly one orbit. -/")
+    lines.append("def objects {} : ℚ := {}".format(
+        binder, _poly_over(p["objects"], ring)))
+    lines.append("")
+    lines.append("/-- The accounting behind \"one variable per orbit\": the")
+    lines.append("multiplicities partition the objects. This is arithmetic and")
+    lines.append("Lean closes it outright. -/")
+    total = " + ".join("mult_{} {}".format(_safe(n), args)
+                       for n in sorted(p["orbits"]))
+    lines.append("theorem multiplicities_partition {} :".format(binder))
+    lines.append("    {} = objects {} := by".format(total, args))
+    lines.append("  unfold {} objects".format(
+        " ".join("mult_" + _safe(n) for n in sorted(p["orbits"]))))
+    lines.append("  push_cast")
+    lines.append("  ring")
+    lines.append("")
+
+    lines.append("/-! ## The row conditions -/")
+    lines.append("")
+    for row in p["rows"]:
+        conds = [_poly_over(g, ring) + " ≥ 0" for g in row["when"]]
+        body = " ∧ ".join(conds) if conds else "True"
+        lines.append("/-- `{}` contributes a row only here. -/".format(
+            row["name"]))
+        lines.append("def exists_{} {} : Prop := {}".format(
+            _safe(row["name"]), "({} : ℤ)".format(" ".join(ring)), body))
+        lines.append("")
+
+    lines.append("/-! ## The window certo actually checked -/")
+    lines.append("")
+    shown = p["points"][:12]
+    for row in shown:
+        at = ", ".join("{} = {}".format(k, v)
+                       for k, v in sorted(row["point"].items()))
+        sizes = ", ".join("{}: {}".format(k, v)
+                          for k, v in sorted(row["sizes"].items()))
+        rows_here = ", ".join(row["rows"]) or "none"
+        lines.append("-- {}  ->  orbit sizes {}; rows present: {}".format(
+            at, sizes, rows_here))
+        for name, size in sorted(row["sizes"].items()):
+            lines.append("example : mult_{} {} = {} := by norm_num [mult_{}]"
+                         .format(_safe(name),
+                                 " ".join(str(row["point"][k]) for k in ring),
+                                 size, _safe(name)))
+        lines.append("")
+    if len(p["points"]) > len(shown):
+        lines.append("-- ... and {} further window points, in the certificate."
+                     .format(len(p["points"]) - len(shown)))
+        lines.append("")
+
+    lines.append("/-! ## The bridge, which certo did NOT prove -/")
+    lines.append("")
+    lines.append("/-- That the declared group really has these orbits, with")
+    lines.append("these sizes, for EVERY parameter value -- not only at the")
+    lines.append("{} points certo examined. This is the step from the window"
+                 .format(len(p["points"])))
+    lines.append("to the region, and it is the whole reason this file marks")
+    lines.append("it instead of stating it as established. -/")
+    lines.extend(_placeholder("orbits_are_uniform_in_the_parameters",
+                              "checked on a finite window only"))
+    lines.append("")
+    lines.append(FOOTER)
+    return "\n".join(lines)
+
+
 EXPORTERS = {
     "farkas": farkas_to_lean,
+    "parametric_symmetry": parametric_symmetry_to_lean,
     "unsat_core": core_to_lean,
     "proof": proof_to_lean,
     "sweep": classification_to_lean,
