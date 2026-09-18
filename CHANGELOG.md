@@ -6,56 +6,60 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
-Not released. Five pieces of work sit here awaiting a decision on whether and
-how to ship them; the version in `pyproject.toml` is still 0.8.0.
 
-### Where Lean export stops
+## [0.9.0] — 2026-09-18
 
-A scope correction, and the right one. The quotient export was first written
-as a `structure` with fields, three theorems and typeclass binders. Compiled
-against a real Mathlib it produced a wall of errors in four minutes — and
-**every one of them was in the scaffolding while none was in the data**. The
-scaffolding carried all the risk and none of the value.
+Four new commands, three defects fixed, and one deliberate removal that is
+listed first because it is what a user notices first.
 
-So the rule is now written into `leanexport` itself:
+### REMOVED: `export --lean` now emits one thing
+
+certo emits Lean for a **linear Farkas certificate** and for nothing else.
+The exporters for unsat cores, compose proofs, classifications, symbolic
+quotients and equitable quotients are gone.
+
+**Why.** Compiling generated files against a real Mathlib for the first time
+showed that the risk was never in the mathematics. The equitable-quotient
+exporter — a structure with fields, three theorems and typeclass binders —
+produced a wall of errors in four minutes, and *every one of them was in the
+scaffolding while none was in the data*. Rewriting it as pure data got it
+compiling in 12.8 seconds, and it was still removed: certo's job is the step
+*before* the proof assistant, and what a formalisation needs from a session of
+exploration is the numbers and the statement, which the certificate already
+carries. Somebody formalising a result writes the structure their own project
+wants and cannot use certo's namespace layout anyway.
+
+**The rule, now written into `leanexport` itself:**
 
 > emit Lean only when the output is a **small self-contained artefact whose
-> content IS the certificate's data**, and not when it would be a scaffold for
-> a proof somebody else will structure their own way
+> content IS the certificate's data**, closed by a tactic that **decides** the
+> fragment its goal lives in
 
-| | before | after |
-|---|---|---|
-| lines | 595 | 233 |
-| imports | `import Mathlib` | none |
-| `sorry` | 3 | 0 |
-| compiles | no | **yes** |
-| time | 4+ min to fail | **12.8 s** |
+A linear Farkas certificate is exactly that: the multipliers are already
+verified exactly, `linarith` is complete for linear arithmetic over an ordered
+field, and the file is twenty-seven lines with no `sorry`. The sizes made the
+point on their own — the exporters that worked emitted 27, 39, 110 and 232
+lines; the one that did not had 595.
 
-What is left is the class sizes, the incidence data, one `decide` covering all
-133 double-count identities at once, and the obligation stated as prose.
-Somebody formalising the result writes the structure their own project wants
-and could not have used certo's namespace layout anyway.
+**`NotExportable`** makes it a mechanism rather than an intention. A
+*nonlinear* Farkas certificate would close with `nlinarith`, which is a
+heuristic, so it is refused with the reason and a pointer at the multipliers
+instead of written hopefully. The CLI declines cleanly rather than crashing.
 
-**`NotExportable`** makes the rule mechanism rather than intention: a
-certificate whose data would need rational literals and a tactic whose
-behaviour cannot be predicted from here is refused, with the reason, instead
-of rendered hopefully. A file that fails to elaborate costs its reader more
-than no file at all and teaches them not to trust the next one.
+**What this costs, stated plainly.** Two things shipped in 0.8 in response to
+a user's reported defects go with it: the integer export closing with `omega`,
+and the `HOLLOW` marking of statements certo could not render. The *detection*
+of hollow statements survives — `certo status` and `hollow_count` still find a
+`theorem X : True` in a file certo did not write, which is the case that
+matters, since such a theorem compiles, carries no `sorry`, and passes an
+axiom audit. Eighteen tests went with the removed code.
 
 **`--check` is not a release gate**, and `tests/run_lean.py` is explicitly
 outside the suite. Building against Mathlib costs minutes, depends on a
 toolchain version, and fails in ways that say nothing about whether certo's
-mathematics is right. certo's job is the step *before* the proof assistant;
-wiring its release cycle to one would be adopting the cost of a different tool
-without taking on its work.
+mathematics is right.
 
-The parametric-symmetry export was checked under the same rule and kept: it
-compiles, and its `multiplicities_partition` really is closed by `ring`. Two
-warnings it emitted — a `push_cast` doing nothing, an unused binder — are gone,
-because a generated file that emits warnings teaches its reader to skim
-warnings.
-
-## `quotient`: the reduction as an equivalence
+### `quotient`: the reduction as an equivalence
 
 Asked for after `reduce --parametric`: *"demostrar algo más preciso que los
 óptimos coinciden: una equivalencia constructiva entre los valores factibles
@@ -99,7 +103,13 @@ It says **nothing about integrality**. The equivalence is between the
 fractional programs: on that same K₄ both give 4 while the integer packing
 gives 2.
 
-### The Lean export: `attainable_values_eq`
+### The Lean export that was written and then removed
+
+**This was built and then removed in the same release** — see *REMOVED*
+above. It is recorded because what it cost to find out is the point: the
+file below compiled in 12.8 seconds and was still the wrong thing for certo
+to be writing.
+
 
 `certo export --lean` on one of these certificates writes three things and
 keeps them apart.
@@ -132,7 +142,7 @@ strata 12/31, 13/49, 13/54, 13/55 at t = 1, 2, 3, ≥4; the optimum
 `133/4·t² − 6t` for t ≥ 2 and **27** rather than `109/4` at t = 1; and 71,474
 physical cliques across t = 1..4.
 
-## `solve`: `A x = b` exactly, with a witness either way
+### `solve`: `A x = b` exactly, with a witness either way
 
 Asked for after a user pointed out that a neighbouring tool was doing this and
 certo was not. It half was: `solve_exact` had been sitting in `exact.py` since
@@ -166,7 +176,7 @@ declared domain, so deleting the rational obstruction from a certificate let it
 verify by an integer argument instead. Those are different claims and the
 integer one is strictly weaker. It now branches on the domain.
 
-## `reduce --parametric`: the same question about a family
+### `reduce --parametric`: the same question about a family
 
 The same question about a family rather than an instance. Asked for by the
 user who put `reduce` through a real argument, and built around a case they
@@ -226,7 +236,11 @@ The object count is checked against the instance's own variable count rather
 than against the polynomial sum — comparing that sum with itself would have
 been a check with no content.
 
-### The Lean file splits the same way
+### The Lean file that was written and then removed
+
+**This was built and then removed in the same release** — see *REMOVED*
+above. The `ring` proof really did close; the export went anyway.
+
 
 `certo export --lean` on one of these certificates writes the multiplicity
 identity as a theorem `ring` closes outright, the window points as examples
@@ -249,7 +263,7 @@ One new spec type, `ParametricSymmetrySpec`, and one new certificate kind,
 
 
 
-## `audit`: a denominator is not a free variable
+### `audit`: a denominator is not a free variable
 
 One defect, reported against 0.8 within a day of it shipping, and it was two
 defects in the same place.

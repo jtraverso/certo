@@ -1605,7 +1605,13 @@ def _export_lean(args):
 
     exporter = leanexport.EXPORTERS.get(kind)
     if exporter is not None:
-        text = exporter(data, source)
+        try:
+            text = exporter(data, source)
+        except leanexport.NotExportable as e:
+            # certo declining to write is a RESULT, not a crash: the reason
+            # says what the file would have needed and where the numbers are.
+            print(t("cli.lean.declined", reason=str(e)))
+            return 2
     else:
         try:
             graphs = lean.graphs_from_certificate(data)

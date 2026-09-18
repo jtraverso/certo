@@ -202,8 +202,6 @@ def test_lean_export_reads_a_shrink_certificate():
     assert len(graphs) == 1 and graphs[0].n == 4        # reduced to C4
 
 
-
-
 # --- core over several goals ------------------------------------------------
 
 
@@ -400,7 +398,6 @@ def test_ledger_survives_a_corrupt_line():
         rep = ledger.verify_all(log, LIM)
         assert rep["counts"]["corrupt"] == 1
         assert rep["total"] == 2
-
 
 
 # --- farkas / linarith / nlinarith -----------------------------------------
@@ -983,7 +980,6 @@ def test_compose_reports_bridges_that_contradict_each_other():
     assert r.meta["vacuous"] is True
     rep = verify(_roundtrip(r.certificate), LIM)
     assert any("VACUOUS" in w or "VACUA" in w for w in rep.warnings)
-
 
 
 # --- P0: what a sweep establishes about the predicate ----------------------
@@ -2600,28 +2596,6 @@ def test_a_forged_parametric_certificate_does_not_verify():
         "clique", {"1 0": "1"}))
 
 
-def test_the_lean_file_separates_what_lean_can_close_from_the_bridge():
-    """The identity goes in as a theorem `ring` closes, the window points as
-    examples `norm_num` closes, and the step from the window to the region
-    gets exactly one `sorry` with a name that says what it is."""
-    from certo import leanexport
-
-    spec, _mod = _family()
-    text = leanexport.parametric_symmetry_to_lean(
-        _parametric(spec).certificate.to_dict())
-
-    assert "theorem multiplicities_partition" in text
-    assert "ring" in text and "norm_num" in text
-    assert leanexport.hollow_count(text) == 1
-    assert "orbits_are_uniform_in_the_parameters_HOLLOW" in text
-    # the real theorem is not the hollow one
-    identity = text.split("theorem multiplicities_partition", 1)[1]
-    assert "sorry" not in identity.split("/-!", 1)[0]
-
-
-# --- an exact linear system, with a witness either way ---------------------
-
-
 def _solve(matrix, rhs, domain="rational"):
     from certo import LinearSystemSpec
     from certo.engines import algebra
@@ -3047,95 +3021,6 @@ def test_a_forged_quotient_certificate_does_not_verify():
 # --- Lean is emitted only where certo is confident of the result -----------
 
 
-def _quotient_lean():
-    from certo import leanexport
-
-    cert = _quotient(_family_module().spec()).certificate
-    d = cert.to_dict()
-    d["digest"] = cert.digest()
-    return leanexport.equitable_quotient_to_lean(d), d["payload"]
-
-
-def test_the_export_is_data_and_needs_no_imports_or_tactics():
-    """The first version of this exporter wrote a structure, three theorems
-    and typeclass binders. It did not compile, and every one of its errors was
-    in the scaffolding while none was in the data -- so the scaffolding went.
-
-    What is left is literals and decidable equations over `Nat`: it imports
-    nothing, elaborates in seconds, and there is nothing in it that could be
-    subtly wrong rather than obviously wrong."""
-    text, _p = _quotient_lean()
-
-    assert "import " not in text
-    assert "structure " not in text and "theorem " not in text
-    assert "sorry" not in text.split("-/", 1)[1]      # none past the header
-    for tactic in ("ring", "norm_num", "simp", "linarith", "omega"):
-        assert " by {}".format(tactic) not in text, tactic
-    assert text.count(":= by\n  decide") + text.count(":= by decide") >= 5
-
-
-def test_the_obligation_is_stated_rather_than_scaffolded():
-    """Somebody formalising this writes the structure their own project wants
-    and cannot use certo's namespace layout anyway, so what is worth carrying
-    across is the numbers and what they mean."""
-    text, _p = _quotient_lean()
-
-    head = text.split("-/", 2)[1]
-    assert "Proj x j" in head and "Lift z C" in head
-    assert "physicalFeasible" in head and "quotientFeasible" in head
-    # the two regularities, named and distinguished
-    assert "H i j" in head and "B i j" in head
-    assert "N i * H i j = M j * B i j" in head
-    # and what it is not
-    assert "INTEGRALITY" in head and "THE PARTITION" in head
-
-
-def test_the_numbers_travel_and_the_double_count_is_checkable():
-    """One `decide` covering every class pair at once, plus the sums tying the
-    classes back to the physical program."""
-    text, p = _quotient_lean()
-
-    assert "def rowSizes : List Nat" in text
-    assert "def colSizes : List Nat" in text
-    assert "def incidence : List (Nat \u00d7 Nat \u00d7 Nat \u00d7 Nat)" in text
-    assert "incidence.all" in text
-    assert "rowSizes.sum = {} := by decide".format(p["physical_rows"]) in text
-    assert "colSizes.sum = {} := by decide".format(
-        p["physical_columns"]) in text
-    assert "rowSizes.length = {} := by decide".format(len(p["N"])) in text
-
-    # every non-zero pair is there, as a 4-tuple
-    pairs = len(set(p["B"]) | set(p["H"]))
-    tuples = [ln for ln in text.splitlines() if ln.startswith("  (")]
-    assert len(tuples) == pairs, (len(tuples), pairs)
-
-
-def test_data_certo_cannot_render_confidently_is_refused():
-    """A quotient whose incidence is not integral would need rational literals
-    and a tactic whose behaviour certo cannot predict. certo does not write
-    Lean it is not confident compiles -- the certificate carries the numbers,
-    and they can be transcribed."""
-    import copy
-
-    from certo import leanexport
-
-    cert = _quotient(_family_module().spec()).certificate
-    base = json.loads(json.dumps(cert.to_dict()))
-    key = sorted(base["payload"]["B"])[0]
-
-    bent = copy.deepcopy(base)
-    bent["payload"]["B"][key] = "1/3"
-    try:
-        leanexport.equitable_quotient_to_lean(bent)
-        raise AssertionError("expected a refusal")
-    except leanexport.NotExportable as e:
-        assert "not integral" in str(e)
-        assert "the certificate carries the numbers" in str(e)
-
-
-# --- a level cannot be crossed silently ------------------------------------
-
-
 def _bridged_proof(theorem_subject=None, lemma_subject=None, transport=""):
     """A proof with one bridge, optionally about a different object."""
     import json
@@ -3247,89 +3132,6 @@ def test_a_subject_must_be_a_kind_and_an_id():
 
 
 # --- integer arithmetic exports to a theorem `omega` closes ----------------
-
-
-def _core_for(build):
-    import z3
-
-    from certo import Spec
-    from certo.engines import smt
-
-    spec = Spec()
-    build(spec, z3)
-    return smt.prove(spec, LIM).certificate
-
-
-def test_linear_integer_arithmetic_exports_with_omega_and_no_hole():
-    """It used to export as a `sorry` even when the statement was decidable,
-    which is the common case in combinatorics: a core over the integers with
-    no Farkas multipliers attached."""
-    from certo import leancheck, leanexport
-
-    def build(spec, z3):
-        x, y = z3.Ints("x y")
-        spec.assume("cap", 2 * x + 3 * y <= 12)
-        spec.assume("y_pos", y >= 1)
-        spec.claim(x <= 4)
-
-    cert = _core_for(build)
-    assert not cert.payload.get("multipliers")      # nothing licensed linarith
-    text = leanexport.core_to_lean(cert.to_dict())
-
-    assert "(x y : \u2124)" in text                     # integer binders
-    assert "import Mathlib.Tactic.Omega" in text
-    body = text.split(":= by")[1].split("/-!")[0]
-    assert "omega" in body and "sorry" not in body
-    # and the footer must not claim a hole the file does not have
-    assert "There is NO `sorry` here" in text
-    assert "The single `sorry` is the proof" not in text
-
-    assert leanexport.hollow_count(text) == 0
-    assert leancheck.correspondence(cert.to_dict(), text)["ok"]
-
-
-def test_reals_keep_linarith_and_non_linear_integers_keep_their_hole():
-    """`omega` does not do variable times variable, and offering it one would
-    emit a tactic call that fails on a statement that is true."""
-    from certo import leanexport
-
-    def reals(spec, z3):
-        a, b = z3.Reals("a b")
-        spec.assume("a1", a >= 1)
-        spec.assume("b1", b >= 1)
-        spec.claim(a + b >= 2)
-
-    text = leanexport.core_to_lean(_core_for(reals).to_dict())
-    assert "\u211d)" in text and "omega" not in text
-    assert "Omega" not in text                      # nor the import
-
-    def nonlinear(spec, z3):
-        n, m = z3.Ints("n m")
-        spec.assume("np", n >= 2)
-        spec.assume("mp", m >= 2)
-        spec.claim(n * m >= 4)
-
-    text = leanexport.core_to_lean(_core_for(nonlinear).to_dict())
-    body = text.split(":= by")[1].split("/-!")[0]
-    assert "omega" not in body                      # it cannot decide this
-    assert "sorry" in body                          # so it says so
-
-
-def test_omega_is_offered_only_when_every_variable_is_an_integer():
-    """A mixed problem is not `omega`'s, and a tactic that fails looks the
-    same to a reader as a gap."""
-    from certo.leanexport import _integer, _is_linear
-
-    assert _integer(["x", "y"], {"x": "Int", "y": "Int"})
-    assert not _integer(["x", "y"], {"x": "Int", "y": "Real"})
-    assert not _integer([], {})
-
-    linear = [("h", {("x",): 1, (): -3}, "<=")]
-    assert _is_linear(linear)
-    assert not _is_linear([("h", {("x", "y"): 1}, "<=")])
-
-
-# --- propositional logic reaches a DRAT proof ------------------------------
 
 
 def test_tseitin_agrees_with_z3_on_random_formulas():
@@ -3486,48 +3288,6 @@ def _real_core():
     return smt.prove(spec, LIM).certificate.to_dict()
 
 
-def test_the_exported_statement_is_compared_against_the_certificate():
-    """Nothing compared them. The exporter reads a certificate and writes
-    Lean, and a bug anywhere in that path produces a theorem that compiles,
-    looks right, and is not the one the certificate supports."""
-    from certo import leancheck, leanexport
-
-    cert = _real_core()
-    text = leanexport.core_to_lean(cert)
-    got = leancheck.correspondence(cert, text)
-    assert got["checked"] and got["ok"], got
-    assert got["goal_matches"] and got["hypotheses"] == 3
-
-
-def test_a_mangled_export_is_caught_and_the_damage_named():
-    """Four ways an exporter could go wrong, each named rather than pooled
-    into one boolean: a reader who is told `mismatch` still has to go and
-    find out which."""
-    from certo import leancheck, leanexport
-
-    cert = _real_core()
-    text = leanexport.core_to_lean(cert)
-
-    dropped = "\n".join(l for l in text.splitlines() if "b_pos" not in l)
-    got = leancheck.correspondence(cert, dropped)
-    assert not got["ok"] and got["missing"] == ["b_pos"]
-
-    invented = text.replace("    (c_pos : -c < 0)",
-                            "    (c_pos : -c < 0)\n    (fake : -a - b < 0)")
-    got = leancheck.correspondence(cert, invented)
-    assert not got["ok"] and got["extra"] == ["fake"]
-
-    # a coefficient in the goal
-    bent = text.replace("6 * a * b * c", "5 * a * b * c")
-    got = leancheck.correspondence(cert, bent)
-    assert not got["ok"] and not got["goal_matches"]
-
-    # the direction of the goal
-    flipped = text.replace("\u2265 0 := by", "\u2264 0 := by")
-    got = leancheck.correspondence(cert, flipped)
-    assert not got["ok"] and not got["goal_matches"]
-
-
 def test_the_comparison_is_semantic_and_not_textual():
     """`-a < 0` and `a > 0` are one row, and the exporter deliberately writes
     hypotheses one way and the goal the other."""
@@ -3561,119 +3321,6 @@ def test_the_parser_refuses_what_it_does_not_recognise():
         raise AssertionError("expected a refusal")
     except NotParseable:
         pass
-
-
-def test_a_hollow_file_reports_not_checked_rather_than_ok():
-    """`could not check` and `checked and fine` are different answers, and
-    collapsing them is how a gap becomes a green tick."""
-    from certo import leancheck, leanexport
-
-    cert = _real_core()
-    hollow = leanexport._core_structure_only(cert)
-    got = leancheck.correspondence(cert, hollow)
-    assert got["checked"] is False
-    assert "HOLLOW" in got["reason"]
-    assert "ok" not in got
-
-
-# --- a hollow Lean export must say it is hollow ----------------------------
-
-
-def test_a_statement_certo_cannot_render_is_marked_and_does_not_close():
-    """The defect a user reported, as a test.
-
-    Exporting an `unsat_core` over a theory certo cannot render produced
-
-        theorem from_core : True := by trivial
-
-    which compiles, carries no `sorry`, and passes an axiom audit -- so every
-    check a formalisation project runs said fine about a file that states
-    nothing. The user noticed by reading it, which is the safeguard this
-    project exists to replace.
-    """
-    from certo import leanexport
-
-    core = {"digest": "d", "payload": {
-        "names": ["h1"], "dropped": [],
-        "core_smt2": "(declare-fun f (Int) Int)\n(assert (> (f 1) 0))"}}
-    text = leanexport._core_structure_only(core)
-
-    assert "trivial" not in text                 # it must not close itself
-    assert "theorem from_core_HOLLOW : True := by" in text
-    assert "sorry" in text
-    assert leanexport.hollow_count(text) == 1
-
-
-def test_every_placeholder_in_a_proof_export_is_marked():
-    """`compose` exports one theorem per lemma plus the composed one, and all
-    of them were placeholders: only the bridges carried `sorry`, so a derived
-    lemma looked proved and was `True`."""
-    from certo import leanexport
-
-    proof = {"digest": "d", "payload": {"lemmas": [
-        {"name": "derived_one", "derived": True, "engine": "z3",
-         "statement_smt2": "(assert true)"},
-        {"name": "bridge_one", "derived": False, "bridge": "a sweep",
-         "statement_smt2": "(assert true)"}]}}
-    text = leanexport.proof_to_lean(proof)
-
-    assert "trivial" not in text
-    for name in ("derived_one_HOLLOW", "bridge_one_HOLLOW", "main_HOLLOW"):
-        assert "theorem {} : True := by".format(name) in text, name
-    assert leanexport.hollow_count(text) == 3
-    # and the file says what it is, in the part a reader skims to
-    assert "EVERY statement above is HOLLOW" in text
-
-
-def test_a_real_statement_is_not_marked_hollow():
-    """The route that works must stay unmarked, or the signal is worthless.
-
-    Linear arithmetic over the reals renders with real binders, real
-    hypotheses and a positively stated goal. That file has one `sorry` and
-    zero placeholders.
-    """
-    import z3
-
-    from certo import Spec, leanexport
-    from certo.engines import smt
-
-    x, y = z3.Reals("x y")
-    spec = Spec()
-    spec.assume("x_ge_1", x >= 1)
-    spec.assume("y_ge_1", y >= 1)
-    spec.claim(x + y >= 2)
-    cert = smt.prove(spec, LIM).certificate
-    text = leanexport.core_to_lean(cert.to_dict())
-
-    assert leanexport.hollow_count(text) == 0
-    assert "HOLLOW" not in text
-    assert ": True" not in text
-    # the goal is stated positively, not as `True`
-    assert "≥ 0 := by" in text or ">= 0 := by" in text
-
-
-def test_the_manifest_records_how_many_theorems_state_nothing():
-    """A manifest that recorded only a hash would tie a hollow file to its
-    source and let it travel as evidence."""
-    import json
-    import tempfile
-
-    from certo import leanexport
-
-    proof = {"digest": "d", "payload": {"lemmas": [
-        {"name": "a", "derived": True, "engine": "z3",
-         "statement_smt2": "(assert true)"}]}}
-    with tempfile.TemporaryDirectory() as tmp:
-        p = pathlib.Path(tmp) / "out.lean"
-        p.write_text(leanexport.proof_to_lean(proof), encoding="utf-8")
-        man = leanexport.manifest([str(p)])
-    entry = man["files"][0]
-    assert entry["hollow"] == 2                  # the lemma and `main`
-    assert "transcribe them before citing" in entry["note"]
-    assert json.dumps(man)                       # it serialises
-
-
-# --- exists: does one exist at all, and the refutation when it does not ----
 
 
 def _triangle_question(n, edges, title=""):
@@ -4440,94 +4087,6 @@ def test_a_farkas_certificate_becomes_a_runnable_linarith_example():
     assert "linarith [x_ge_1, y_ge_1]" in text
     assert "import Mathlib.Data.Real.Basic" in text   # linarith alone is not enough
     assert "\u00ac" not in text                      # the goal is positive, not a negation
-
-
-def test_the_nonlinear_export_hands_nlinarith_the_square_it_used():
-    """Without the hint nlinarith fails; the certificate knows which square."""
-    from certo import leanexport
-
-    text = leanexport.farkas_to_lean(_farkas_cert(nonlinear=True))
-    assert "nlinarith [sq_nonneg (a - b)]" in text
-
-
-def test_the_square_hint_comes_from_the_polynomial_not_the_name():
-    """`sq_a_b` is ambiguous when a variable contains an underscore."""
-    import z3
-
-    from certo import Spec, leanexport
-    from certo.engines import farkas
-
-    a_b, c = z3.Reals("a_b c")
-    s = Spec()
-    s.claim(a_b * a_b + c * c >= 2 * a_b * c)
-    r = farkas.farkas(s, LIM, nonlinear=True)
-    d = r.certificate.to_dict()
-    d["digest"] = r.certificate.digest()
-    text = leanexport.farkas_to_lean(d)
-    assert "sq_nonneg (a_b - c)" in text
-
-
-def test_a_proof_export_marks_every_statement_it_did_not_transcribe():
-    import json
-    import tempfile
-    from pathlib import Path
-
-    import z3
-
-    from certo import ProofSpec, Spec, leanexport
-    from certo.engines import compose, smt
-
-    x = z3.Real("x")
-    src = Spec()
-    src.assume("h", x >= 1)
-    src.claim(x >= 1)
-    sub = smt.prove(src, LIM).certificate
-    d = Path(tempfile.mkdtemp(prefix="certo_leanproof_"))
-    (d / "c.json").write_text(json.dumps(sub.to_dict()), encoding="utf-8")
-
-    k = z3.Int("k")
-    p = ProofSpec(title="two kinds of lemma")
-    p.assume("k_ge_6", k >= 6)
-    p.lemma("finite", certificate=str(d / "c.json"), states=(k <= 10),
-            bridge="checked exhaustively")
-    lem = Spec()
-    lem.assume("h", k >= 6)
-    lem.claim(k >= 0)
-    p.lemma("derived", proves=lem)
-    p.conclude(z3.And(k >= 6, k <= 10))
-
-    cert = compose.compose(p, LIM).certificate
-    data = cert.to_dict()
-    data["digest"] = cert.digest()
-    text = leanexport.proof_to_lean(data)
-
-    # REWRITTEN. This used to assert `sorry` on the bridge AND NOWHERE ELSE,
-    # which pinned the defect a user reported: a derived lemma read as proved
-    # while its statement was `True`. Both are placeholders -- neither
-    # statement is transcribed -- so both carry `sorry` and both are named
-    # for it. What still distinguishes them is WHY, and the listing at the
-    # bottom, which names only the bridge.
-    assert "trivial" not in text
-    for name in ("finite_HOLLOW", "derived_HOLLOW", "main_HOLLOW"):
-        assert "theorem {} : True := by".format(name) in text, name
-    bridge_block = text.split("theorem finite_HOLLOW")[1].split("theorem")[0]
-    derived_block = text.split("theorem derived_HOLLOW")[1].split("/--")[0]
-    assert "BRIDGE" in bridge_block
-    assert "BRIDGE" not in derived_block
-    # and the file says, once, that every statement in it is hollow
-    assert "EVERY statement above is HOLLOW" in text
-
-
-def test_the_classification_export_states_what_lean_cannot_check():
-    from certo import leanexport
-    from certo.engines import domain
-
-    cert = domain.sweep_domain(_bool_domain(lambda i: i < 20), LIM).certificate
-    data = cert.to_dict()
-    data["digest"] = cert.digest()
-    text = leanexport.classification_to_lean(data)
-    assert "COMPLETENESS IS NOT PROVED HERE" in text
-    assert "family.length = 12" in text
 
 
 def test_the_manifest_ties_the_lean_file_to_the_certificate():
@@ -6023,7 +5582,6 @@ def test_status_reads_a_run_as_readily_as_a_bare_certificate():
     assert rep["results"][0]["kind"] == "unsat_core"
 
 
-
 def test_status_inherits_bridges_upward_but_not_unclaimed_optimality():
     """Two debts, two behaviours, and the difference is the point.
 
@@ -6065,7 +5623,6 @@ def test_status_inherits_bridges_upward_but_not_unclaimed_optimality():
     (alone / "gap.json").write_text(json.dumps(inner), encoding="utf-8")
     assert [o["sort"] for o in status_report.scan(str(alone))["owed"]] \
         == ["not_claimed"]
-
 
 
 def test_a_fractional_integral_point_does_not_verify():
@@ -6120,7 +5677,6 @@ def test_a_mixed_problems_continuous_weights_may_be_fractional():
     assert rep.ok, [c for c in rep.checks if not c[1]]
     # The continuous weight really is fractional, which is the point.
     assert r.certificate.payload["continuous"]["w"] == "1/6"
-
 
 
 # --- the question people actually ask -------------------------------------
@@ -6212,120 +5768,6 @@ def test_hypotheses_only_ignores_the_claim_entirely():
 # --- an unsat core, stated in Lean ----------------------------------------
 
 
-def test_a_linear_core_exports_real_lean_hypotheses():
-    from certo import leanexport
-    from certo.engines import smt
-
-    from certo import Spec
-    import z3
-
-    a, b = z3.Ints("a b")
-    s = Spec(title="an integer core")
-    s.assume("a_big", a >= 10)
-    s.assume("b_small", b <= 3)
-    s.assume("unused", a + b >= 0)
-    s.claim(a - b >= 7)
-
-    cert = smt.core(s, LIM).certificate
-    text = leanexport.core_to_lean(cert.to_dict())
-
-    # The sort is read off the formulas, not assumed: an integer regime
-    # emitted over the reals would elaborate and say something weaker.
-    assert "(a b : \u2124)" in text
-    assert "a_big" in text and "b_small" in text
-    assert "unused" not in text.split("## What this file does")[0]
-    # REWRITTEN. This used to assert `linarith [a_big, b_small]`, which was
-    # the old behaviour and pinned a real defect: `linarith` reasons over
-    # ordered FIELDS, so on the integers it is incomplete -- `2x >= 1` implies
-    # `x >= 1` over the integers and not over the rationals. Linear integer
-    # arithmetic is decidable and `omega` decides it, without multipliers,
-    # because it is not searching for a combination.
-    body = text.split(":= by")[1].split("/-!")[0]
-    assert "sorry" not in body
-    assert "omega" in body and "linarith" not in body
-    assert "import Mathlib.Tactic.Omega" in text
-    # and the footer must not claim a hole the file does not have
-    assert "There is NO `sorry` here" in text
-
-
-def test_a_vacuous_core_states_the_regime_is_empty():
-    """`h1 -> ... -> False` IS the theorem, and it is the useful one."""
-    import z3
-
-    from certo import Spec, leanexport
-    from certo.engines import smt
-
-    d = z3.Real("dens")
-    s = Spec(title="empty")
-    s.assume("dens_floor", d >= z3.RealVal(3) / 4)
-    s.assume("sparse", d <= z3.RealVal(1) / 2)
-    s.claim(z3.BoolVal(True))
-
-    cert = smt.check(s, LIM, hypotheses_only=True).certificate
-    text = leanexport.core_to_lean(cert.to_dict())
-    assert "theorem regime_empty" in text
-    assert ": False := by" in text
-    assert "(dens : \u211d)" in text
-
-
-def test_a_nonlinear_core_carries_the_smt2_rather_than_guessing():
-    """Division by a variable is not linear arithmetic, and it is not faked."""
-    import z3
-
-    from certo import Spec, leanexport
-    from certo.engines import smt
-
-    d, k = z3.Reals("dens kappa")
-    s = Spec(title="nonlinear")
-    s.assume("dens_high", d > 1 - 1 / k)
-    s.assume("kappa_large", k >= 4)
-    s.assume("sparse", d <= z3.RealVal(1) / 2)
-    s.claim(z3.BoolVal(True))
-
-    cert = smt.check(s, LIM, hypotheses_only=True).certificate
-    text = leanexport.core_to_lean(cert.to_dict())
-    assert "declare-fun" in text            # the SMT-LIB2, verbatim
-    assert "will not guess" in text
-    # REWRITTEN. This used to assert `theorem from_core : True`, which is the
-    # artefact a user put through a build gate and a `sorry` audit before
-    # noticing by reading it. The statement is still not guessed at -- that
-    # part was right -- but the placeholder is now named and does not close.
-    assert "theorem from_core_HOLLOW : True := by" in text
-    assert "trivial" not in text
-    assert leanexport.hollow_count(text) == 1
-
-
-def test_export_lean_now_accepts_an_unsat_core():
-    """It used to refuse, with an otherwise excellent message."""
-    from certo.leanexport import EXPORTERS
-
-    assert "unsat_core" in EXPORTERS
-
-
-
-def test_a_core_without_multipliers_still_says_sorry_and_why():
-    """Nonlinear arithmetic has no Farkas certificate to attach."""
-    import z3
-
-    from certo import Spec, leanexport
-    from certo.engines import smt
-
-    x, y = z3.Reals("x y")
-    s = Spec(title="nonlinear")
-    s.assume("x_pos", x > 0)
-    s.assume("y_pos", y > 0)
-    s.claim(x * y + 1 > 0)
-
-    cert = smt.prove(s, LIM).certificate
-    assert "multipliers" not in cert.payload
-    assert cert.solver_free is False
-
-    text = leanexport.core_to_lean(cert.to_dict())
-    body = text.split(":= by")[1].split("/-!")[0]
-    assert "sorry" in body
-    assert not body.strip().startswith("linarith")
-
-
 def test_a_linear_core_is_solver_free_and_verifies_by_arithmetic():
     """The most-used command stops producing the least-checkable certificate."""
     import z3
@@ -6382,7 +5824,6 @@ def test_forged_multipliers_are_rejected_by_the_arithmetic():
     rep = verify(Certificate.from_dict(d), LIM)
     assert not rep.ok
     assert any(not ok for name, ok, _ in rep.checks)
-
 
 
 # --- deriving the dual instead of reconstructing CBC's --------------------
@@ -6470,7 +5911,6 @@ def test_a_coupled_denominator_ladder_was_never_the_problem():
                        if reconstruct([xf], d) == [want_x]
                        and reconstruct([yf], d) == [want_y]), None)
         assert shared is not None, (xf, yf)
-
 
 
 # --- eliminating a variable, with the identity that proves it -------------
@@ -6588,7 +6028,6 @@ def test_a_variable_that_is_not_there_says_which_ones_are():
     r = _elim([t * t - s, t - s], "u", ["s", "t"])
     assert r.verdict is Verdict.INCONCLUSIVE
     assert "s, t" in r.detail
-
 
 
 # --- a bound for every parameter value, not the ones you tried ------------
@@ -7153,7 +6592,6 @@ def test_forging_the_bound_is_caught_by_re_expanding_it():
     assert not verify(Certificate.from_dict(d), LIM).ok
 
 
-
 # --- local loads: named regions the design has to respect -----------------
 
 
@@ -7251,7 +6689,6 @@ def test_a_packing_with_no_loads_carries_an_empty_list():
     r = _opt(_loaded([]))
     assert r.certificate.payload["loads"] == []
     assert verify(_roundtrip(r.certificate), LIM).ok
-
 
 
 # --- exact covers, and clique partitions as one case ----------------------
@@ -7355,7 +6792,6 @@ def test_a_forged_part_is_caught_by_re_deriving_its_edges():
     d = json.loads(json.dumps(r.certificate.to_dict()))
     d["payload"]["part_report"][0]["vertices"] = ["0", "1", "3", "5"]
     assert not verify(Certificate.from_dict(d), LIM).ok
-
 
 
 # --- 0.6 defects, each pinned by the case that found it -------------------
@@ -7501,7 +6937,6 @@ def test_self_check_refuses_to_report_a_certificate_verify_rejects():
     assert r.meta["self_check"] == "FAILED"
 
 
-
 # --- discovery: a command that shipped and nobody found -------------------
 
 
@@ -7562,7 +6997,6 @@ def test_lint_names_order_when_the_claim_divides_by_a_product():
     assert _magnitude_shaped(x * y * z) is None
     assert _magnitude_shaped((x + y) / z) is None
     assert _magnitude_shaped(x / (y * z)) == ["y", "z"]
-
 
 
 # --- the minimum a cover is measured against ------------------------------
@@ -7664,6 +7098,73 @@ def test_certify_falls_through_to_the_simplex_when_rounding_cannot_work():
     rep = verify(_roundtrip(r.certificate), LIM)
     assert rep.ok
     _ = exact
+
+
+# --- Lean is emitted for one thing, and refused for the rest ---------------
+
+
+def test_a_linear_farkas_certificate_is_the_one_thing_lean_is_emitted_for():
+    """certo has already verified the multipliers exactly and `linarith` is
+    complete for linear arithmetic over an ordered field, so this is the one
+    export where "it should compile" can be said honestly."""
+    from certo import leanexport
+    from certo.engines import farkas
+    from certo.spec import load_spec
+
+    assert sorted(leanexport.EXPORTERS) == ["farkas"]
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    cert = farkas.farkas(
+        load_spec(str(root / "examples" / "farkas_linear.py")),
+        LIM).certificate
+    data = cert.to_dict()
+    data["digest"] = cert.digest()
+    text = leanexport.farkas_to_lean(data)
+
+    assert "linarith" in text and "nlinarith" not in text
+    assert "sorry" not in text.split("-/", 1)[1]
+    assert len(text.splitlines()) < 60
+
+
+def test_a_nonlinear_farkas_certificate_is_refused_rather_than_guessed():
+    """`nlinarith` is a heuristic: it adds products and squares and tries.
+    Every tactic certo emits decides the fragment its goal lives in, and this
+    is the one case where that could not be said honestly."""
+    from certo import leanexport
+    from certo.engines import farkas
+    from certo.spec import load_spec
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("farkas_nonlinear.py", "farkas_named_square.py"):
+        cert = farkas.farkas(load_spec(str(root / "examples" / name)), LIM,
+                             nonlinear=True).certificate
+        assert cert.payload.get("nonlinear") is True, name
+        try:
+            leanexport.farkas_to_lean(cert.to_dict())
+            raise AssertionError("expected a refusal for " + name)
+        except leanexport.NotExportable as e:
+            assert "NONLINEAR" in str(e)
+            # and it points at where the numbers are
+            assert "in the certificate" in str(e)
+
+
+def test_reading_lean_survives_and_is_a_different_capability():
+    """certo no longer writes a hollow statement, but finding one in a file
+    somebody else wrote is still worth doing: `theorem X : True` compiles,
+    carries no `sorry`, and passes an axiom audit."""
+    from certo import leanexport
+
+    assert not hasattr(leanexport, "_placeholder")
+    assert leanexport.HOLLOW == "HOLLOW"
+
+    hand_written = "\n".join([
+        "theorem from_core : True := by",
+        "  trivial",
+        "theorem real_one (a : Real) : a = a := by",
+        "  rfl",
+    ])
+    assert leanexport.hollow_count(hand_written) == 1
+    assert leanexport.hollow_count("example : 1 = 1 := by norm_num") == 0
 
 
 if __name__ == "__main__":

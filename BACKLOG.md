@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-17. Nothing released past 0.8.0. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
+Last updated: 2026-09-18, at 0.9.0. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
 
 ---
 
@@ -68,10 +68,7 @@ project made that way changed on contact.
 
 ---
 
-## Built, not released
-
-The version is still 0.8.0. These are done and tested and are waiting on a
-decision about shipping them.
+## What landed in 0.9
 
 ### `reduce --parametric` — the symbolic quotient *(was P1, user feedback)*
 

@@ -59,13 +59,11 @@ def project() -> Path | None:
 #: (example, the command whose engine produces a certificate an exporter
 #: knows). Routing is by SPEC TYPE, the same way `ask` does it: hardcoding an
 #: engine per example is how this first ran `core` over a `MultiSpec`.
+#: certo emits Lean for a LINEAR Farkas certificate and nothing else, so this
+#: is short by design rather than by omission. A spec whose certificate has no
+#: exporter is skipped, not failed.
 SPECS = (
     "farkas_linear.py",
-    "core_matrix.py",
-    "equitable_quotient.py",
-    "parametric_symmetry.py",
-    "integer_matrix.py",
-    "amgm.py",
 )
 
 

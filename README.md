@@ -243,7 +243,7 @@ Phrased as the question, because that is how anybody arrives.
 | Does an object with these properties exist? | `synth` | CEGIS, plus the counterexamples that forced it |
 | How do I assemble my lemmas into one proof? | `compose` | the proof, **with every bridge named** |
 | Is this stored certificate still good? | `verify` | re-checked, with the warnings repeated |
-| Get this into Lean | `export --lean` | real statements for linear arithmetic; data for graphs |
+| Get this into Lean | `export --lean` | a linear Farkas certificate as a runnable `linarith` example — and nothing else, on purpose |
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
@@ -853,11 +853,11 @@ vertices — and it is refuted at 7 of the 35 points, the first being `p=2, q=0`
 A multiplicity of `pq/2` instead of `pq` fails at 30; `p²/2` instead of `C(p,2)`
 at all 35.
 
-**The Lean file splits the same way.** `certo export --lean` writes the
-multiplicity identity as a theorem `ring` closes outright, the window points as
-examples `norm_num` closes, and exactly one `sorry` — on the claim that the
-orbit structure is uniform in the parameters, which certo checked on 35 points
-and nowhere else.
+**There is no Lean export for this, on purpose.** certo emits Lean only for a
+linear Farkas certificate, where the multipliers are already verified and
+`linarith` decides the fragment the goal lives in. Everywhere else the
+certificate is the deliverable — and what a formalisation needs from it is the
+numbers and the statement, which are both in there.
 
 It says nothing about the **value**. Solve the quotient with `opt` at a point,
 or bound it for every parameter with `parametric`, which is the command built

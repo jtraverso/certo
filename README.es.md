@@ -225,7 +225,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Existe un objeto con estas propiedades? | `synth` | CEGIS, más los contraejemplos que lo forzaron |
 | ¿Cómo ensamblo mis lemas en una demostración? | `compose` | la demostración, **con cada puente nombrado** |
 | ¿Sigue siendo válido este certificado guardado? | `verify` | re-comprobado, con los avisos repetidos |
-| Llevar esto a Lean | `export --lean` | enunciados reales para aritmética lineal; datos para grafos |
+| Llevar esto a Lean | `export --lean` | un certificado de Farkas lineal como `example` ejecutable con `linarith` — y nada más, a propósito |
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
