@@ -1,0 +1,117 @@
+name: publish
+
+# Tag-only, and its own file rather than a step inside `ci.yml`.
+#
+# Trusted Publishing mints a PyPI credential for whichever workflow PyPI is
+# configured to trust. `ci.yml` runs on every push and every pull request, so
+# trusting it would mean any one of those runs could publish. This one runs on
+# a tag and nothing else, which is the whole reason it exists separately.
+#
+# Configure the publisher at https://pypi.org/manage/account/publishing/ with
+# workflow `publish.yml` and environment `pypi` -- not `(Any)`. A named
+# environment is what lets Settings -> Environments require a human click
+# before a tag can reach the index.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # A tag is a number somebody typed. The version is a number in the code.
+  # This project's whole argument is that two numbers nobody compares drift --
+  # it has already shipped a README saying twenty-eight over a list of
+  # twenty-nine, and metadata reporting 0.6.0 while the tool said 0.9.0. A
+  # release is the worst place for that, because the wrong number is permanent:
+  # PyPI does not let a version be replaced.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: the tag is the version
+        shell: bash
+        run: |
+          set -e
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "manual run: no tag to compare against"
+            grep -q "^## \[" CHANGELOG.md && exit 0
+          fi
+          TAG="${GITHUB_REF_NAME#v}"
+          CODE=$(python -c "import sys; sys.path.insert(0,'src'); import certo; print(certo.__version__)")
+          echo "tag: $TAG   code: $CODE"
+          if [ "$TAG" != "$CODE" ]; then
+            echo "::error::the tag says $TAG and certo.__version__ says $CODE"
+            exit 1
+          fi
+          grep -q "^## \[$CODE\]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no entry for $CODE"
+            exit 1
+          }
+
+  # The artefact that ships is the artefact that was tested. Depending on a
+  # green run of `ci.yml` would test a commit; this tests the tag.
+  tests:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[mcp,numerics]"
+      - name: every suite
+        shell: bash
+        run: |
+          for t in smoke mcp i18n extras adversarial determinism; do
+            python tests/test_$t.py
+          done
+      - name: every example, and its certificate
+        run: python tests/run_examples.py
+
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - name: the metadata PyPI will render
+        run: python -m twine check dist/*
+      # Installed from the wheel, in a clean environment, before anything is
+      # published: an sdist that builds and a wheel that runs are different
+      # claims, and only one of them is what a user gets.
+      - name: the wheel actually works
+        shell: bash
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install --quiet dist/*.whl
+          /tmp/fresh/bin/certo --version
+          /tmp/fresh/bin/certo commands --table | head -3
+          /tmp/fresh/bin/python -c "import certo; print(certo.__version__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # The only job with the token permission, and the only one bound to the
+    # environment. Least privilege is not ceremony here: this is the step that
+    # can write to a public index and cannot be undone.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/certo-math
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

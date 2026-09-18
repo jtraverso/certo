@@ -38,3 +38,8 @@ examples/interchange_cell.json
 
 # Build artefacts. The wheel and the sdist are produced from the tree, and a
 # committed one is a stale copy of something that has a version number.
+
+# Anything that looks like a credential file. `pypi.env` lives outside this
+# tree and should stay there; this is the belt for the day it does not.
+*.env
+!examples/*.env

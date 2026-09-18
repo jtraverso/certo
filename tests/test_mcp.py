@@ -255,6 +255,25 @@ def spec():
     assert out["unused"] == ["spare"]
     assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
 
+def _installed(module) -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec(module) is not None
+
+
+#: `bounds` needs an interval backend and `sos` needs numpy for the Gram
+#: search. Both come from the `numerics` extra, and an install without it is a
+#: supported configuration -- `doctor` says so, and the CI leg on 3.13 runs
+#: exactly that way because it is the shape nobody tests by accident.
+#:
+#: These are not skips. A test that skips stops guarding; these assert the
+#: RIGHT behaviour for the install at hand, which means the minimal install
+#: gets checked too: the command has to report the gap and name what to add,
+#: not fail in some other way.
+HAS_INTERVALS = _installed("flint") or _installed("mpmath")
+HAS_GRAM = _installed("numpy")
+
+
 def test_bounds_over_mcp_settles_a_transcendental_claim():
     src = """
 from certo import BoundSpec
@@ -263,6 +282,12 @@ def spec():
                      describe="e / pi", prec=64)
 """
     out = run(call("bounds", {"spec_source": src}))
+    if not HAS_INTERVALS:
+        # The minimal install has to say what is missing, not fail obscurely.
+        assert out["status"] == "out_of_theory", out
+        assert "python-flint" in out["detail"], out["detail"]
+        assert out["certificate"] is None
+        return
     assert out["verdict"] == "proved", out
     assert out["backend"]
     assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
@@ -276,6 +301,15 @@ def spec():
                      prec=64, max_prec=256)
 """
     out = run(call("bounds", {"spec_source": src}))
+    if not HAS_INTERVALS:
+        # Without a backend there is no enclosure to exhaust. The command has
+        # to say which it is: a missing capability and a budget that ran out
+        # are different answers, and collapsing them is the thing this project
+        # refuses everywhere else.
+        assert out["status"] == "out_of_theory", out
+        assert "python-flint" in out["detail"], out["detail"]
+        assert out["certificate"] is None
+        return
     assert out["status"] == "resource_exhausted"
     assert out["certificate"] is None
 
@@ -335,6 +369,13 @@ def spec():
     return SOSSpec(variables=["x", "y"], poly=x*x - 2*x*y + y*y)
 """
     out = run(call("sos", {"spec_source": sos_src}))
+    if not HAS_GRAM:
+        # `sos` searches for the Gram matrix by eigendecomposition: without
+        # numpy there is nothing to search with, and saying so is the answer
+        # rather than a crash.
+        assert out["status"] in ("out_of_theory", "unknown_solver"), out
+        assert out["certificate"] is None
+        return
     assert out["verdict"] == "proved" and out["squares"]
     assert run(call("verify", {"certificate_path": out["certificate"]["path"]}))["ok"]
 
