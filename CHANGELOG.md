@@ -6,8 +6,54 @@ payload — each such change says so and what still reads the old shape.
 
 ## [Unreleased]
 
-Not released. Four pieces of work sit here awaiting a decision on whether and
+Not released. Five pieces of work sit here awaiting a decision on whether and
 how to ship them; the version in `pyproject.toml` is still 0.8.0.
+
+### Where Lean export stops
+
+A scope correction, and the right one. The quotient export was first written
+as a `structure` with fields, three theorems and typeclass binders. Compiled
+against a real Mathlib it produced a wall of errors in four minutes — and
+**every one of them was in the scaffolding while none was in the data**. The
+scaffolding carried all the risk and none of the value.
+
+So the rule is now written into `leanexport` itself:
+
+> emit Lean only when the output is a **small self-contained artefact whose
+> content IS the certificate's data**, and not when it would be a scaffold for
+> a proof somebody else will structure their own way
+
+| | before | after |
+|---|---|---|
+| lines | 595 | 233 |
+| imports | `import Mathlib` | none |
+| `sorry` | 3 | 0 |
+| compiles | no | **yes** |
+| time | 4+ min to fail | **12.8 s** |
+
+What is left is the class sizes, the incidence data, one `decide` covering all
+133 double-count identities at once, and the obligation stated as prose.
+Somebody formalising the result writes the structure their own project wants
+and could not have used certo's namespace layout anyway.
+
+**`NotExportable`** makes the rule mechanism rather than intention: a
+certificate whose data would need rational literals and a tactic whose
+behaviour cannot be predicted from here is refused, with the reason, instead
+of rendered hopefully. A file that fails to elaborate costs its reader more
+than no file at all and teaches them not to trust the next one.
+
+**`--check` is not a release gate**, and `tests/run_lean.py` is explicitly
+outside the suite. Building against Mathlib costs minutes, depends on a
+toolchain version, and fails in ways that say nothing about whether certo's
+mathematics is right. certo's job is the step *before* the proof assistant;
+wiring its release cycle to one would be adopting the cost of a different tool
+without taking on its work.
+
+The parametric-symmetry export was checked under the same rule and kept: it
+compiles, and its `multiplicities_partition` really is closed by `ring`. Two
+warnings it emitted — a `push_cast` doing nothing, an unused binder — are gone,
+because a generated file that emits warnings teaches its reader to skim
+warnings.
 
 ## `quotient`: the reduction as an equivalence
 
@@ -52,6 +98,28 @@ so the partition is **refused**, naming `e01` and `e02`.
 It says **nothing about integrality**. The equivalence is between the
 fractional programs: on that same K₄ both give 4 while the integer packing
 gives 2.
+
+### The Lean export: `attainable_values_eq`
+
+`certo export --lean` on one of these certificates writes three things and
+keeps them apart.
+
+**The contract** is a structure whose fields *are* the checks — the
+partitions, the non-empty fibres, the constancy of capacities and weights, and
+regularity in both directions. There is deliberately no field reading "the
+quotient is correct": a structure with a field asserting its own conclusion is
+a definition that proves itself.
+
+**The lemma** is `attainable_values_eq`, stated in full and left to Lean, over
+a general `LinearOrderedField` rather than pinned to ℚ or ℝ — certo's data are
+rationals and the equivalence holds over whatever they are read into. Three
+`sorry`s, and each is a theorem about *all* equitable quotients rather than
+about the instance: the lemma itself, the double count, and `proj_lift`.
+
+**The instance** is what certo did do: class sizes, both tables, capacities
+and weights, with the double-count identities among them as examples `decide`
+closes — and two more confirming the classes account for the physical program,
+226 rows and 3147 columns at `t = 2`. That section carries no `sorry` at all.
 
 ### Checked against a reconstructed family
 

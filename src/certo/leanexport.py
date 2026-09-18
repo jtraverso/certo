@@ -18,6 +18,40 @@ actually needs from a session of exploration is the other half:
 Everything here is text generation. Nothing is proved by emitting it, and the
 header of every file says so. `--check` runs the toolchain when there is one,
 which turns "this should compile" into a fact or a failure.
+
+WHEN TO ADD AN EXPORTER, and it is a narrower rule than it looks:
+
+    emit Lean only when the output is a SMALL SELF-CONTAINED ARTEFACT whose
+    content IS the certificate's data
+
+and not when it would be a SCAFFOLD for a proof somebody else will structure
+their own way. The difference is visible in what already exists here. A Farkas
+certificate becomes a ten-line `example` with its multipliers: small, runnable,
+useful the moment it lands. An equitable quotient was first written as a
+`structure` with fields, three theorems and typeclass binders -- a formalisation
+project rather than an artefact -- and it did not compile. Every one of its
+errors was in the scaffolding and none was in the data, which is the whole
+lesson: the scaffolding carried all the risk and none of the value. Somebody
+formalising that result writes the structure their own project wants and cannot
+use this module's namespace layout anyway.
+
+So that exporter now emits the numbers, the identities among them as `decide`
+examples, and the obligation as prose. It imports nothing and elaborates in
+seconds.
+
+CERTO DOES NOT WRITE LEAN IT IS NOT CONFIDENT COMPILES. `NotExportable` is the
+mechanism: a certificate whose data would need literals and a tactic call whose
+behaviour cannot be predicted from here is refused, with the reason, rather
+than rendered hopefully. A file that fails to elaborate costs its reader more
+than no file at all and teaches them not to trust the next one -- and the
+certificate already carries the numbers.
+
+AND `--check` IS NOT A RELEASE GATE. Building a file against Mathlib costs
+minutes, depends on a toolchain version, and fails in ways that say nothing
+about whether certo's mathematics is right. It is a tool for the person adding
+an exporter, run once, by hand. certo's job is the step BEFORE the proof
+assistant; wiring its release cycle to one would be adopting the cost of a
+different tool without taking on its work.
 """
 from __future__ import annotations
 
@@ -29,6 +63,18 @@ from fractions import Fraction
 from pathlib import Path
 
 from . import __version__
+
+
+class NotExportable(ValueError):
+    """certo will not write Lean it is not confident compiles.
+
+    The rule the exports follow: emit only when the output is a small
+    self-contained artefact whose content IS the certificate's data. A
+    certificate whose data would need a tactic call certo cannot predict the
+    behaviour of is refused here rather than rendered hopefully -- a file that
+    fails to elaborate costs its reader more than no file at all, and teaches
+    them not to trust the next one.
+    """
 from .i18n import t
 
 HEADER = """\
@@ -706,6 +752,11 @@ def parametric_symmetry_to_lean(data: dict, source="") -> str:
     binder = "({} : ℕ)".format(" ".join(ring))
 
     lines = [_header("parametric_symmetry", data.get("digest", "?"), source),
+             "",
+             "-- Every multiplicity is a polynomial over the whole parameter",
+             "-- ring, so a definition that does not mention one of them is",
+             "-- normal rather than a mistake.",
+             "set_option linter.unusedVariables false",
              ""]
     lines.append("/-! ## The orbit multiplicities, as polynomials -/")
     lines.append("")
@@ -728,7 +779,9 @@ def parametric_symmetry_to_lean(data: dict, source="") -> str:
     lines.append("    {} = objects {} := by".format(total, args))
     lines.append("  unfold {} objects".format(
         " ".join("mult_" + _safe(n) for n in sorted(p["orbits"]))))
-    lines.append("  push_cast")
+    # `push_cast` was here and the linter reported it doing nothing: the
+    # multiplicities are already rationals, so there is no cast to push. A
+    # generated file that emits warnings teaches its reader to skim warnings.
     lines.append("  ring")
     lines.append("")
 
@@ -780,8 +833,142 @@ def parametric_symmetry_to_lean(data: dict, source="") -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# an equitable quotient -> the data, and the obligation stated in prose
+# ---------------------------------------------------------------------------
+
+#: The statement a formalisation has to prove, as prose. NOT emitted as a
+#: `structure` with fields and a `theorem` with a `sorry`: the first version of
+#: this exporter did that, and every one of its compile errors was in the
+#: scaffolding while none was in the data. Somebody formalising this writes the
+#: structure their own project wants, and cannot use certo's namespace layout
+#: anyway -- so what is worth carrying across is the numbers and what they mean.
+OBLIGATION = """\
+/-!
+# The obligation
+
+`certo quotient` checked a partition of a linear program's rows and columns
+and established that the physical program and its quotient have the SAME SET
+of attainable values. Written out, with `E i` the resources of class `i` and
+`C j` the objects of class `j`:
+
+  Proj x j = sum over C in class j of x C          the class TOTAL MASS
+  Lift z C = z (class C) / M (class C)             spread evenly
+
+  physical:  max sum_C w C * x C   s.t.  sum_C A e C * x C <= b e,  x >= 0
+  quotient:  max sum_j w j * z j   s.t.  sum_j B i j * z j <= N i * b i, z >= 0
+
+  theorem: {v | exists x, physicalFeasible x and physicalValue x = v}
+         = {v | exists z, quotientFeasible z and quotientValue z = v}
+
+Projection sums the physical rows of a class, so a feasible `x` gives a
+feasible `Proj x` of the same value. Lifting uses regularity the other way:
+for `e` in class `i`, `sum_C A e C * Lift z C = (1 / N i) * sum_j B i j * z j`.
+And `Proj (Lift z) = z`. Equality of OPTIMA is a corollary and needs no
+duality.
+
+## What certo checked, and it is the hypotheses rather than the theorem
+
+  * the classes partition the rows and the columns, with no empty fibre
+  * capacities and senses are constant on each row class
+  * weights and bounds are constant on each column class
+  * REGULARITY both ways, and they are different quantities:
+      H i j   one resource of class i is used by this much of object class j
+      B i j   one object of class j uses this many resources of class i
+    Lifting needs H, the quotient's matrix needs B, and using one where the
+    other belongs builds a quotient that is simply wrong.
+
+The double count `N i * H i j = M j * B i j` ties the two. It is a CONSEQUENCE
+of the two regularities rather than a third hypothesis, and it is below as
+data because it is what catches one of them having been used as the other.
+
+## What is NOT claimed
+
+INTEGRALITY. The equivalence is between the FRACTIONAL programs. An integer
+orbit mass need not lift to integer objects: on K4 with triangles only both
+fractional programs give 4 while the integer packing gives 2.
+
+THE PARTITION. That these classes are the ones the problem has is the spec's
+claim. certo checked that the partition SUPPORTS the equivalence, against the
+matrix -- not that it is the partition you meant.
+-/"""
+
+
+def _nat_list(values) -> str:
+    return "[" + ", ".join(str(v) for v in values) + "]"
+
+
+def equitable_quotient_to_lean(data: dict, source="") -> str:
+    """The class data and the double count, and nothing that needs a tactic.
+
+    Everything here is a literal or a decidable equation over `Nat`, so the
+    file imports nothing and elaborates in seconds. That is the whole design:
+    certo emits Lean when the output is a small self-contained artefact whose
+    content IS the certificate's data, and does not emit Lean when it would be
+    a scaffold for a proof somebody else will structure their own way.
+
+    A quotient whose data are not integral is refused rather than rendered
+    with rationals and a tactic call -- a file certo cannot be confident
+    compiles is a file certo should not write.
+    """
+    p = data["payload"]
+    N = {k: int(v) for k, v in p["N"].items()}
+    M = {k: int(v) for k, v in p["M"].items()}
+    rows, cols = sorted(N), sorted(M)
+    B = {tuple(k.split("|", 1)): Fraction(v) for k, v in p["B"].items()}
+    H = {tuple(k.split("|", 1)): Fraction(v) for k, v in p["H"].items()}
+
+    fractional = [k for k, v in list(B.items()) + list(H.items())
+                  if v.denominator != 1 or v < 0]
+    if fractional:
+        raise NotExportable(t("lean.quotient.not_integral",
+                              n=len(fractional),
+                              names="; ".join("{}|{}".format(*k)
+                                              for k in fractional[:2])))
+
+    lines = [_header("equitable_quotient", data.get("digest", "?"), source,
+                     imports=[]), "", OBLIGATION, ""]
+
+    lines.append("/-- Resource classes, in order, with their sizes. -/")
+    lines.append("def rowSizes : List Nat := " + _nat_list(N[r] for r in rows))
+    for r in rows:
+        lines.append("--   {}".format(r))
+    lines.append("")
+    lines.append("/-- Object classes, in order, with their sizes. -/")
+    lines.append("def colSizes : List Nat := " + _nat_list(M[c] for c in cols))
+    lines.append("")
+
+    lines.append("/-- Every class pair with a non-zero incidence, as")
+    lines.append("`(N i, H i j, M j, B i j)`. -/")
+    lines.append("def incidence : List (Nat \u00d7 Nat \u00d7 Nat \u00d7 Nat) := [")
+    pairs = sorted(set(B) | set(H))
+    for n, (i, j) in enumerate(pairs):
+        lines.append("  ({}, {}, {}, {}){}    -- {} / {}".format(
+            N[i], int(H.get((i, j), 0)), M[j], int(B.get((i, j), 0)),
+            "," if n + 1 < len(pairs) else "", i, j))
+    lines.append("]")
+    lines.append("")
+
+    lines.append("/-- The double count, on every pair at once. -/")
+    lines.append("example :")
+    lines.append("    incidence.all (fun e => e.1 * e.2.1 == e.2.2.1 *"
+                 " e.2.2.2) = true := by")
+    lines.append("  decide")
+    lines.append("")
+    lines.append("/-- The classes account for the physical program. -/")
+    lines.append("example : rowSizes.sum = {} := by decide".format(
+        p["physical_rows"]))
+    lines.append("example : colSizes.sum = {} := by decide".format(
+        p["physical_columns"]))
+    lines.append("example : rowSizes.length = {} := by decide".format(len(rows)))
+    lines.append("example : colSizes.length = {} := by decide".format(len(cols)))
+    lines.append(FOOTER)
+    return "\n".join(lines)
+
+
 EXPORTERS = {
     "farkas": farkas_to_lean,
+    "equitable_quotient": equitable_quotient_to_lean,
     "parametric_symmetry": parametric_symmetry_to_lean,
     "unsat_core": core_to_lean,
     "proof": proof_to_lean,

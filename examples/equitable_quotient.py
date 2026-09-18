@@ -53,6 +53,17 @@ report 10/3. The partition is REFUSED, naming `e01` and `e02`:
 
     class `edge` is not constant in capacity: `e01` has 0 and `e02` has 1
 
+THE LEAN EXPORT SPLITS THE SAME WAY. `certo export --lean` writes the
+contract as a structure whose FIELDS ARE THE CHECKS -- the partition, the
+non-empty fibres, the constancies, both regularities -- with deliberately no
+field saying the quotient is correct, because a structure asserting its own
+conclusion is a definition that proves itself. The class sizes, both tables
+and the double-count identities among them go in as data and as examples
+`decide` closes. And exactly three `sorry`s, each a theorem about ALL
+equitable quotients rather than about this one: `double_count`, `proj_lift`,
+and `attainable_values_eq` itself. That is the division: certo finds and
+certifies the data, Lean verifies it, Lean applies the theorem.
+
 WHAT IS NOT CLAIMED: INTEGRALITY. The equivalence is between the FRACTIONAL
 programs. On that same intact K4 the fractional programs both give 4 while the
 integer packing gives 2, so an integer orbit mass need not lift to integer

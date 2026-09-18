@@ -3044,6 +3044,95 @@ def test_a_forged_quotient_certificate_does_not_verify():
     assert not bent(lambda p: p["M"].__setitem__(sorted(p["M"])[0], 0))
 
 
+# --- Lean is emitted only where certo is confident of the result -----------
+
+
+def _quotient_lean():
+    from certo import leanexport
+
+    cert = _quotient(_family_module().spec()).certificate
+    d = cert.to_dict()
+    d["digest"] = cert.digest()
+    return leanexport.equitable_quotient_to_lean(d), d["payload"]
+
+
+def test_the_export_is_data_and_needs_no_imports_or_tactics():
+    """The first version of this exporter wrote a structure, three theorems
+    and typeclass binders. It did not compile, and every one of its errors was
+    in the scaffolding while none was in the data -- so the scaffolding went.
+
+    What is left is literals and decidable equations over `Nat`: it imports
+    nothing, elaborates in seconds, and there is nothing in it that could be
+    subtly wrong rather than obviously wrong."""
+    text, _p = _quotient_lean()
+
+    assert "import " not in text
+    assert "structure " not in text and "theorem " not in text
+    assert "sorry" not in text.split("-/", 1)[1]      # none past the header
+    for tactic in ("ring", "norm_num", "simp", "linarith", "omega"):
+        assert " by {}".format(tactic) not in text, tactic
+    assert text.count(":= by\n  decide") + text.count(":= by decide") >= 5
+
+
+def test_the_obligation_is_stated_rather_than_scaffolded():
+    """Somebody formalising this writes the structure their own project wants
+    and cannot use certo's namespace layout anyway, so what is worth carrying
+    across is the numbers and what they mean."""
+    text, _p = _quotient_lean()
+
+    head = text.split("-/", 2)[1]
+    assert "Proj x j" in head and "Lift z C" in head
+    assert "physicalFeasible" in head and "quotientFeasible" in head
+    # the two regularities, named and distinguished
+    assert "H i j" in head and "B i j" in head
+    assert "N i * H i j = M j * B i j" in head
+    # and what it is not
+    assert "INTEGRALITY" in head and "THE PARTITION" in head
+
+
+def test_the_numbers_travel_and_the_double_count_is_checkable():
+    """One `decide` covering every class pair at once, plus the sums tying the
+    classes back to the physical program."""
+    text, p = _quotient_lean()
+
+    assert "def rowSizes : List Nat" in text
+    assert "def colSizes : List Nat" in text
+    assert "def incidence : List (Nat \u00d7 Nat \u00d7 Nat \u00d7 Nat)" in text
+    assert "incidence.all" in text
+    assert "rowSizes.sum = {} := by decide".format(p["physical_rows"]) in text
+    assert "colSizes.sum = {} := by decide".format(
+        p["physical_columns"]) in text
+    assert "rowSizes.length = {} := by decide".format(len(p["N"])) in text
+
+    # every non-zero pair is there, as a 4-tuple
+    pairs = len(set(p["B"]) | set(p["H"]))
+    tuples = [ln for ln in text.splitlines() if ln.startswith("  (")]
+    assert len(tuples) == pairs, (len(tuples), pairs)
+
+
+def test_data_certo_cannot_render_confidently_is_refused():
+    """A quotient whose incidence is not integral would need rational literals
+    and a tactic whose behaviour certo cannot predict. certo does not write
+    Lean it is not confident compiles -- the certificate carries the numbers,
+    and they can be transcribed."""
+    import copy
+
+    from certo import leanexport
+
+    cert = _quotient(_family_module().spec()).certificate
+    base = json.loads(json.dumps(cert.to_dict()))
+    key = sorted(base["payload"]["B"])[0]
+
+    bent = copy.deepcopy(base)
+    bent["payload"]["B"][key] = "1/3"
+    try:
+        leanexport.equitable_quotient_to_lean(bent)
+        raise AssertionError("expected a refusal")
+    except leanexport.NotExportable as e:
+        assert "not integral" in str(e)
+        assert "the certificate carries the numbers" in str(e)
+
+
 # --- a level cannot be crossed silently ------------------------------------
 
 
