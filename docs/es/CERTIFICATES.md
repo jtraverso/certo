@@ -68,7 +68,7 @@ abajo es el mapa; la cabecera es el territorio.
 | `linear_system` | `A x = b`, o una obstrucción `y·A = 0`, `y·b ≠ 0` | **sí**, un producto |
 | `toric_cone` | primitividad, multiplicidad, altura, discrepancias | **sí**, determinante y resolución exactos |
 | `family_extremum` | el mayor de una familia, y un dual para el resto | reconstruye el programa de cada ítem |
-| `hypothesis_audit` | un veredicto por hipótesis, con la asignación que la rompe | no — un testigo `needed` se reaplica sustituyendo, pero un veredicto `redundant` no tiene ninguno que reaplicar |
+| `hypothesis_audit` | un veredicto por hipótesis, con la asignación que la rompe | no — sustituir un testigo deja una fórmula cerrada, y decidirla sigue siendo una llamada al solver |
 | `cegis` | el objeto no tiene contraejemplos en el dominio acotado | no, vuelve a resolver |
 | `synth_proved` | el descubrimiento acotado **y** el enunciado universal | no, vuelve a resolver |
 | `proof` | los lemas, **y** que cada uno se usa como su certificado permite | no, vuelve a resolver |

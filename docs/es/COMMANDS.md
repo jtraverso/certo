@@ -228,7 +228,9 @@ sobreenunciado?
 **Responde** — uno de cuatro veredictos por hipótesis —`needed`, `redundant`,
 `domain`, `unknown`— y, para `needed`, **la asignación que rompe la afirmación
 sin ella**
-**Certificado** — `hypothesis_audit`; re-comprobarlo sustituye la asignación
+**Certificado** — `hypothesis_audit`; re-comprobarlo sustituye cada testigo y
+vuelve a decidir el resultado, así que necesita solver — pero no la búsqueda que
+lo encontró
 **No establece** — que el conjunto de hipótesis sea minimal. Se quitan de una
 en una.
 

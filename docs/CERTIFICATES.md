@@ -68,7 +68,7 @@ answers"*. The table below is the map; the header is the territory.
 | `linear_system` | `A x = b`, or an obstruction `y·A = 0`, `y·b ≠ 0` | **yes**, one product |
 | `toric_cone` | primitivity, multiplicity, height, discrepancies | **yes**, exact determinant and solve |
 | `family_extremum` | the largest of a family, and a dual for the rest | rebuilds each item's program |
-| `hypothesis_audit` | a verdict per hypothesis, with the breaking assignment | no — a `needed` witness re-applies by substitution, but a `redundant` verdict has none to re-apply |
+| `hypothesis_audit` | a verdict per hypothesis, with the breaking assignment | no — substituting a witness leaves a ground formula, and deciding that is still a solver call |
 | `cegis` | the object has no counterexamples in the bounded domain | no, re-solves |
 | `synth_proved` | the bounded discovery **and** the universal statement | no, re-solves |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |

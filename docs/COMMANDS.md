@@ -226,7 +226,8 @@ overstated?
 **Answers** — one of four verdicts per hypothesis — `needed`, `redundant`,
 `domain`, `unknown` — and for `needed`, **the assignment that breaks the claim
 without it**
-**Certificate** — `hypothesis_audit`; re-checking substitutes the assignment
+**Certificate** — `hypothesis_audit`; re-checking substitutes each witness and
+re-decides the result, so it needs a solver — but not the search that found it
 **Not established** — that the hypothesis set is minimal. Hypotheses are
 dropped one at a time.
 
