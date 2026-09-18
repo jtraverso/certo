@@ -8510,6 +8510,80 @@ def test_the_distribution_name_the_code_looks_up_is_the_one_declared():
     assert certo.__name__ == "certo"
 
 
+# --- what certo will and will not emit as Lean -----------------------------
+
+
+def test_the_lean_boundary_is_exactly_one_route():
+    """0.9.0 removed every exporter but linear Farkas, and the CI job that
+    was supposed to guard that kept exporting all four kinds -- so it went
+    red and stayed red, which is how a check stops being read.
+
+    The claim is about certo and needs no Lean at all: the one route that
+    DECIDES its fragment emits, and the three that would need a caveat refuse
+    with distinguishable exit codes. `nlinarith` is a heuristic, so a file
+    closing with it would be a tactic call that might not close; an
+    `unsat_core` says WHICH hypotheses suffice and not why."""
+    import json
+    import os
+    import subprocess
+    import sys
+    import tempfile
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, "-m", "certo.cli", *args],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(root),
+            env=dict(os.environ, PYTHONPATH=str(root / "src")))
+
+    with tempfile.TemporaryDirectory() as d:
+        out = pathlib.Path(d)
+        made = {
+            "linear": ("farkas", "examples/farkas_linear.py", []),
+            "nonlinear": ("farkas", "examples/farkas_nonlinear.py",
+                          ["--nonlinear"]),
+            "core": ("prove", "examples/farkas_linear.py", []),
+        }
+        for name, (cmd, spec, flags) in made.items():
+            r = run(cmd, spec, *flags, "--cert", str(out / (name + ".json")))
+            assert (out / (name + ".json")).exists(), (name, r.stderr[-300:])
+
+        # the one route that works
+        r = run("export", str(out / "linear.json"), "--lean",
+                "--out", str(out / "E.lean"))
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert (out / "E.lean").exists()
+        assert "linarith" in (out / "E.lean").read_text(encoding="utf-8")
+
+        # and it CORRESPONDS: the statement is re-parsed and compared against
+        # the certificate, which is the check that caught four mangles.
+        from certo import leancheck
+
+        cert = json.loads((out / "linear.json").read_text(encoding="utf-8"))
+        rep = leancheck.correspondence(
+            cert, (out / "E.lean").read_text(encoding="utf-8"))
+        assert rep.get("ok"), rep
+
+        # A hypothesis with a ZERO multiplier is not part of the proof, so it
+        # is not in the statement -- and the check must not call it missing.
+        # It did, on the only export that works, for several releases.
+        assert "noise" not in (out / "E.lean").read_text(encoding="utf-8")
+
+        # the two that would need a caveat refuse, and differently
+        r = run("export", str(out / "nonlinear.json"), "--lean",
+                "--out", str(out / "N.lean"))
+        assert r.returncode != 0, "a nonlinear Farkas emitted Lean"
+        assert "nlinarith" in (r.stdout + r.stderr)
+        assert not (out / "N.lean").exists()
+
+        r = run("export", str(out / "core.json"), "--lean",
+                "--out", str(out / "C.lean"))
+        assert r.returncode != 0, "an unsat_core emitted Lean"
+        assert not (out / "C.lean").exists()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

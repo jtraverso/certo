@@ -182,10 +182,23 @@ def rows_of(cert: dict):
         rows, _sorts = parsed
         return [(n, poly, rel) for n, poly, rel in rows]
     if kind == "farkas":
+        from fractions import Fraction
+
         from . import linarith
 
+        # Only the rows the proof USES. A hypothesis whose multiplier is zero
+        # is not part of the combination -- that is the documented feature of
+        # this certificate, `core` for free, and it is why the exporter leaves
+        # it out of the statement. Expecting every row here made the check
+        # report `missing: noise` on the one export that works, which turned a
+        # correspondence check into a job that is always red. A check nobody
+        # can act on is a check nobody reads.
         rows = linarith.parse_rows(payload.get("rows") or [])
-        return [(n, poly, rel) for n, poly, rel in rows]
+        lams = [Fraction(x) for x in (payload.get("multipliers") or [])]
+        if len(lams) != len(rows):
+            return None          # cannot tell which were used: say so
+        return [(n, poly, rel) for (n, poly, rel), lam in zip(rows, lams)
+                if lam]
     return None
 
 

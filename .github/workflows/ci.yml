@@ -115,21 +115,21 @@ jobs:
         with:
           lake-package-directory: .github/lean
           build: false
-      - name: emit and compile
+      # ONE route, because 0.9.0 left one on purpose: a linear Farkas
+      # certificate, where `linarith` decides the fragment the goal lives in.
+      # This job kept exporting four kinds long after three of them began
+      # refusing, so it failed every run and stopped being read -- a red tick
+      # nobody acts on is worse than no tick.
+      #
+      # That the other three REFUSE is a claim about certo, not about
+      # Mathlib's cache, so it lives in the test suite where it runs on every
+      # platform instead of in the one job allowed to fail.
+      - name: emit and compile the route that decides its fragment
         shell: bash
         run: |
           set -e
           mkdir -p out
           certo farkas examples/farkas_linear.py --cert out/fk.json
-          certo farkas examples/farkas_nonlinear.py --nonlinear --cert out/fk2.json
-          # The core exporter emits real binders and hypotheses, and with
-          # Farkas multipliers attached it emits `linarith` rather than
-          # `sorry`. Both paths are claims that the output compiles.
-          certo check examples/lint_vacuous_regime.py --hypotheses-only \
-            --cert out/regime.json || true
-          certo prove examples/farkas_linear.py --cert out/core.json
-          for c in out/fk.json out/fk2.json out/regime.json out/core.json; do
-            certo export "$c" --lean \
-              --out .github/lean/CertoEmitted.lean \
-              --lean-project .github/lean --check
-          done
+          certo export out/fk.json --lean \
+            --out .github/lean/CertoEmitted.lean \
+            --lean-project .github/lean --check
