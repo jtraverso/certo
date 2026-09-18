@@ -75,6 +75,8 @@
   "engine.opt.exact_ilp": "integer optimum found; the EXACT dual certifies the relaxation bound: {value}",
   "engine.opt.float": "optimum with a floating-point dual certificate",
   "engine.opt.float.why": " (no rational reconstruction verified; the certificate stays in floating point and is NOT citable)",
+  "engine.opt.no_dual": "CBC returned no dual for any row, so no dual certificate can be built. The objective it found is {value}, uncertified",
+  "engine.opt.unverifiable": "the floating-point dual does not pass certo's own verifier, so no certificate was written. The objective CBC found is {value}, uncertified",
   "engine.opt.negative_bound": "variable {var}: negative lower bound. The standard dual certificate requires x >= 0; reformulate with non-negative variables.",
   "engine.cases.exhausted": "budget exhausted: {budget}",
   "engine.cases.sat": "a case satisfying every constraint EXISTS",

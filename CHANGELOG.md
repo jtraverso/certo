@@ -7,6 +7,67 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.11.3] — 2026-09-18
+
+**Certificates that could not be cited, and a tree that pruned what it
+could not read.** The first came from running the tool on a real paper; the
+second from fixing the first. certo's own self-check is what caught the bad
+certificate — loudly, on stderr, with exit 1. What it could not do was stop the
+tool from producing it, and that is what changed here.
+
+### `opt` reproduced the numbers and could not certify them
+
+Reported from a paper: section 8.1 came out with the right constants, the dual
+came back identically zero, and `certo verify` rejected its own certificate.
+Three defects, one after the other.
+
+**The exact simplex was gated behind the thing it was written to replace.**
+`exact.certify` runs three passes: reconstruct CBC's rational pair; derive the
+dual from the primal by complementary slackness; solve the dual outright with an
+exact simplex. The third sat inside `for dx, x in primals` — the list of
+ROUNDED primals that survived a feasibility check — so when no rounding of the
+float solution was feasible, `primals` was empty and the exact simplex never
+ran at all. That is precisely the case it exists for: a vertex whose denominator
+is past the top rung of `10**6`, which is what a real instance produces and a
+small example never does. The comment above the call already read "the dual does
+not depend on which primal"; it is now lifted out and always runs.
+
+**Nothing paired with the exact dual.** An exact dual bounds the optimum, but
+`check_lp` wants a primal too. `exact.primal_from_dual` recovers it — the mirror
+of `dual_candidates`: rows carrying weight are tight, variables priced above
+their cost are zero, solve exactly. So the certificate no longer depends on a
+float solution landing on a vertex.
+
+**An absent dual was written down as zero.** `pi is None` is CBC reporting no
+dual for a row; the engine turned it into `0.0`, which is indistinguishable from
+an answer. The zero vector went into the certificate and `verify` rejected it —
+correctly, since `b.0 = 0` bounds nothing. The absence is now kept, and the
+relaxation's solve status, which was discarded, is read.
+
+**And `opt` no longer writes a certificate its own verifier rejects.** A
+floating-point certificate is allowed to be loose; that is what the tolerance
+is for. It is not allowed to be one certo refuses. When the only certificate
+available fails `verify`, the number comes back labelled uncertified and no file
+is written. The verdict stays `SATISFIABLE` — CBC did exhibit a feasible point,
+and it is the optimality claim that lives in the certificate.
+
+### `branch_bound` read "no certificate" as "empty subtree"
+
+Found while making the change above, and the more serious of the two. It
+became reachable the moment `opt` stopped emitting certificates it could not
+stand behind — which is how a fix finds the bug that was waiting for it. `bb`
+closed a node as **infeasible** whenever the node's LP came back without a
+certificate — which covered a node whose LP was not solved at all, not only one
+that was proved empty. Those are different facts: infeasible means nothing is
+in there and the Farkas ray says why; no certificate means we know nothing about
+what is in there. Closing the second as the first prunes a subtree that may hold
+the optimum, and the tree comes out looking complete. Only `UNSAT` now closes a
+node as empty; anything else that did not certify stops the run.
+
+Five regression tests, including the vertex with denominator `1000036000093`
+that today's ladder cannot reach.
+
+
 ## [0.11.2] — 2026-09-18
 
 **A certificate that verified and was wrong.** A user editing payloads found

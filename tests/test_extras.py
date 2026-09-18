@@ -8704,6 +8704,149 @@ def test_unbounded_and_not_established_print_differently():
     assert rangebound._interval(out["lower"], out["upper"]).endswith("?")
 
 
+def test_the_exact_simplex_runs_even_when_no_rounded_primal_is_feasible():
+    """The pass that does not need the primal was gated behind the primal.
+
+    Reported from a paper: the numbers came out, the certificate did not.
+    `certify` reconstructs a rational primal from the float solution and, when
+    none of the rungs lands on a feasible point, `primals` is empty -- and the
+    exact simplex sat INSIDE `for dx, x in primals`, so it never ran. The
+    comment above it already said the dual does not depend on which primal.
+
+    This vertex has denominator 1000036000093, past the top rung of 10**6.
+    """
+    from certo import exact
+
+    A = [[Fraction(1000003), Fraction(2)], [Fraction(3), Fraction(1000033)]]
+    b, c = [Fraction(5), Fraction(7)], [Fraction(1), Fraction(1)]
+    det = 1000003 * 1000033 - 6
+    x_true = [Fraction(5 * 1000033 - 14, det), Fraction(1000003 * 7 - 15, det)]
+
+    # No rung reconstructs this, and CBC handed over no dual either.
+    assert all(exact.reconstruct([float(v) for v in x_true], d) != x_true
+               for d in exact.DENOM_LADDER)
+
+    x, y, rep, denom = exact.certify(A, b, c, [float(v) for v in x_true],
+                                     [0.0, 0.0])
+    assert x is not None, "the exact simplex never ran"
+    assert rep["ok"] and rep["objective"] == x_true[0] + x_true[1]
+    assert denom == det
+
+
+def test_a_primal_is_recovered_from_the_dual_by_complementary_slackness():
+    """An exact dual with nothing to pair it with certifies nothing."""
+    from certo import exact
+
+    from certo.simplex import minimise
+
+    A = [[Fraction(2), Fraction(1)], [Fraction(1), Fraction(3)]]
+    b, c = [Fraction(7), Fraction(9)], [Fraction(3), Fraction(2)]
+    y = minimise(A, b, c)
+    x = exact.primal_from_dual(A, b, c, y)
+    assert x is not None
+    assert exact.check_lp(A, b, c, x, y)["ok"]
+
+
+def test_an_absent_dual_is_not_a_zero_dual():
+    """`pi is None` is CBC saying nothing, not CBC saying zero.
+
+    The zero vector went into the certificate and `certo verify` rejected it,
+    correctly: `b.0 = 0` bounds nothing. An absence written down as a number
+    is indistinguishable from an answer, which is the one thing this project
+    refuses everywhere else.
+    """
+    import pulp
+
+    from certo.engines import lp as engine
+
+    class _Con:
+        pi = None
+
+    class _Prob:
+        constraints = {"a": _Con(), "b": _Con()}
+
+    assert engine._duals(_Prob(), ["a", "b"]) == [None, None]
+
+
+def test_opt_never_writes_a_certificate_its_own_verifier_rejects():
+    """An artefact that fails `certo verify` is not a weaker certificate."""
+    from certo import LPSpec
+    from certo.certificate import verify
+    from certo.engines import lp as engine
+
+    def _spec():
+        s = LPSpec(sense="max", title="no duals")
+        s.variable("x")
+        s.variable("y")
+        s.objective({"x": 3, "y": 2})
+        s.constraint({"x": 1, "y": 1}, "<=", 4, name="cap")
+        s.constraint({"x": 1}, "<=", 3, name="xcap")
+        return s
+
+    real = engine._duals
+    try:
+        engine._duals = lambda prob, names: [None] * len(names)
+
+        # Exact mode does not need CBC's dual at all: it still certifies.
+        r = engine.opt(_spec())
+        assert r.certificate is not None and verify(r.certificate).ok
+        assert r.meta["exact"]
+
+        # The float route has nothing to build from, so it builds nothing --
+        # and still reports the number, and still says a point was found,
+        # because `mixed` uses this step for its skeleton and nothing else.
+        r = engine.opt(_spec(), use_exact=False)
+        assert r.certificate is None
+        assert r.verdict is Verdict.SATISFIABLE
+        assert r.meta["objective"] == 11.0
+    finally:
+        engine._duals = real
+
+
+def test_a_node_without_a_certificate_is_not_an_empty_subtree():
+    """`certificate is None` used to be read here as "infeasible".
+
+    They are different facts. Infeasible means the subtree is empty and the
+    Farkas ray says why; no certificate means the node's LP was not solved, or
+    was solved and could not be certified, and we know NOTHING about what is
+    in there. Closing it as empty prunes a branch that may hold the optimum --
+    a tree that comes out looking complete and is not.
+
+    It became reachable when `opt` stopped emitting certificates it could not
+    stand behind, which is what made the wrong reading worth finding.
+    """
+    from certo.engines import bb
+    from certo.engines import lp as engine
+    from certo.status import Result, Status
+
+    real = engine.opt
+    fired = {"done": False}
+    n_all = len(_branching_ilp().var_names)
+
+    def _one_node_uncertified(spec, limits=None, **kw):
+        r = real(spec, limits, **kw)
+        # The first call with a variable already fixed IS a node of the tree;
+        # the calls before it are the incumbent search, which has its own
+        # guards and is not what this is about.
+        if not fired["done"] and len(spec.var_names) < n_all and spec.cons:
+            fired["done"] = True
+            return Result("opt", Status.SAT, Verdict.SATISFIABLE, r.engine,
+                          r.elapsed_ms, None, detail="uncertified",
+                          meta=dict(r.meta, exact=False))
+        return r
+
+    try:
+        engine.opt = _one_node_uncertified
+        r = bb.prove_optimal(_branching_ilp(), LIM, max_nodes=20_000)
+    finally:
+        engine.opt = real
+
+    assert fired["done"], "the patch never reached a node"
+    # Not PROVED, and not a tree with that node closed as infeasible.
+    assert r.verdict is Verdict.INCONCLUSIVE
+    assert r.certificate is None
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

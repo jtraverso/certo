@@ -102,6 +102,49 @@ def check_lp(A, b, c, x, y, tol_free: bool = True) -> dict:
     }
 
 
+def primal_from_dual(A, b, c, y):
+    """The primal complementary slackness allows, given an exact optimal dual.
+
+    The mirror of `dual_candidates`. For `max c.x` subject to `Ax <= b, x >= 0`
+    at an optimal pair:
+
+      * a row carrying weight (`y_i > 0`) is tight: `A_i . x = b_i`;
+      * a variable whose reduced cost is positive (`sum_i A_ij y_i > c_j`)
+        is off its bound: `x_j = 0`.
+
+    This exists because the exact dual is reachable on instances where no
+    ROUNDING of the float primal is feasible -- a vertex with a denominator
+    past the ladder, which is what a real instance produces and a small
+    example never does. Without it, `certify` had an exact dual in hand and
+    nothing to pair it with, and fell back to floating point.
+
+    Nothing here is trusted for where it came from: `check_lp` decides.
+    """
+    A = [[to_fraction(v) for v in row] for row in A]
+    b = [to_fraction(v) for v in b]
+    c = [to_fraction(v) for v in c]
+    y = [to_fraction(v) for v in y]
+    m, n = len(A), len(c)
+
+    tight = [i for i in range(m) if y[i] > 0]
+    free = [j for j in range(n)
+            if sum((A[i][j] * y[i] for i in range(m)), Fraction(0)) == c[j]]
+    if not free:
+        # Every variable priced strictly above its cost: the origin is it.
+        return [Fraction(0)] * n
+    if not tight:
+        return [Fraction(0)] * n
+
+    sol = solve_exact([[A[i][j] for j in free] for i in tight],
+                      [b[i] for i in tight])
+    if sol is None:
+        return None
+    x = [Fraction(0)] * n
+    for pos, j in enumerate(free):
+        x[j] = sol[pos]
+    return x
+
+
 def solve_exact(rows, rhs):
     """Solve `M z = rhs` in Fraction, or None if it is singular.
 
@@ -230,7 +273,7 @@ def dual_from_primal(A, b, c, x):
     return next(iter(dual_candidates(A, b, c, x)), None)
 
 
-def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER):
+def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER, y_alts=()):
     """Reconstruct and verify. Returns (x, y, report, denom) or (None, ...).
 
     Three passes, cheapest first, and every one of them ends at the same
@@ -249,6 +292,13 @@ def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER):
     Pass 1 runs first so nothing that already worked changes, digests
     included.
 
+    `y_alts` are further float duals to try at the SAME rung -- CBC does not
+    fix the sign, so the caller hands in the negated and absolute versions.
+    They belong here rather than in three separate calls: passes 2 and 3 do
+    not read `y_float` at all, so calling three times repeated the expensive
+    work and, now that the exact simplex is reachable, would have run it
+    three times over.
+
     Not here, deliberately: reconstructing `x` and `y` at INDEPENDENT rungs.
     It looks like an obvious win and it is not one. `limit_denominator` is
     monotone in accuracy, so a rung high enough for the harder of the two is
@@ -259,11 +309,12 @@ def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER):
     last = None
     for denom in ladder:
         x = reconstruct(x_float, denom)
-        y = reconstruct(y_float, denom)
-        rep = check_lp(A, b, c, x, y)
-        last = rep
-        if rep["ok"]:
-            return x, y, rep, denom
+        for y_try in (y_float, *y_alts):
+            y = reconstruct(y_try, denom)
+            rep = check_lp(A, b, c, x, y)
+            last = rep
+            if rep["ok"]:
+                return x, y, rep, denom
 
     # The primals worth pairing a dual against: feasibility is cheap and it
     # keeps the search below from running on a problem that is simply
@@ -288,18 +339,38 @@ def certify(A, b, c, x_float, y_float, ladder=DENOM_LADDER):
     # tight rows and hopeless past it -- a realistic exact cover reaches
     # C(49, 7), about 10^8 -- so past that the answer is an exact simplex
     # rather than a longer search. Still not trusted: `check_lp` decides.
+    #
+    # This pass used to sit INSIDE `for dx, x in primals`, which meant it
+    # never ran when no rounded primal was feasible -- and that is exactly the
+    # case it was written for. On a real instance whose optimal vertex has a
+    # denominator past the ladder, `primals` is empty, the exact simplex was
+    # skipped, and the whole function fell through to floating point with
+    # whatever the float solver had said the dual was. The comment below --
+    # "the dual does not depend on which primal" -- was already true and was
+    # the argument for lifting the call out.
     from .simplex import SimplexLimit, minimise
 
+    try:
+        y = minimise(A, b, c)
+    except (SimplexLimit, ZeroDivisionError):
+        return None, None, last, None
+
     for dx, x in primals:
-        try:
-            y = minimise(A, b, c)
-        except (SimplexLimit, ZeroDivisionError):
-            break
         rep = check_lp(A, b, c, x, y)
         if rep["ok"]:
             return x, y, rep, dx
         last = rep
-        break                       # the dual does not depend on which primal
+
+    # No rounded primal fits this dual. Complementary slackness says which one
+    # must, and it is exact -- so the answer no longer depends on a float
+    # solution rounding onto a vertex.
+    x = primal_from_dual(A, b, c, y)
+    if x is not None:
+        rep = check_lp(A, b, c, x, y)
+        if rep["ok"]:
+            denom = max((v.denominator for v in list(x) + list(y)), default=1)
+            return x, y, rep, denom
+        last = rep
 
     return None, None, last, None
 

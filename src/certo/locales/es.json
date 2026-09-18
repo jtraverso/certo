@@ -75,6 +75,8 @@
   "engine.opt.exact_ilp": "óptimo entero encontrado; el dual EXACTO certifica la cota de la relajación: {value}",
   "engine.opt.float": "óptimo con certificado dual en punto flotante",
   "engine.opt.float.why": " (ninguna reconstrucción racional verificó; el certificado queda en flotante y NO es citable)",
+  "engine.opt.no_dual": "CBC no devolvió dual para ninguna fila, así que no se puede construir un certificado dual. El óptimo que encontró es {value}, sin certificar",
+  "engine.opt.unverifiable": "el dual en punto flotante no pasa el propio verificador de certo, así que no se escribió certificado. El óptimo que encontró CBC es {value}, sin certificar",
   "engine.opt.negative_bound": "variable {var}: cota inferior negativa. El certificado dual estándar exige x >= 0; reformula con variables no negativas.",
   "engine.cases.exhausted": "presupuesto agotado: {budget}",
   "engine.cases.sat": "EXISTE un caso que cumple todas las restricciones",

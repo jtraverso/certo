@@ -91,10 +91,20 @@ falling outside the decidable fragment. All four differ from `unsat`, which
 does mean "does not exist".
 
 **Why did my `opt` come out in floating point?**
-Because no rational reconstruction verified exactly. The result is still useful
-for exploring, but `verify` flags it as not citable. It usually happens when the
-input data were already floats: pass them as `Fraction` or as the string
-`"7/12"`.
+Because nothing exact verified. certo tries three routes in order: reconstruct
+CBC's answer as rationals; derive the dual from the primal by complementary
+slackness; and solve the dual outright with an exact simplex. The usual cause of
+the first two failing is input data that were already floats -- pass them as
+`Fraction` or as the string `"7/12"`. The third route is bounded by a pivot
+budget, so a large enough program can exhaust it.
+
+**My `opt` reported a number but wrote no certificate.**
+That is deliberate. A floating-point certificate is allowed
+to be loose; it is not allowed to be one certo itself rejects. When the only
+certificate available fails `certo verify` -- which is what a dual of all zeros
+does, since `b.0 = 0` bounds nothing -- the number comes back labelled
+uncertified and no file is written. An artefact that fails the verifier is not a
+weaker certificate; it is not a certificate.
 
 **Why is the built-in SAT solver slow?**
 Because it is a CDCL in Python. It exists because pysat's proof logging does not

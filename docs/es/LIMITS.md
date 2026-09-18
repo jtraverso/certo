@@ -93,10 +93,20 @@ fuera del fragmento decidible. Los cuatro difieren de `unsat`, que sí significa
 "no existe".
 
 **¿Por qué mi `opt` salió en punto flotante?**
-Porque ninguna reconstrucción racional verificó exactamente. El resultado sigue
-sirviendo para explorar, pero `verify` lo marca como no citable. Suele pasar
-cuando los datos de entrada ya eran flotantes: pásalos como `Fraction` o como la
-cadena `"7/12"`.
+Porque nada exacto verificó. certo prueba tres rutas en orden: reconstruir la
+respuesta de CBC como racionales; derivar el dual del primal por holgura
+complementaria; y resolver el dual directamente con un símplex exacto. Que
+fallen las dos primeras suele deberse a datos de entrada que ya eran flotantes
+—pásalos como `Fraction` o como la cadena `"7/12"`—. La tercera ruta tiene un
+presupuesto de pivotes, así que un programa bastante grande puede agotarlo.
+
+**Mi `opt` dio un número pero no escribió certificado.**
+Es deliberado. Un certificado en punto flotante puede ser
+holgado; lo que no puede ser es uno que el propio certo rechace. Cuando el único
+certificado disponible no pasa `certo verify` —que es lo que hace un dual de
+ceros, porque `b.0 = 0` no acota nada—, el número vuelve etiquetado como sin
+certificar y no se escribe fichero. Un artefacto que no pasa el verificador no
+es un certificado más débil; no es un certificado.
 
 **¿Por qué es lento el solver SAT incorporado?**
 Porque es un CDCL en Python. Existe porque el registro de pruebas de pysat no

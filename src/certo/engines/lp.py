@@ -138,11 +138,24 @@ def _build(spec, A, b, c, cons_names, relax=False):
 
 
 def _duals(prob, cons_names):
+    """CBC's duals, with `None` where it gave none.
+
+    `pi is None` means the solver reported no dual for that row. That is not
+    the same fact as "the dual is zero", and writing the zero down turns an
+    absence into a number nobody can tell apart from an answer. It cost a real
+    instance its certificate: every `pi` came back None, the zero vector went
+    into the certificate, and `certo verify` rejected it -- correctly, since
+    `b.0 = 0` bounds nothing.
+
+    The absence is kept so the caller can refuse to certify from it. The
+    exact route does not need these at all: complementary slackness and the
+    exact simplex derive the dual from the problem.
+    """
     out = []
     for name in cons_names:
         con = prob.constraints.get(name)
         pi = getattr(con, "pi", None) if con is not None else None
-        out.append(0.0 if pi is None else float(pi))
+        out.append(None if pi is None else float(pi))
     return out
 
 
@@ -191,24 +204,39 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
         integral = _integral_point(spec, A, b, c, sol_float)
 
     # The dual always comes from the continuous relaxation: an ILP has none.
+    #
+    # The relaxation's status used to be discarded. A relaxation that was not
+    # solved to optimality leaves every `pi` empty, and the run carried on as
+    # if it had a dual -- which is how a certificate with an identically zero
+    # dual gets written. Not fatal, though: the exact route derives the dual
+    # from the problem and does not consult CBC at all. So a failed relaxation
+    # costs the float fallback and the starting point, not the certificate.
+    relax_status = "Optimal"
     if discrete:
         rprob, rx = _build(spec, A, b, c, cons_names, relax=True)
-        rprob.solve(solver)
+        relax_status = pulp.LpStatus[rprob.solve(solver)]
         dual_src = rprob
-        relax_x = [float(rx[v].value() or 0.0) for v in spec.var_names]
+        relax_x = ([float(rx[v].value() or 0.0) for v in spec.var_names]
+                   if relax_status == "Optimal" else sol_float)
     else:
         dual_src, relax_x = prob, sol_float
-    dual_float = _duals(dual_src, cons_names)
+    dual_raw = (_duals(dual_src, cons_names) if relax_status == "Optimal"
+                else [None] * len(cons_names))
+    have_duals = all(v is not None for v in dual_raw)
+    dual_float = [0.0 if v is None else v for v in dual_raw]
 
     # ---- certificacion exacta ------------------------------------------
     exact_ok, x_ex, y_ex, rep, denom = False, None, None, None, None
     if use_exact:
-        # CBC no fija el signo del dual; deja que la comprobacion exacta decida.
-        for cand in (dual_float, [-v for v in dual_float], [abs(v) for v in dual_float]):
-            x_ex, y_ex, rep, denom = exact.certify(A, b, c, relax_x, cand)
-            if x_ex is not None:
-                exact_ok = True
-                break
+        # CBC no fija el signo del dual; deja que la comprobacion exacta
+        # decida. Van en la misma llamada porque solo la pasada 1 los lee: las
+        # 2 y 3 derivan el dual del problema, y repetirlas por cada signo
+        # repetia el trabajo caro tres veces.
+        alts = ([[-v for v in dual_float], [abs(v) for v in dual_float]]
+                if have_duals else [])
+        x_ex, y_ex, rep, denom = exact.certify(A, b, c, relax_x, dual_float,
+                                               y_alts=alts)
+        exact_ok = x_ex is not None
 
     if exact_ok:
         objective_ex = rep["objective"]
@@ -258,16 +286,39 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
     else:
         obj_max = float(pulp.value(prob.objective))
         objective = obj_max if spec.sense == "max" else -obj_max
-        cert = lp_dual_certificate(
-            sense=spec.sense, objective=obj_max, dual=[abs(v) for v in dual_float],
-            primal=relax_x, A=[[float(v) for v in r] for r in A],
-            b=[float(v) for v in b], c=[float(v) for v in c], names=cons_names,
-            var_names=list(spec.var_names), is_exact=False,
-        )
-        why = "" if not use_exact else t("engine.opt.float.why")
-        detail = t("engine.opt.float") + why
         meta_obj = objective
         meta_sol = {v: sol_float[j] for j, v in enumerate(spec.var_names)}
+
+        # A float certificate is allowed to be LOOSE -- that is what the
+        # tolerance is for. It is not allowed to be one certo rejects. So the
+        # tool asks its own verifier before handing the artefact over: an
+        # artefact that fails `certo verify` is not a weaker certificate, it
+        # is not a certificate, and writing it wastes the reader's trust
+        # rather than the tool's time.
+        #
+        # What goes back instead is the number, plainly labelled uncertified.
+        # The verdict stays SATISFIABLE because CBC did exhibit a feasible
+        # point; it is the OPTIMALITY claim that lives in the certificate, and
+        # `mixed` depends on this step for its skeleton and nothing else.
+        why = "" if not use_exact else t("engine.opt.float.why")
+        if not have_duals:
+            cert, detail = None, t("engine.opt.no_dual", value=repr(objective))
+        else:
+            cert = lp_dual_certificate(
+                sense=spec.sense, objective=obj_max,
+                dual=[abs(v) for v in dual_float],
+                primal=relax_x, A=[[float(v) for v in r] for r in A],
+                b=[float(v) for v in b], c=[float(v) for v in c],
+                names=cons_names, var_names=list(spec.var_names),
+                is_exact=False,
+            )
+            from ..certificate import verify as _verify
+
+            if _verify(cert).ok:
+                detail = t("engine.opt.float") + why
+            else:
+                cert = None
+                detail = t("engine.opt.unverifiable", value=repr(objective))
 
     return Result(
         "opt", Status.SAT, Verdict.SATISFIABLE, ENGINE, ms(), cert, detail,
@@ -278,8 +329,11 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
                         if exact_ok and discrete else None),
               "exact": exact_ok, "solution": meta_sol,
               "integer": discrete, "denominator": denom,
-              "min_dual": exact.serialize(min(y_ex)) if exact_ok
-              else min([abs(v) for v in dual_float], default=0.0),
+              # `None`, not 0.0, when there is no dual: the smallest entry of
+              # a vector nobody produced is not zero, it is nothing.
+              "min_dual": (exact.serialize(min(y_ex)) if exact_ok
+                           else (min([abs(v) for v in dual_float], default=0.0)
+                                 if have_duals else None)),
               "target": None if target is None else exact.serialize(
                   exact.to_fraction(target)),
               "meets_target": (None if target is None or not exact_ok else

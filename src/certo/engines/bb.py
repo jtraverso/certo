@@ -170,8 +170,7 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
         res = lp.opt(node_spec, lim)
         key = _key(order, fixed)
 
-        if res.status is Status.UNSAT or res.verdict is Verdict.UNSATISFIABLE \
-                or res.certificate is None:
+        if res.status is Status.UNSAT or res.verdict is Verdict.UNSATISFIABLE:
             # Infeasible: the subtree is empty, and the ray says why.
             ray = lp.infeasible_certificate(node_spec, lim)
             nodes.append({"fixed": key, "why": "infeasible",
@@ -181,7 +180,13 @@ def prove_optimal(spec, limits: Limits | None = None, spec_path: str = "",
                           "ray": (list(ray.payload["y"]) if ray else None)})
             continue
 
-        if not res.meta.get("exact"):
+        # "No certificate" used to be read here as "infeasible", and it is not
+        # the same fact. A node whose LP was not solved, or was solved and
+        # could not be certified, is a node we know NOTHING about -- and
+        # closing it as empty prunes a subtree that may hold the optimum,
+        # which is how a branch-and-bound tree comes out looking complete and
+        # is not. The whole run stops instead.
+        if res.certificate is None or not res.meta.get("exact"):
             return Result("bb", Status.UNKNOWN_SOLVER, Verdict.INCONCLUSIVE,
                           ENGINE, ms(), None, detail=t("engine.bb.inexact"))
 
