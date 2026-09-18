@@ -1,0 +1,195 @@
+# Certificates
+
+With an LLM in the loop the dominant risk is not a shortage of ideas, it is
+**plausibility without verification**. One design rule follows:
+
+> The LLM proposes, the engine certifies, and the certificate survives without
+> the LLM.
+
+A verdict you cannot re-check is a rumour. Every command here produces an
+artefact instead, and most of them re-check with nothing but arithmetic.
+
+## What "solver-free" buys
+
+A certificate marked *solver-free* is checked with arithmetic, evaluation,
+counting or unit propagation. You need trust neither Z3 nor CBC — and neither
+does the person reading your paper, which is the actual point. A Z3 `unsat` is
+an assertion; a verified DRAT proof is something a referee checks on their own
+machine without running your code.
+
+It is also a safety net. If the solver had a bug, the certificate would not
+verify and you would get `ERROR`, not `PROVED`.
+
+**`verify`'s own header is authoritative.** It says how that particular
+certificate was checked — *"verified without a solver"*, *"checked by
+counting, no solver"*, *"by re-running the spec, not by trusting its
+answers"*. The table below is the map; the header is the territory.
+
+## The forty-four kinds
+
+| Kind | What it attests | Solver-free? |
+|---|---|---|
+| `model` | a `prove` counterexample, or a non-empty regime | **yes**, substitute and simplify |
+| `cnf_model` | an assignment satisfies the CNF | **yes**, evaluation |
+| `unsat_core` | the hypotheses are contradictory | **yes** when the core is linear (Farkas multipliers travel); otherwise re-solves the core alone |
+| `mus` | unsatisfiability **and** minimality | **yes** |
+| `core_matrix` | one core per goal, and that the table says what the cores say | as `unsat_core`, per goal |
+| `farkas` | a combination of the hypotheses that closes the system | **yes**, adding fractions |
+| `farkas_ray` | infeasibility of an LP | **yes**, adding fractions |
+| `lp_dual` | exact optimality of an LP | **yes**, rational arithmetic |
+| `branch_bound` | an integer optimum, every leaf closed by its own certificate | **yes**, exact arithmetic |
+| `mixed_design` | a construction exists and attains a value; **not** that it is optimal | **yes**, exact arithmetic |
+| `gap` | an upper and a lower bound, and the distance between them | **yes** |
+| `drat` | unsatisfiability of a CNF | **yes**, RUP/RAT |
+| `graph_set` | a non-isomorphic family passing the filters | **yes** |
+| `sweep` | family + predicate certificates | depends on the predicate |
+| `domain_sweep` | domain, verdict vector, and the predicate replayed | re-runs the spec |
+| `sweep_range` | one sub-certificate per size, and the order | as its children |
+| `orbit_witnesses` | each member is the representative relabelled | **yes**, re-apply the permutation |
+| `shrink_graph` | the counterexample is 1-minimal | yes, needs the spec module |
+| `shrink_domain` | the descent, replayed by index | yes, needs the spec module |
+| `bisect` | the pair bracketing the threshold | depends on its children |
+| `ideal` | `f = Σ hᵢgᵢ`, or `1 ∈ I` | **yes**, expand a product |
+| `resultant` | `Res = A·f + B·g` | **yes**, expand two products |
+| `sos` | `p = Σ dᵢqᵢ²` in exact rationals | **yes**, expand a product |
+| `number` | primality, or a factorisation | **yes**, modular exponentiation |
+| `asymptotic` | the exponent of a parameter in a term | **yes**, exact arithmetic |
+| `ball` | a real quantity lies in an interval, and that settles the claim | **yes** for the claim; the interval needs the spec |
+| `parametric_bound` | `opt(p) ≤ b(p)·y` for all p, or `≥` for a cover | **yes**, expand and read signs |
+| `parametric_symmetry` | the symbolic quotient of a family, and its regimes | **yes**, symbolically; the window needs instances |
+| `integer_peak` | no integer beats `x*`, and `x*` attains the value | **yes**, expand and read signs |
+| `ratio_bound` | a fraction inequality above a floor | **yes**, cross-multiply and read signs |
+| `first_entry` | where a sequence first crosses a line | **yes**, re-find it in exact rationals |
+| `first_moment` | `E[X] < 1`, so a good object exists | **yes**, re-add and compare |
+| `exact_cover` | every element in exactly one part | **yes**, counting |
+| `symmetry_reduction` | the three hypotheses of the averaging argument | **yes**, the quotient is rebuilt |
+| `equitable_quotient` | the partition, both regularities, and the two maps | **yes**, exact counting |
+| `integer_matrix` | rank, determinant, Hermite, Smith, with the transforms | **yes**, matrix multiplication |
+| `linear_system` | `A x = b`, or an obstruction `y·A = 0`, `y·b ≠ 0` | **yes**, one product |
+| `toric_cone` | primitivity, multiplicity, height, discrepancies | **yes**, exact determinant and solve |
+| `family_extremum` | the largest of a family, and a dual for the rest | rebuilds each item's program |
+| `hypothesis_audit` | a verdict per hypothesis, with the breaking assignment | no — a `needed` witness re-applies by substitution, but a `redundant` verdict has none to re-apply |
+| `cegis` | the object has no counterexamples in the bounded domain | no, re-solves |
+| `synth_proved` | the bounded discovery **and** the universal statement | no, re-solves |
+| `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |
+| `induction` | the base cases, the step, **and** that they chain without a gap | no, re-solves |
+
+## They are tamper-evident
+
+Edit a dual's objective by hand and `verify` catches it. Touch a step of a
+DRAT proof and it stops being RUP. Change a multiplicity in a cone certificate
+and it no longer matches what the generators give.
+
+This is not incidental — it is why quantities are **recomputed** during
+verification rather than read back. A branch-and-bound node derives its own
+linear program from the root system and its own fixings; a symmetry quotient
+is rebuilt from the generators; a cone's every number is redone from the rays.
+A payload nobody recomputes is a payload anybody can edit.
+
+One real instance of that going wrong, before it was fixed: a dual for a
+node's relaxation is a valid dual for **some** linear program, and nothing in
+it says which node it came from. A tree that stored one per node and checked
+each on its own terms accepted two of them **exchanged**, and an expensive
+subtree closed by a cheap one's certificate read exactly like a complete proof.
+
+## The warnings are part of the artefact
+
+A certificate carries what it does *not* establish, and `verify` repeats it
+every time — months later, when only the artefact remains and the run is long
+forgotten.
+
+```
+WARNING: VACUOUS: the hypotheses contradict each other, so this proof holds
+for any goal. The minimal clash is: dens_high, kappa_small
+```
+
+A vacuous proof keeps saying it is vacuous. A sweep keeps saying what it did
+not certify. A multiplicity keeps naming the lattice it is about. A bridge
+keeps being named.
+
+This is the half that ages. The verdict is easy to remember wrongly; the
+warning is the thing that stops a bounded synthesis being cited as a theorem
+two years later.
+
+## Provenance
+
+Every certificate carries the `certo` version that issued it and, when it came
+from the CLI, the path and `sha256` of the spec. If the file changes later,
+`verify` warns: the certificate is still valid on its own, but it no longer
+corresponds to the file that is there now. `certo status` calls that **stale**
+and lists it.
+
+## Vacuity is checked, not assumed
+
+`prove` succeeds when `hypotheses ∧ ¬goal` is unsatisfiable. If the hypotheses
+are already unsatisfiable *by themselves*, that happens for **every** goal. The
+proof is valid — anything follows from a contradiction — and it says nothing.
+
+This is the most embarrassing way to be wrong and the easiest to miss, because
+the output looks exactly like success. So it is checked on every successful
+`prove`, `core`, `farkas` and `compose`.
+
+```
+$ certo prove vacuous.py
+PROVED -- symbolic and universal under the hypotheses  [unsat]
+  VACUOUS: the hypotheses contradict each other, so this goal -- and every
+  other goal -- follows. The proof is valid and says nothing.
+  The clash is: dens_high, kappa_small
+```
+
+The verdict does not change, because the verdict is not wrong. What changes is
+that you are told, **and told which hypotheses clash**, minimally, so the next
+question is already answered.
+
+### Why this is the check a proof assistant cannot do for you
+
+Lean will prove that theorem, report no `sorry`, and audit clean on
+`#print axioms`. None of that tells you the hypotheses were satisfiable.
+
+A user put it exactly right: `#print axioms` certifies *"I did not cheat"*. It
+says nothing about *"this is not hollow"*. They had two Lean modules — no
+`sorry`, axioms `[propext, Classical.choice, Quot.sound]`, everything a
+formalisation is supposed to look like — and **both had an empty regime**. The
+theorems were true, valid, and about nothing. Another line had produced four.
+
+### Two details
+
+* **It costs one extra solver call, on the successful path only**, and that
+  call is on a strictly easier problem than the one just solved — the
+  hypotheses without the goal.
+* **In `farkas` it cannot be read off the multipliers.** A zero multiplier on
+  the negated goal would suggest vacuity, but the LP is free to give that row a
+  non-zero weight even when it is not needed, and usually does. So the question
+  is asked directly: drop the goal row (and, in `--nonlinear` mode, every row
+  derived from it) and search again.
+
+In `compose` the check lands where it matters most. Two *derived* lemmas can
+never contradict each other — both are true. Only **bridges** can, because a
+bridge is asserted rather than derived, and two bridges that clash make the
+whole theorem vacuous.
+
+## Scope shows up on screen
+
+A bare `PROVED` invites reading a bounded synthesis as a theorem. Each command
+says which scope it is talking about:
+
+```
+CANDIDATE SYNTHESISED -- BOUNDED search
+FINITE CASE VERIFIED -- not the theorem
+FINITE SWEEP REPRODUCIBLE -- the predicate is NOT certified
+PROVED -- symbolic and universal under the hypotheses
+```
+
+## Keeping them: `status` and `ledger`
+
+[`certo status`](COMMANDS.md#certo-status) reads a directory and sorts it into
+RESULTS, STILL OWED, HOLLOW and STALE. It emits no certificate, deliberately:
+a report that certified itself would be the one artefact here that nobody had
+checked.
+
+[`certo ledger`](COMMANDS.md#certo-ledger) is the append-only log. It stores
+paths and digests, never copies, so a tampered or missing certificate shows up
+as a failure rather than being quietly duplicated into the log.
+
+[`certo repro`](COMMANDS.md#certo-repro) bundles spec, certificates, versions
+and hashes for a referee.

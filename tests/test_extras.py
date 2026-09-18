@@ -7777,6 +7777,80 @@ def test_the_certificate_refuses_to_say_anything_about_varieties():
         assert claim not in text.lower(), claim
 
 
+# --- the documentation is a surface that drifts, in two languages ---------
+
+
+DOC_PAGES = ("COMMANDS.md", "SPECS.md", "CERTIFICATES.md", "CASES.md",
+             "LIMITS.md")
+
+
+def _docs():
+    return pathlib.Path(__file__).resolve().parent.parent / "docs"
+
+
+def test_both_documentation_trees_carry_the_same_pages():
+    """The Spanish README once drifted two releases behind the English one,
+    and nothing caught it until a user did. Splitting the README into six
+    files multiplies that surface by six, so the pairing is pinned here."""
+    docs = _docs()
+    en = {p.name for p in docs.glob("*.md")}
+    es = {p.name for p in (docs / "es").glob("*.md")}
+
+    assert en == set(DOC_PAGES), {"unexpected or missing English page": en}
+    assert es == en, {"only in English": sorted(en - es),
+                      "only in Spanish": sorted(es - en)}
+
+
+def test_every_command_has_an_entry_in_both_references():
+    """A command with no entry is a command a reader concludes does not
+    exist -- which is exactly what happened to `order`, documented and
+    unfindable, until a user reimplemented it three times by hand."""
+    import re
+
+    docs = _docs()
+    commands = set(_subcommands())
+    # `what` aliases `commands`; the alias is documented in that entry.
+    commands.discard("what")
+
+    for rel in ("COMMANDS.md", "es/COMMANDS.md"):
+        text = (docs / rel).read_text(encoding="utf-8")
+        entries = set(re.findall(r"^### `certo ([a-z]+)", text, re.M))
+        assert commands <= entries, {
+            "page": rel,
+            "commands with no entry": sorted(commands - entries),
+            "entries that are not commands": sorted(entries - commands)}
+
+
+def test_every_command_entry_states_what_it_does_not_establish():
+    """The boundary of a claim is the half that ages. An entry that lists
+    what a command answers and stops is the shape that gets a bounded
+    synthesis cited as a theorem two years later."""
+    import re
+
+    for rel, field in (("COMMANDS.md", "Not established"),
+                       ("es/COMMANDS.md", "No establece")):
+        text = (_docs() / rel).read_text(encoding="utf-8")
+        blocks = re.split(r"^### `certo ", text, flags=re.M)[1:]
+        missing = [b.split("`", 1)[0] for b in blocks
+                   if "**{}**".format(field) not in b]
+        assert not missing, {"page": rel, "entries with no boundary": missing}
+
+
+def test_the_readmes_point_at_documentation_that_exists():
+    """A README that links into docs/ is only shorter if the links land."""
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("README.md", "README.es.md"):
+        text = (root / name).read_text(encoding="utf-8")
+        targets = [t for _, t in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", text)
+                   if not t.startswith("http")]
+        missing = [t for t in targets
+                   if not (root / t.split("#")[0]).exists()]
+        assert not missing, {"readme": name, "dead links": missing}
+        assert any("docs/" in t for t in targets), name + ": links no docs"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

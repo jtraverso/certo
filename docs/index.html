@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>certo — certificates for the work before the proof</title>
+<meta name="description" content="certo does the work between having a mathematical idea and having a proof of it — and every step comes back with a certificate anyone can re-check.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✓</text></svg>">
+<style>
+:root{
+  --bg:#fbfaf8; --fg:#1a1a1a; --muted:#5d5a55; --line:#e3ded6;
+  --accent:#8a4b2a; --accent-soft:#f3ece5; --code-bg:#f5f2ed;
+  --ok:#2f6b3d; --warn:#9a6a1a; --bad:#a33;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15140f; --fg:#eae6de; --muted:#a9a396; --line:#2f2c25;
+    --accent:#d99866; --accent-soft:#241d16; --code-bg:#1d1b16;
+    --ok:#7fbc8c; --warn:#d6a85a; --bad:#e08b8b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15140f; --fg:#eae6de; --muted:#a9a396; --line:#2f2c25;
+  --accent:#d99866; --accent-soft:#241d16; --code-bg:#1d1b16;
+  --ok:#7fbc8c; --warn:#d6a85a; --bad:#e08b8b;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:var(--sans); font-size:17px; line-height:1.65;
+}
+.wrap{max-width:760px; margin:0 auto; padding:0 16px}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+code,pre{font-family:var(--mono)}
+code{background:var(--code-bg); padding:.1em .35em; border-radius:3px; font-size:.88em}
+pre{
+  background:var(--code-bg); border:1px solid var(--line); border-radius:6px;
+  padding:14px 16px; overflow-x:auto; font-size:13.5px; line-height:1.55;
+}
+pre code{background:none; padding:0; font-size:inherit}
+h1,h2,h3{line-height:1.25; font-weight:640}
+h2{font-size:1.5rem; margin:3.2rem 0 .4rem; letter-spacing:-.01em}
+h3{font-size:1.1rem; margin:2rem 0 .3rem}
+h2+p.lede{color:var(--muted); margin-top:0}
+hr{border:0; border-top:1px solid var(--line); margin:3rem 0}
+
+/* ---- top bar ---- */
+.bar{
+  position:sticky; top:0; z-index:9; background:var(--bg);
+  border-bottom:1px solid var(--line);
+}
+.bar .wrap{display:flex; align-items:center; gap:12px; height:52px}
+.brand{font-weight:700; letter-spacing:-.02em; font-size:1.05rem; margin-right:auto}
+.brand span{color:var(--accent)}
+.btn{
+  font:inherit; font-size:.82rem; padding:4px 10px; cursor:pointer;
+  background:transparent; color:var(--muted);
+  border:1px solid var(--line); border-radius:999px;
+}
+.btn:hover{color:var(--fg); border-color:var(--accent)}
+.btn[aria-pressed="true"]{background:var(--accent-soft); color:var(--accent); border-color:var(--accent)}
+.bar a.btn{text-decoration:none}
+
+/* ---- hero ---- */
+header.hero{padding:56px 0 8px}
+header.hero h1{
+  font-family:var(--serif); font-size:clamp(2.1rem,7vw,3.1rem);
+  margin:0 0 .3em; letter-spacing:-.02em; font-weight:600;
+}
+header.hero .tag{font-size:1.15rem; color:var(--muted); margin:0 0 1.4rem}
+header.hero .tag b{color:var(--fg); font-weight:600}
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin:1.5rem 0}
+.chip{
+  font-size:.78rem; font-family:var(--mono); color:var(--muted);
+  border:1px solid var(--line); border-radius:999px; padding:3px 10px;
+}
+
+/* ---- blocks ---- */
+.callout{
+  border-left:3px solid var(--accent); background:var(--accent-soft);
+  padding:14px 18px; border-radius:0 6px 6px 0; margin:1.5rem 0;
+}
+.callout p:first-child{margin-top:0}
+.callout p:last-child{margin-bottom:0}
+.grid{display:grid; gap:12px; margin:1.5rem 0}
+@media(min-width:620px){ .grid.two{grid-template-columns:1fr 1fr} }
+.card{border:1px solid var(--line); border-radius:8px; padding:14px 16px; background:var(--code-bg)}
+.card h4{margin:0 0 .3em; font-size:.95rem}
+.card p{margin:0; font-size:.9rem; color:var(--muted)}
+.arc{list-style:none; padding:0; margin:1.5rem 0; counter-reset:arc}
+.arc li{
+  display:grid; grid-template-columns:auto 1fr; gap:14px;
+  padding:12px 0; border-top:1px solid var(--line); align-items:baseline;
+}
+.arc li:last-child{border-bottom:1px solid var(--line)}
+.arc .k{font-weight:650; color:var(--accent); white-space:nowrap; font-size:.92rem}
+.arc .v{font-size:.94rem}
+.arc .v em{color:var(--muted); font-style:normal; display:block; font-size:.86rem}
+table{border-collapse:collapse; width:100%; font-size:.9rem; margin:1.2rem 0}
+th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top}
+th{font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600}
+.q{font-family:var(--mono); font-size:.84rem; color:var(--accent); white-space:nowrap}
+.ok{color:var(--ok); font-weight:600}
+.bad{color:var(--bad); font-weight:600}
+.warnc{color:var(--warn); font-weight:600}
+footer{border-top:1px solid var(--line); margin-top:4rem; padding:2rem 0 3rem; font-size:.88rem; color:var(--muted)}
+footer a{margin-right:14px; display:inline-block}
+[hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<div class="bar"><div class="wrap">
+  <div class="brand">cert<span>o</span></div>
+  <button class="btn" id="lang-en" aria-pressed="true">EN</button>
+  <button class="btn" id="lang-es" aria-pressed="false">ES</button>
+  <a class="btn" href="https://github.com/jtraverso/certo">GitHub</a>
+</div></div>
+
+<!-- ================= ENGLISH ================= -->
+<main id="en">
+
+<header class="hero"><div class="wrap">
+  <h1>The work before the proof</h1>
+  <p class="tag">Between having a mathematical idea and having a proof of it there
+  is a lot of work that is <b>not proving</b>. certo does that work — and every
+  step comes back with a <b>certificate anyone can re-check without trusting
+  certo</b>.</p>
+  <div class="chips">
+    <span class="chip">CLI + MCP</span>
+    <span class="chip">43 commands</span>
+    <span class="chip">44 certificate kinds</span>
+    <span class="chip">milliseconds, not hours</span>
+    <span class="chip">MIT</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Start with the failure it exists to catch</h2>
+<p class="lede">This is the clearest way to explain what certo is for.</p>
+
+<p>Here is the shape of a Lean theorem. It has no <code>sorry</code>. It audits
+clean on <code>#print axioms</code> — <code>[propext, Classical.choice,
+Quot.sound]</code>, everything a formalisation is supposed to look like.</p>
+
+<pre><code>theorem main (dens : ℝ)
+    (dens_high : dens ≥ 3/4)      -- the regime the paper works in
+    (sparse    : dens ≤ 1/2)      -- ...and a bound from section 2
+    : conclusion := by
+  linarith [dens_high, sparse]</code></pre>
+
+<p><strong>It is also about nothing.</strong> Its hypotheses contradict each
+other, so it would have proved any goal at all. A user had two modules like it.
+Another line produced four.</p>
+
+<div class="callout">
+<p><code>#print axioms</code> certifies <em>“I did not cheat.”</em> It says
+nothing about <em>“this is not hollow.”</em> No proof assistant checks that your
+hypotheses were satisfiable, because that is not what a proof assistant is
+for.</p>
+</div>
+
+<p>certo asks that question directly, and answers it in milliseconds:</p>
+
+<pre><code>$ certo prove regime.py
+PROVED -- symbolic and universal under the hypotheses  [unsat]
+  <span class="warnc">VACUOUS</span>: these hypotheses contradict each other, so this goal -- and
+  every other goal -- follows. The proof is valid and says nothing.
+  The clash is: dens_high, kappa_small</code></pre>
+
+<p>Note the second line. It does not just say “empty” — it names the
+<strong>minimal</strong> clashing set, so the next question is already answered.
+And the flag travels in the certificate, so it keeps saying so months later,
+when only the artefact remains.</p>
+
+<h2>The idea: a verdict you can re-check</h2>
+<p class="lede">A verdict you cannot re-check is a rumour.</p>
+
+<p>Every command writes an artefact. Most of them re-check with nothing but
+arithmetic — no Z3, no CBC, nothing to take on trust:</p>
+
+<pre><code>$ certo verify out/lp.json
+VALID  lp_dual certificate (verified without a solver)
+  <span class="ok">[ok]</span> primal feasibility (A x &lt;= b)
+  <span class="ok">[ok]</span> dual feasibility (A^T y &gt;= c)
+  <span class="ok">[ok]</span> exact strong duality (c.x == b.y)  (c.x=25/2 | b.y=25/2)
+  EXACT rational arithmetic, no tolerances</code></pre>
+
+<p>That matters for two different people. For <strong>you</strong>, it is a
+safety net: if the solver had a bug, the certificate would not verify and you
+would get <code>ERROR</code>, not <code>PROVED</code>. For <strong>whoever reads
+your paper</strong>, it is the difference between an assertion and something
+they can check on their own machine without running your code.</p>
+
+<div class="grid two">
+  <div class="card"><h4>Tamper-evident</h4><p>Edit a dual's objective by hand and
+  <code>verify</code> catches it. Every quantity is recomputed, never read back —
+  a payload nobody recomputes is a payload anybody can edit.</p></div>
+  <div class="card"><h4>The warnings travel too</h4><p>A vacuous proof keeps
+  saying it is vacuous. A sweep keeps saying what it did <em>not</em> certify.
+  That is the half that ages.</p></div>
+</div>
+
+<h2>The arc</h2>
+<p class="lede">Six things you do between an idea and a proof.</p>
+
+<ul class="arc">
+<li><span class="k">Find</span><span class="v">Is there an object like this? What is the best one?
+<em>the object itself — and with <code>mixed --prove-optimal</code>, a proof that it <em>is</em> the best</em></span></li>
+<li><span class="k">Break</span><span class="v">Is this claim actually true?
+<em>a counterexample with concrete values, in milliseconds</em></span></li>
+<li><span class="k">Measure</span><span class="v">Not <em>whether</em> it fails — how much, and where is it worst?
+<em>exact min, max and mean, and the extreme instances by name</em></span></li>
+<li><span class="k">Reduce</span><span class="v">Ninety counterexamples. How many objects is that really?
+<em>orbits under your symmetry, and one minimal witness per orbit</em></span></li>
+<li><span class="k">Establish</span><span class="v">Is it true for every case, every <code>n</code>, exactly?
+<em>DRAT proofs, induction with the chain checked, Farkas multipliers, Gröbner cofactors, rigorous enclosures</em></span></li>
+<li><span class="k">Assemble</span><span class="v">What does my project rest on, and what do I still owe?
+<em>the proof with every bridge named, and a report of what is still assumed</em></span></li>
+</ul>
+
+<h2>Two minutes</h2>
+
+<pre><code>git clone https://github.com/jtraverso/certo
+cd certo
+pip install -e ".[mcp,numerics]"
+
+certo core examples/amgm.py</code></pre>
+
+<pre><code>PROVED -- symbolic and universal under the hypotheses  [unsat]
+  hypotheses needed: a_pos, b_pos, c_pos | redundant: noise</code></pre>
+
+<p>A spec is ordinary Python. There is no bespoke language, because an LLM
+writes Python far better than it writes SMT-LIB:</p>
+
+<pre><code>import z3
+from certo import Spec
+
+def spec():
+    a, b, c = z3.Reals("a b c")
+    s = Spec()
+    s.assume("a_pos", a &gt; 0)      # NAMED: core reports on them
+    s.assume("b_pos", b &gt; 0)
+    s.assume("c_pos", c &gt; 0)
+    s.claim((a+b)*(b+c)*(a+c) &gt;= 8*a*b*c)
+    return s</code></pre>
+
+<h2>Find the command by the question</h2>
+<p class="lede">Read the question, not the name. <code>certo commands</code>
+prints this in your terminal, in your language.</p>
+
+<table>
+<thead><tr><th>You want to ask</th><th>Command</th></tr></thead>
+<tbody>
+<tr><td>Is this claim true under these hypotheses?</td><td class="q">prove</td></tr>
+<tr><td>Which of my hypotheses does it actually need?</td><td class="q">core</td></tr>
+<tr><td>Does every hypothesis earn its place, or is my theorem overstated?</td><td class="q">audit</td></tr>
+<tr><td>Is my regime non-empty at all?</td><td class="q">check --hypotheses-only</td></tr>
+<tr><td>What is the optimum, exactly?</td><td class="q">opt</td></tr>
+<tr><td>Does this term decay in <code>n</code>, or is it Θ(1)?</td><td class="q">order</td></tr>
+<tr><td>I checked it for p = 5..12. Does it hold for <em>every</em> p?</td><td class="q">parametric</td></tr>
+<tr><td>Does it hold for every graph on <code>n</code> vertices?</td><td class="q">sweep</td></tr>
+<tr><td>A thousand failures — how many objects is that?</td><td class="q">sweep --witnesses</td></tr>
+<tr><td>“By symmetry” — is that step actually sound here?</td><td class="q">reduce</td></tr>
+<tr><td>How do I assemble my lemmas into one proof?</td><td class="q">compose</td></tr>
+<tr><td>Is this spec well-posed, before I spend the compute?</td><td class="q">lint</td></tr>
+</tbody>
+</table>
+
+<p>All forty-three, each with <strong>what it does not establish</strong>, in the
+<a href="https://github.com/jtraverso/certo/blob/main/docs/COMMANDS.md">command
+reference</a>.</p>
+
+<h2>What it does not do</h2>
+<p class="lede">This matters as much as the command list.</p>
+
+<p>The hard limit is <strong>asymptotic statements with quantifiers over
+<code>n</code></strong>. The ladder, with Ramsey numbers:</p>
+
+<table>
+<thead><tr><th>Question</th><th>certo?</th></tr></thead>
+<tbody>
+<tr><td>Is R(3,3) ≤ 6?</td><td><span class="ok">Yes.</span> <code>cases</code>, a 23-line DRAT proof, verified</td></tr>
+<tr><td>Is R(3,3) = 6?</td><td><span class="ok">Yes.</span> <code>bisect</code>, certified on both sides</td></tr>
+<tr><td>Is R(5,5) ≤ 48?</td><td><span class="warnc">Not in practice.</span> Finite, but the space is 2<sup>903</sup></td></tr>
+<tr><td>Does R(k,k)<sup>1/k</sup> converge?</td><td><span class="bad">No, in principle.</span> Asymptotic: not expressible</td></tr>
+</tbody>
+</table>
+
+<p>certo is <strong>not</strong> a proof assistant — that is Lean, Rocq or
+Isabelle — nor a computer algebra catalogue. It is the layer before: discover
+objects, destroy false formulations and minimise hypotheses <em>before</em>
+paying the cost of formalising them.</p>
+
+<div class="callout">
+<p><strong>The division of labour</strong>, in a user's words after a real
+session: certo finds and certifies the small trades; the human proof explains
+why they assemble globally without double-counting.</p>
+</div>
+
+</div>
+</main>
+
+<!-- ================= ESPAÑOL ================= -->
+<main id="es" hidden>
+
+<header class="hero"><div class="wrap">
+  <h1>El trabajo previo a la demostración</h1>
+  <p class="tag">Entre tener una idea matemática y tener una demostración de ella
+  hay mucho trabajo que <b>no es demostrar</b>. certo hace ese trabajo — y cada
+  paso vuelve con un <b>certificado que cualquiera puede re-comprobar sin fiarse
+  de certo</b>.</p>
+  <div class="chips">
+    <span class="chip">CLI + MCP</span>
+    <span class="chip">43 comandos</span>
+    <span class="chip">44 tipos de certificado</span>
+    <span class="chip">milisegundos, no horas</span>
+    <span class="chip">MIT</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>Empieza por el fallo que existe para atrapar</h2>
+<p class="lede">Es la forma más clara de explicar para qué sirve certo.</p>
+
+<p>Esta es la forma de un teorema en Lean. No tiene ningún <code>sorry</code>.
+Sale limpio en <code>#print axioms</code> — <code>[propext, Classical.choice,
+Quot.sound]</code>, todo lo que una formalización debe parecer.</p>
+
+<pre><code>theorem main (dens : ℝ)
+    (dens_high : dens ≥ 3/4)      -- el régimen en el que trabaja el paper
+    (sparse    : dens ≤ 1/2)      -- ...y una cota de la sección 2
+    : conclusion := by
+  linarith [dens_high, sparse]</code></pre>
+
+<p><strong>Y además no habla de nada.</strong> Sus hipótesis se contradicen, así
+que habría demostrado cualquier objetivo. Un usuario tenía dos módulos así. Otra
+línea produjo cuatro.</p>
+
+<div class="callout">
+<p><code>#print axioms</code> certifica <em>«no hice trampa»</em>. No dice nada
+sobre <em>«esto no está hueco»</em>. Ningún asistente de demostración comprueba
+que tus hipótesis fueran satisfacibles, porque no es para lo que sirve un
+asistente de demostración.</p>
+</div>
+
+<p>certo hace esa pregunta directamente, y la responde en milisegundos:</p>
+
+<pre><code>$ certo prove regime.py --lang es
+DEMOSTRADO -- simbólico y universal bajo las hipótesis  [unsat]
+  <span class="warnc">VACUA</span>: estas hipótesis se contradicen, así que este objetivo --y
+  cualquier otro-- se sigue. La demostración es válida y no dice nada.
+  El choque es: dens_high, kappa_small</code></pre>
+
+<p>Fíjate en la segunda línea. No dice solo «vacío»: nombra el conjunto
+<strong>minimal</strong> que choca, así que la siguiente pregunta ya está
+respondida. Y la marca viaja en el certificado, así que lo sigue diciendo meses
+después, cuando solo queda el artefacto.</p>
+
+<h2>La idea: un veredicto que puedes re-comprobar</h2>
+<p class="lede">Un veredicto que no puedes re-comprobar es un rumor.</p>
+
+<p>Cada comando escribe un artefacto. La mayoría se re-comprueban con nada más
+que aritmética — sin Z3, sin CBC, nada que haya que creerse:</p>
+
+<pre><code>$ certo verify out/lp.json
+VÁLIDO  certificado lp_dual (verificado sin solver)
+  <span class="ok">[ok]</span> factibilidad primal (A x &lt;= b)
+  <span class="ok">[ok]</span> factibilidad dual (A^T y &gt;= c)
+  <span class="ok">[ok]</span> dualidad fuerte exacta (c.x == b.y)  (c.x=25/2 | b.y=25/2)
+  aritmética racional EXACTA, sin tolerancias</code></pre>
+
+<p>Eso importa a dos personas distintas. Para <strong>ti</strong> es una red de
+seguridad: si el solver tuviera un fallo, el certificado no verificaría y
+obtendrías <code>ERROR</code>, no <code>DEMOSTRADO</code>. Para <strong>quien lea
+tu paper</strong> es la diferencia entre una aseveración y algo que puede
+comprobar en su propia máquina sin ejecutar tu código.</p>
+
+<div class="grid two">
+  <div class="card"><h4>Delatan la manipulación</h4><p>Edita a mano el objetivo de
+  un dual y <code>verify</code> lo atrapa. Cada cantidad se recalcula, nunca se
+  lee: una carga útil que nadie recalcula es una que cualquiera puede
+  editar.</p></div>
+  <div class="card"><h4>Los avisos también viajan</h4><p>Una demostración vacua
+  sigue diciendo que es vacua. Un barrido sigue diciendo qué <em>no</em>
+  certificó. Esa es la mitad que envejece.</p></div>
+</div>
+
+<h2>El arco</h2>
+<p class="lede">Seis cosas que haces entre una idea y una demostración.</p>
+
+<ul class="arc">
+<li><span class="k">Encontrar</span><span class="v">¿Existe un objeto así? ¿Cuál es el mejor?
+<em>el objeto — y con <code>mixed --prove-optimal</code>, una demostración de que <em>es</em> el mejor</em></span></li>
+<li><span class="k">Romper</span><span class="v">¿Es cierta esta afirmación?
+<em>un contraejemplo con valores concretos, en milisegundos</em></span></li>
+<li><span class="k">Medir</span><span class="v">No <em>si</em> falla: cuánto, y ¿dónde es peor?
+<em>mínimo, máximo y media exactos, y las instancias extremas por nombre</em></span></li>
+<li><span class="k">Reducir</span><span class="v">Noventa contraejemplos. ¿Cuántos objetos son en realidad?
+<em>órbitas bajo tu simetría, y un testigo minimal por órbita</em></span></li>
+<li><span class="k">Establecer</span><span class="v">¿Vale para todo caso, todo <code>n</code>, exactamente?
+<em>pruebas DRAT, inducción con la cadena comprobada, multiplicadores de Farkas, cofactores de Gröbner, encierros rigurosos</em></span></li>
+<li><span class="k">Ensamblar</span><span class="v">¿Sobre qué descansa mi proyecto, y qué sigo debiendo?
+<em>la demostración con cada puente nombrado, y un informe de lo que sigue supuesto</em></span></li>
+</ul>
+
+<h2>Dos minutos</h2>
+
+<pre><code>git clone https://github.com/jtraverso/certo
+cd certo
+pip install -e ".[mcp,numerics]"
+
+certo core examples/amgm.py --lang es</code></pre>
+
+<pre><code>DEMOSTRADO -- simbólico y universal bajo las hipótesis  [unsat]
+  hipótesis necesarias: a_pos, b_pos, c_pos | redundantes: noise</code></pre>
+
+<p>Un spec es Python normal. No hay lenguaje propio, porque un LLM escribe
+Python mucho mejor de lo que escribe SMT-LIB:</p>
+
+<pre><code>import z3
+from certo import Spec
+
+def spec():
+    a, b, c = z3.Reals("a b c")
+    s = Spec()
+    s.assume("a_pos", a &gt; 0)      # NOMBRADAS: core informa sobre ellas
+    s.assume("b_pos", b &gt; 0)
+    s.assume("c_pos", c &gt; 0)
+    s.claim((a+b)*(b+c)*(a+c) &gt;= 8*a*b*c)
+    return s</code></pre>
+
+<h2>Busca el comando por la pregunta</h2>
+<p class="lede">Lee la pregunta, no el nombre. <code>certo commands</code>
+imprime esto en tu terminal, en tu idioma.</p>
+
+<table>
+<thead><tr><th>Lo que quieres preguntar</th><th>Comando</th></tr></thead>
+<tbody>
+<tr><td>¿Es cierta esta afirmación bajo estas hipótesis?</td><td class="q">prove</td></tr>
+<tr><td>¿Qué hipótesis necesita realmente?</td><td class="q">core</td></tr>
+<tr><td>¿Cada hipótesis se gana su lugar, o mi teorema está sobreenunciado?</td><td class="q">audit</td></tr>
+<tr><td>¿Mi régimen es no vacío siquiera?</td><td class="q">check --hypotheses-only</td></tr>
+<tr><td>¿Cuál es el óptimo, exactamente?</td><td class="q">opt</td></tr>
+<tr><td>¿Decae este término en <code>n</code>, o es Θ(1)?</td><td class="q">order</td></tr>
+<tr><td>Lo comprobé para p = 5..12. ¿Vale para <em>todo</em> p?</td><td class="q">parametric</td></tr>
+<tr><td>¿Vale para todo grafo de <code>n</code> vértices?</td><td class="q">sweep</td></tr>
+<tr><td>Mil fallos. ¿Cuántos objetos son?</td><td class="q">sweep --witnesses</td></tr>
+<tr><td>«Por simetría»: ¿ese paso es correcto aquí?</td><td class="q">reduce</td></tr>
+<tr><td>¿Cómo ensamblo mis lemas en una demostración?</td><td class="q">compose</td></tr>
+<tr><td>¿Está bien planteado este spec, antes de gastar el cómputo?</td><td class="q">lint</td></tr>
+</tbody>
+</table>
+
+<p>Los cuarenta y tres, cada uno con <strong>lo que no establece</strong>, en la
+<a href="https://github.com/jtraverso/certo/blob/main/docs/es/COMMANDS.md">referencia
+de comandos</a>.</p>
+
+<h2>Qué no hace</h2>
+<p class="lede">Esto importa tanto como la lista de comandos.</p>
+
+<p>El límite duro son los <strong>enunciados asintóticos con cuantificadores
+sobre <code>n</code></strong>. La escalera, con números de Ramsey:</p>
+
+<table>
+<thead><tr><th>Pregunta</th><th>¿certo?</th></tr></thead>
+<tbody>
+<tr><td>¿R(3,3) ≤ 6?</td><td><span class="ok">Sí.</span> <code>cases</code>, una prueba DRAT de 23 líneas, verificada</td></tr>
+<tr><td>¿R(3,3) = 6?</td><td><span class="ok">Sí.</span> <code>bisect</code>, certificado por ambos lados</td></tr>
+<tr><td>¿R(5,5) ≤ 48?</td><td><span class="warnc">En la práctica no.</span> Finito, pero el espacio es 2<sup>903</sup></td></tr>
+<tr><td>¿Converge R(k,k)<sup>1/k</sup>?</td><td><span class="bad">No, en principio.</span> Asintótico: no expresable</td></tr>
+</tbody>
+</table>
+
+<p>certo <strong>no</strong> es un asistente de demostración —eso es Lean, Rocq
+o Isabelle— ni un catálogo de álgebra computacional. Es la capa anterior:
+descubrir objetos, destruir formulaciones falsas y minimizar hipótesis
+<em>antes</em> de pagar el coste de formalizarlas.</p>
+
+<div class="callout">
+<p><strong>La división del trabajo</strong>, en palabras de un usuario tras una
+sesión real: certo encuentra y certifica los intercambios pequeños; la
+demostración humana explica por qué se ensamblan globalmente sin doble
+conteo.</p>
+</div>
+
+</div>
+</main>
+
+<footer><div class="wrap">
+  <p>
+    <a href="https://github.com/jtraverso/certo">Repository</a>
+    <a href="https://github.com/jtraverso/certo/blob/main/docs/COMMANDS.md">Commands</a>
+    <a href="https://github.com/jtraverso/certo/blob/main/docs/SPECS.md">Specs</a>
+    <a href="https://github.com/jtraverso/certo/blob/main/docs/CERTIFICATES.md">Certificates</a>
+    <a href="https://github.com/jtraverso/certo/blob/main/docs/CASES.md">Worked cases</a>
+    <a href="https://github.com/jtraverso/certo/blob/main/docs/LIMITS.md">Limits</a>
+  </p>
+  <p>MIT. The synthesis engine reimplements the CEGIS algorithm from
+  <a href="https://github.com/marcelwa/CEGIS">marcelwa/CEGIS</a>, not its code.</p>
+</div></footer>
+
+<script>
+(function(){
+  var en = document.getElementById('en'), es = document.getElementById('es');
+  var bEn = document.getElementById('lang-en'), bEs = document.getElementById('lang-es');
+  function set(lang){
+    var spanish = lang === 'es';
+    en.hidden = spanish; es.hidden = !spanish;
+    bEn.setAttribute('aria-pressed', String(!spanish));
+    bEs.setAttribute('aria-pressed', String(spanish));
+    document.documentElement.lang = lang;
+    try { localStorage.setItem('certo-lang', lang); } catch (e) {}
+  }
+  bEn.addEventListener('click', function(){ set('en'); });
+  bEs.addEventListener('click', function(){ set('es'); });
+  var saved = null;
+  try { saved = localStorage.getItem('certo-lang'); } catch (e) {}
+  if (!saved && (navigator.language || '').slice(0,2) === 'es') saved = 'es';
+  if (saved === 'es') set('es');
+})();
+</script>
+</body>
+</html>
