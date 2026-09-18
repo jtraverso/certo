@@ -1388,6 +1388,37 @@ async def solve(spec_path: str | None = None, spec_source: str | None = None,
 
 
 @mcp.tool(description=(
+    "CONE: the local toric data two geometric theorems consume, computed from "
+    "the ray generators instead of assumed. Returns, exactly and without a "
+    "solver: whether each generator is PRIMITIVE, the MULTIPLICITY (the index "
+    "of the sublattice they span), the HEIGHT functional `u` with "
+    "`<u, v> = 1` on every generator, and the DISCREPANCY `<u, w> - 1` of any "
+    "ray you name. THE LATTICE IS DECLARED, NEVER GUESSED, and it changes the "
+    "ANSWER rather than the error: one real cell is multiplicity 16 read in "
+    "Z^4 and 1 read in the lattice its generators are primitive in, so a "
+    "multiplicity without its lattice is half a sentence. CREPANT is a "
+    "question about what a SUBDIVISION adds -- a generator's discrepancy is "
+    "zero by construction wherever a height functional exists -- so with no "
+    "subdivision named the answer is None rather than a vacuous yes. A "
+    "non-simplicial cone still gets an answer: the missing quantity is "
+    "recorded with why, instead of the certificate being refused. IT PROVES "
+    "NO GEOMETRY: that multiplicity one gives a smooth chart, that "
+    "discrepancy zero gives a crepant modification, that a fibre is SNC or "
+    "reduced -- those are theorems about varieties and nothing here "
+    "establishes them."))
+@_guard
+async def cone(spec_path: str | None = None, spec_source: str | None = None,
+               timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import ConeSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), ConeSpec)
+    res = await _off(algebra.toric_cone, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "MATRIX: exact integer linear algebra -- rank, determinant, Hermite and "
     "Smith normal form -- with the unimodular transforms carried alongside "
     "their inverses, so every answer is checkable by integer matrix "

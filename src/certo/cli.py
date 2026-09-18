@@ -301,6 +301,28 @@ def cmd_quotient(args):
     return rc
 
 
+def cmd_cone(args):
+    from .engines import algebra
+    from .spec import ConeSpec, load_spec
+
+    spec = load_spec(args.spec, ConeSpec)
+    res = algebra.toric_cone(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        p = res.certificate.payload
+        if p["height_functional"]:
+            print("  u = " + ", ".join(p["height_functional"]))
+        for name, d in sorted(p["discrepancies"].items()):
+            print("  {:<12} height {:<8} discrepancy {}".format(
+                name, p["heights"][name], d))
+        for name, entry in sorted((p.get("subdivision") or {}).items()):
+            print("  {:<12} height {:<8} discrepancy {}   (subdivision)".format(
+                name, entry.get("height", "?"), entry.get("discrepancy", "?")))
+        print("  " + t("verify.toric.lattice", where=p["multiplicity_in"]))
+        print("  " + t("verify.toric.scope"))
+    return rc
+
+
 def cmd_matrix(args):
     from .engines import algebra
     from .spec import MatrixSpec, load_spec
@@ -1860,6 +1882,11 @@ def build_parser():
 
 
 
+
+    sp = add("cone", "local toric data: primitivity, multiplicity, the height "
+                     "functional and discrepancies")
+    sp.add_argument("spec", help=".py file returning a ConeSpec")
+    sp.set_defaults(func=cmd_cone)
     sp = add("quotient", "a partition of a program's rows and columns, and "
                          "the equivalence it induces: same attainable values")
     sp.add_argument("spec", help=".py file returning an EquitableQuotientSpec")

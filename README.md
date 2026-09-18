@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Forty-two commands. Runs in milliseconds where a formalisation
+CLI and MCP. Forty-three commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -247,7 +247,7 @@ Phrased as the question, because that is how anybody arrives.
 | What did I run last month? | `ledger` | an audit log, re-verifiable |
 
 Full table with engines and certificate kinds:
-[The forty-two commands](#the-forty-two-commands).
+[The forty-three commands](#the-forty-three-commands).
 
 ## What it is and what it is not
 
@@ -375,7 +375,7 @@ and what to expect.
    your `sweep` predicate calls scipy or CBC, that part is outside the
    guarantee.
 
-## The forty-two commands
+## The forty-three commands
 
 | Command | What it does | Engine | Certificate |
 |---|---|---|---|
@@ -399,6 +399,7 @@ and what to expect.
 | `matrix` | Exact integer linear algebra: rank, determinant, Hermite and Smith | unimodular transforms | **U, V and their inverses**, checked by multiplication, solver-free |
 | `solve` | `A x = b` exactly, over ℚ or ℤ | exact elimination, Smith | **the solution and the system**, one product to check; an obstruction when there is none |
 | `quotient` | A partition of a program, and the equivalence it induces | exact counting | **the class data and both regularities**, solver-free |
+| `cone` | Local toric data: primitivity, multiplicity, the height functional, discrepancies | exact det and solve | **the numbers two geometric theorems consume**, solver-free |
 | `family` | The largest of ten thousand linear programs, and why nothing beats it | exact LP | **the winner and a dual for the rest**, solver-free |
 | `ratio` | A fraction inequality for EVERY n | exact polynomials | **the cleared numerator and the sign of the denominator**, solver-free |
 | `moment` | Is the expected number of bad events below one, so a good object exists? | exact rationals | **the moment and the mass it leaves over**, solver-free |
@@ -2652,7 +2653,7 @@ Exit codes: `0` clean or notes only, `1` errors, `2` warnings.
 
 ## `status`: where the proof stands
 
-Forty-two commands and forty-three certificate kinds, and the shape of a
+Forty-three commands and forty-six certificate kinds, and the shape of a
 project used to live only in the head of whoever ran them.
 
 ```

@@ -49,6 +49,7 @@ ENGINE_NUM = "certo/pratt"
 ENGINE_LATTICE = "certo/unimodular"
 ENGINE_ORBIT = "certo/orbit-quotient"
 ENGINE_EXACT = "certo/exact-elimination"
+ENGINE_TORIC = "certo/toric-local"
 
 
 def _poly(expr, variables):
@@ -335,6 +336,39 @@ def equitable_quotient(spec, limits: Limits | None = None,
               "identities": len(out["B"])})
 
 
+def toric_cone(spec, limits: Limits | None = None,
+               spec_path: str = "") -> Result:
+    """The local data of a cone: primitivity, multiplicity, height,
+    discrepancy."""
+    from ..certificate import toric_cone_certificate
+    from ..toric import NotToric, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotToric as e:
+        return Result("cone", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_TORIC, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = toric_cone_certificate(out, title=spec.title).stamp(
+        spec_path or None)
+    return Result(
+        "cone", Status.UNSAT, Verdict.PROVED, ENGINE_TORIC, ms, cert,
+        detail=t("engine.toric.proved", n=len(out["order"]),
+                 dim=out["dimension"],
+                 mult=out["multiplicity"] if out["multiplicity"] is not None
+                      else t("engine.toric.no_multiplicity"),
+                 where=out["multiplicity_in"],
+                 height="yes" if out["height_one"] else "no"),
+        meta={"multiplicity": out["multiplicity"],
+              "multiplicity_in": out["multiplicity_in"],
+              "regular": out["regular"], "height_one": out["height_one"],
+              "crepant": out["crepant"],
+              "height_functional": out["height_functional"],
+              "discrepancies": out["discrepancies"]})
+
+
 def integer_matrix(spec, limits: Limits | None = None,
                    spec_path: str = "") -> Result:
     """rank, determinant, Hermite or Smith, exactly, with the transforms."""
@@ -342,7 +376,16 @@ def integer_matrix(spec, limits: Limits | None = None,
 
     t0 = time.perf_counter()
     try:
-        A = parse(spec.matrix)
+        source = spec.matrix
+        if isinstance(source, (str, bytes)) or hasattr(source, "__fspath__"):
+            # A path, not a matrix: the data came from the other side of the
+            # boundary and was written by whatever holds the real object.
+            from ..interchange import load
+
+            source = load(source)["entries"]
+        elif isinstance(source, dict) and "entries" in source:
+            source = source["entries"]
+        A = parse(source)
         if spec.rows is not None:
             A = [A[i] for i in spec.rows]
         if spec.cols is not None:
@@ -357,6 +400,13 @@ def integer_matrix(spec, limits: Limits | None = None,
     ms = (time.perf_counter() - t0) * 1000
     n, m = shape(A)
     payload = {k: v for k, v in out.items() if k != "question"}
+    # The number the other side of the boundary computes over its own copy.
+    # `matrix` certifies the matrix it was GIVEN; this is what lets somebody
+    # establish, independently, that it was the right one.
+    from ..interchange import describe, fingerprint
+
+    payload["fingerprint"] = str(fingerprint(A))
+    payload["fingerprint_recipe"] = describe()
     cert = integer_matrix_certificate(
         question=out["question"], matrix=A, result=payload,
         title=spec.title).stamp(spec_path or None)

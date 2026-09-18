@@ -23,18 +23,18 @@ from .limits import Limits
 from .polynomials import Poly
 from .spec import (BisectSpec, BoundSpec, DomainSpec, IdealSpec,
                    InductSpec, Lemma, LPSpec, NumberSpec, OrderSpec,
-                   CoverSpec, EliminateSpec, EquitableQuotientSpec, LinearSystemSpec, MatrixSpec, ParametricSymmetrySpec, EntrySpec, FamilySpec, MomentSpec, ParametricSpec, SymmetrySpec, PeakSpec, RatioSpec,
+                   ConeSpec, CoverSpec, EliminateSpec, EquitableQuotientSpec, LinearSystemSpec, MatrixSpec, ParametricSymmetrySpec, EntrySpec, FamilySpec, MomentSpec, ParametricSpec, SymmetrySpec, PeakSpec, RatioSpec,
                    SOSSpec,
                    MultiSpec, Outcome, ProofSpec, Spec, SweepSpec,
                    SynthSpec, load_spec)
 from .status import Result, Status, Verdict
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",
     "BisectSpec", "BoundSpec", "DomainSpec", "IdealSpec", "InductSpec",
-    "NumberSpec", "OrderSpec", "SOSSpec", "EliminateSpec", "ParametricSpec", "PeakSpec", "FamilySpec", "RatioSpec", "MomentSpec", "EntrySpec", "SymmetrySpec", "CoverSpec", "EquitableQuotientSpec", "MatrixSpec", "LinearSystemSpec", "ParametricSymmetrySpec", "Poly", "MultiSpec",
+    "NumberSpec", "OrderSpec", "SOSSpec", "EliminateSpec", "ParametricSpec", "PeakSpec", "FamilySpec", "RatioSpec", "MomentSpec", "EntrySpec", "SymmetrySpec", "CoverSpec", "ConeSpec", "EquitableQuotientSpec", "MatrixSpec", "LinearSystemSpec", "ParametricSymmetrySpec", "Poly", "MultiSpec",
     "ProofSpec", "Lemma",
     "Outcome", "load_spec",
     "Limits", "Status", "Verdict", "Result",

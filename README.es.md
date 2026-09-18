@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Cuarenta y dos comandos. Corre en milisegundos donde una
+CLI y MCP. Cuarenta y tres comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -229,7 +229,7 @@ Formulado como la pregunta, porque así es como llega cualquiera.
 | ¿Qué corrí el mes pasado? | `ledger` | un registro auditable, re-verificable |
 
 Tabla completa con motores y tipos de certificado:
-[Los cuarenta y dos comandos](#los-cuarenta-y-dos-comandos).
+[Los cuarenta y tres comandos](#los-cuarenta-y-tres-comandos).
 
 ## Qué es y qué no es
 
@@ -351,7 +351,7 @@ esperar.
    `conflict_budget` en SAT. *Esto cubre los motores propios, no tu predicado:*
    si tu predicado de `sweep` llama a scipy o a CBC, esa parte queda fuera.
 
-## Los cuarenta y dos comandos
+## Los cuarenta y tres comandos
 
 | Comando | Qué hace | Motor | Certificado |
 |---|---|---|---|
@@ -375,6 +375,7 @@ esperar.
 | `matrix` | Álgebra lineal entera exacta: rango, determinante, Hermite y Smith | transformaciones unimodulares | **U, V y sus inversas**, comprobadas multiplicando, sin solver |
 | `solve` | `A x = b` exacto, sobre ℚ o ℤ | eliminación exacta, Smith | **la solución y el sistema**, un producto para comprobarlo; una obstrucción cuando no hay solución |
 | `quotient` | Una partición de un programa, y la equivalencia que induce | conteo exacto | **los datos de clase y ambas regularidades**, sin solver |
+| `cone` | Datos tóricos locales: primitividad, multiplicidad, el funcional de altura, discrepancias | det y solve exactos | **los números que consumen dos teoremas geométricos**, sin solver |
 | `family` | El mayor de diez mil programas lineales, y por qué nada lo supera | LP exacto | **el ganador y un dual para el resto**, sin solver |
 | `ratio` | Una desigualdad de fracciones para TODO n | polinomios exactos | **el numerador despejado y el signo del denominador**, sin solver |
 | `moment` | ¿El número esperado de sucesos malos es menor que uno, y por tanto existe un objeto bueno? | racionales exactos | **el momento y la masa que sobra**, sin solver |
@@ -2236,7 +2237,7 @@ Códigos de salida: `0` limpio o solo notas, `1` errores, `2` avisos.
 
 ## `status`: dónde está la demostración
 
-Cuarenta y dos comandos y cuarenta y tres tipos de certificado, y la forma de un
+Cuarenta y tres comandos y cuarenta y seis tipos de certificado, y la forma de un
 proyecto vivía solo en la cabeza de quien los había corrido.
 
 ```

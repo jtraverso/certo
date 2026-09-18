@@ -428,6 +428,103 @@ def _check_induct(spec, limits):
         yield _f(WARN, "induct.no_bridge")
 
 
+def _check_matrix(spec, limits):
+    """What is worth knowing BEFORE Smith or Hermite runs.
+
+    The cost is the reason this exists. Measured here, square, entries in
+    [-4, 4]:
+
+        32 x 32   0.04s      48 x 48   0.22s
+        64 x 64   2.2s       80 x 80   5.6s
+
+    which is roughly n^4 and steep enough that the difference between "this
+    will take a moment" and "this will take the afternoon" is a couple of
+    dozen rows. A user's real matrix is 64 by 64, so the threshold sits well
+    above that: warning somebody about the size they actually work at is
+    noise, and noise is how a linter gets ignored about the rest.
+    """
+    from .interchange import NotInterchangeable, load
+    from .lattice import NotAnIntegerMatrix, parse
+
+    source = spec.matrix
+    if isinstance(source, (str, bytes)) or hasattr(source, "__fspath__"):
+        # A data file: read it now rather than at run time, so a fingerprint
+        # that disagrees is caught before anything is computed.
+        try:
+            source = load(source)["entries"]
+        except NotInterchangeable as exc:
+            yield _f(ERROR, "matrix.data_file", error=str(exc))
+            return
+    elif isinstance(source, dict) and "entries" in source:
+        source = source["entries"]
+
+    try:
+        A = parse(source)
+    except NotAnIntegerMatrix as exc:
+        yield _f(ERROR, "matrix.not_a_matrix", error=str(exc))
+        return
+
+    n, m = len(A), len(A[0])
+
+    question = getattr(spec, "question", "hermite")
+    if question not in ("det", "determinant", "rank", "hermite", "smith"):
+        yield _f(ERROR, "matrix.unknown_question", question=question)
+    elif question in ("det", "determinant"):
+        rows = getattr(spec, "rows", None)
+        cols = getattr(spec, "cols", None)
+        height = len(rows) if rows is not None else n
+        width = len(cols) if cols is not None else m
+        if height != width:
+            yield _f(ERROR, "matrix.not_square", n=height, m=width)
+
+    for name, sel, limit in (("rows", getattr(spec, "rows", None), n),
+                             ("cols", getattr(spec, "cols", None), m)):
+        if sel is None:
+            continue
+        if not len(sel):
+            yield _f(ERROR, "matrix.empty_selection", which=name)
+        bad = [i for i in sel if not (0 <= int(i) < limit)]
+        if bad:
+            yield _f(ERROR, "matrix.selection_range", which=name,
+                     values=", ".join(map(str, bad[:4])), limit=limit)
+        if len(set(sel)) != len(sel):
+            yield _f(WARN, "matrix.selection_repeats", which=name)
+
+    # An all-zero row or column is not an error -- the rank is still the
+    # rank -- but it is almost always a construction that lost a term, and
+    # it is invisible in a 64 by 64 wall of numbers.
+    zero_rows = [i for i, row in enumerate(A) if not any(row)]
+    zero_cols = [j for j in range(m) if not any(row[j] for row in A)]
+    if zero_rows or zero_cols:
+        yield _f(WARN, "matrix.empty_blocks",
+                 rows=len(zero_rows), cols=len(zero_cols),
+                 first=(zero_rows or zero_cols)[0])
+
+    # Repeated rows or columns mean the rank is lower than the shape suggests,
+    # and in data somebody typed by hand they usually mean a line was pasted
+    # twice rather than a genuine dependency.
+    for label, vectors in (("rows", [tuple(r) for r in A]),
+                           ("columns", [tuple(row[j] for row in A)
+                                        for j in range(m)])):
+        seen, dupes = {}, []
+        for i, v in enumerate(vectors):
+            if any(v) and v in seen:
+                dupes.append((seen[v], i))
+            seen.setdefault(v, i)
+        if dupes:
+            yield _f(WARN, "matrix.duplicates", which=label, n=len(dupes),
+                     a=dupes[0][0], b=dupes[0][1])
+
+    entries = n * m
+    if entries > 40_000:
+        yield _f(WARN, "matrix.very_large", n=n, m=m, entries=entries)
+    elif entries > 10_000:
+        yield _f(NOTE, "matrix.large", n=n, m=m, entries=entries)
+
+    if question == "smith" and entries > 10_000:
+        yield _f(NOTE, "matrix.smith_cost", n=n, m=m)
+
+
 def _check_bound(spec, limits):
     from .numerics import NoBackend, backend_name
 
@@ -591,4 +688,5 @@ CHECKS = {
     "BisectSpec": _check_bisect, "CNFSpec": _check_cnf, "CNF": _check_cnf,
     "PackingSpec": _check_packing, "EliminateSpec": _check_eliminate,
     "ParametricSpec": _check_parametric,
+    "MatrixSpec": _check_matrix,
 }

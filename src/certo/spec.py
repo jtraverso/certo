@@ -1078,6 +1078,44 @@ class EquitableQuotientSpec:
 
 
 @dataclass
+class ConeSpec:
+    """A local toric cone, and the numbers two geometric theorems consume.
+
+        ConeSpec(
+            rays={"v0": (4,0,0,0), "m01": (2,2,0,0),
+                  "m02": (2,0,2,0), "b": (1,1,1,1)},
+            lattice=[[4,0,0,0], [2,2,0,0], [2,0,2,0], [1,1,1,1]],
+            subdivision={"bary": (1,1,1,1)},
+        )
+
+    Computes, exactly and without a solver: whether each generator is
+    PRIMITIVE, the MULTIPLICITY (the index of the sublattice they span), the
+    HEIGHT functional `u` with `<u, v> = 1` on every generator, and the
+    DISCREPANCY `<u, w> - 1` of any ray you name.
+
+    THE LATTICE IS DECLARED, NEVER GUESSED, and it changes the answer rather
+    than the error message. One real cell has multiplicity 16 read in `Z^4`
+    and 1 read in the lattice its generators are primitive in. Omit `lattice`
+    and the ambient `Z^n` is used and said so.
+
+    `subdivision` names rays that are not generators -- the barycentre is the
+    usual one -- and asks for their height and discrepancy. Zero is crepant.
+
+    IT DOES NOT PROVE THE GEOMETRY. That multiplicity one gives a smooth
+    chart, that discrepancy zero gives a crepant modification, that the fibre
+    is SNC or reduced: those are the theorems, and they are why the proof
+    assistant is there. This is the data they consume, stopped from being
+    assumed.
+    """
+
+    rays: dict                       # name -> integer coordinates
+    lattice: object = None           # a basis, as rows; None means Z^n
+    subdivision: dict = None         # name -> coordinates, for discrepancies
+    order: object = None             # the order the generators are read in
+    title: str = ""
+
+
+@dataclass
 class MatrixSpec:
     """An integer matrix, and which exact question to ask of it.
 

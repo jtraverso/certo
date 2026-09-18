@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-18, at 0.9.0. Both P1 items and the first P2 item landed; what remains at P2 is the toric work, still specified from a report rather than measured against an instance. See "What changed the ranking".
+Last updated: 2026-09-18, at 0.9.1. The toric work is no longer specified from a report alone: a user ran `matrix` on the T1 cells and the numbers are on the table below. See "What changed the ranking".
 
 ---
 
@@ -24,9 +24,24 @@ the shape of the corpus LPs all changed the moment they were measured.
 
 | | Item | Effort | Confidence | Radius | Unblocks |
 |---|---|---|---|---|---|
-| **P2** | Affine semigroups and local toric charts | **L**, or **S-M** taken as input | **low** | none | the toric route's highest-return item |
+| **P1** | Local toric geometry: cone, monoid, affine chart, divisors, multiplicity, discrepancy | **M-L** | **med** | low | the two geometric theorems T1 and T3 are blocked on exactly this |
+| **P2** | The transcription point between Lean data and a Python matrix | **S** | high | low | removes the one manual step left in a route that is otherwise checked end to end |
 | **P2** | Chow ring and toric intersection | **L** | **low** | none | — |
-| **P2** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
+| **P3** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
+
+**The toric item moved up and its confidence moved with it**, for the reason
+this table keeps insisting on: it is no longer specified from a report. A user
+ran `matrix` on the real cells and the numbers came back --
+
+| | rank | determinant | Smith |
+|---|---|---|---|
+| vertex cell | 4 | `16` | `[1,2,2,4]` |
+| face cell | 4 | `−16` | `[1,2,2,4]` |
+| all 16 together | 64 | `16^16 = 2^64` | — |
+
+-- so the arithmetic underneath is measured, not guessed, and what is left is
+the geometry that reads those numbers. That is a different and much better
+starting point than the one this item had when it was written.
 
 Released in 0.8.0, and struck from the table above: **certified symmetry
 reduction** (`certo reduce`), **does this hypothesis earn its place**
@@ -39,7 +54,7 @@ underneath, which is now the expected rate rather than a surprise. See
 
 | | Means | What landed at this size |
 |---|---|---|
-| **XS** | one sitting, reusing machinery that exists | `ratio` (reused the shift test), `omega` export, hollow marking |
+| **XS** | one sitting, reusing machinery that exists | `ratio` (reused the shift test), the version-drift check, `status` reading `.lean` files |
 | **S** | one focused pass: module, engine, CLI, MCP, example, tests | `peak`, `exists`, `moment`, `entry`, the Tseitin bridge, typed transport |
 | **M** | a pass plus a design decision, and usually a bug found underneath | `family` (a new verification model), `parametric` regions (found a simplex bug), the correspondence parser |
 | **L** | several passes, or an algorithm that is a project of its own | the branch-and-bound retie (found a soundness hole); everything toric |
@@ -209,7 +224,7 @@ labelling as input.
 | | Jacobian criterion certificates | **S-M** | Smoothness, local dimension, singular locus, transversality via exact Jacobian ideals. `ideal` is the machinery; this is the interface. |
 | | Batyrev engine, canonical form transport | **XL** | Both are geometric theorem application, which by the stated boundary is Lean's job. certo's part is the finite premises those theorems consume. |
 | | Small geometric counterexample generation | **S** | The second user's request, and a special case of P1 #2 applied to fans, cones and semigroups. Follows it. |
-| | CLI / metadata version sync, `export --check` progress | **XS** | Papercuts from the first user. Small, real, and worth doing in the same pass as P0. |
+| | `export --check` progress | **XS** | A papercut from the first user. The metadata half landed in 0.9.1. |
 | | Flag algebras | **L** | Still wants 2-3 real instances to be designed around a problem. |
 | | Lean statements for the sweep kinds | **L** | Graphs and set families are not mechanical. Deliberately parked. |
 | | `certo qe`, Gomory-Chvatal cuts | **M** each | Distinctive, nobody waiting. |

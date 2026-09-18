@@ -36,12 +36,12 @@ SPEC_OF = {
     "ideal": "IdealSpec", "eliminate": "EliminateSpec", "sos": "SOSSpec",
     "number": "NumberSpec", "compose": "ProofSpec", "lint": "*",
     "audit": "*", "reduce": "SymmetrySpec", "matrix": "MatrixSpec", "solve": "LinearSystemSpec",
-    "quotient": "EquitableQuotientSpec",
+    "quotient": "EquitableQuotientSpec", "cone": "ConeSpec",
 }
 
 #: Which commands leave a certificate that re-checks with NO solver.
 SOLVER_FREE = {
-    "quotient", "solve", "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
+    "cone", "quotient", "solve", "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
     "cover", "ideal", "eliminate", "sos", "number", "order", "bounds",
     "cases",
 }
@@ -69,6 +69,7 @@ BY_QUESTION = (
         ("commands.q.reduce", "reduce"),
         ("commands.q.quotient", "quotient"),
         ("commands.q.matrix", "matrix"),
+        ("commands.q.cone", "cone"),
         ("commands.q.solve", "solve"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
@@ -178,6 +179,7 @@ RUNNERS = {
     "matrix": ("certo.engines.algebra", "integer_matrix"),
     "solve": ("certo.engines.algebra", "linear_system"),
     "quotient": ("certo.engines.algebra", "equitable_quotient"),
+    "cone": ("certo.engines.algebra", "toric_cone"),
     "family": ("certo.engines.algebra", "family_max"),
     # `CoverSpec` answers two questions: `cover` checks one you have, and
     # `exists` asks whether any does. `ask` takes the first as the default,

@@ -35,6 +35,8 @@ CASES = [
     ("symmetry_reduction.py", "reduce", []),
     ("parametric_symmetry.py", "reduce", ["--parametric"]),
     ("integer_matrix.py", "matrix", []),
+    ("interchange_matrix.py", "matrix", []),
+    ("toric_cone.py", "cone", []),
     ("linear_system.py", "solve", []),
     ("equitable_quotient.py", "quotient", []),
     ("farkas_linear.py", "farkas", []),

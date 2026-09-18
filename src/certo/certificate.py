@@ -809,6 +809,34 @@ def equitable_quotient_certificate(payload, title="") -> Certificate:
     )
 
 
+def toric_cone_certificate(payload, title="") -> Certificate:
+    """The local data of a cone, computed rather than assumed.
+
+    An audit of the crepant criterion, written before this existed, took
+    `discrepancy == height - 1` and `multiplicity == height` as HYPOTHESES.
+    They are the step where a cone becomes a number, and nothing was computing
+    them from a cone. Here the generators go in and the numbers come out:
+    primitivity, the index of the sublattice, the height functional found by
+    an exact solve, and a discrepancy per ray.
+
+    THE LATTICE IS PART OF EVERY ANSWER. The same cell is multiplicity 16 in
+    `Z^4` and 1 in the lattice its generators are primitive in, so the payload
+    records which one the number is about. Reading a multiplicity without its
+    lattice is reading half a sentence.
+
+    WHAT IT DOES NOT SAY: that multiplicity one gives a smooth chart, that
+    discrepancy zero gives a crepant modification, that a fibre is SNC or
+    reduced. Those are theorems about varieties. certo hands over what they
+    consume and stops.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="toric_cone", solver_free=True, payload=out,
+        note_key="cert.note.toric_cone",
+    )
+
+
 def integer_matrix_certificate(question, matrix, result, title="") -> Certificate:
     """An exact answer about an integer matrix, with the transforms that
     make it checkable by multiplication instead of by elimination.
@@ -1465,6 +1493,7 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "symmetry_reduction": _verify_symmetry_reduction,
         "hypothesis_audit": _verify_hypothesis_audit,
         "integer_matrix": _verify_integer_matrix,
+        "toric_cone": _verify_toric_cone,
         "equitable_quotient": _verify_equitable_quotient,
         "linear_system": _verify_linear_system,
         "parametric_symmetry": _verify_parametric_symmetry,
@@ -2246,6 +2275,82 @@ class _sense_holder:
         self.title = ""
 
 
+def _verify_toric_cone(cert, limits) -> VerifyReport:
+    """Redo every number from the generators: none of it needs a solver."""
+    from fractions import Fraction
+
+    from . import toric
+
+    p = cert.payload
+    rays = {n: list(map(int, v)) for n, v in p["rays"].items()}
+    order = list(p["order"])
+    basis = p.get("lattice")
+    checks = []
+
+    # 1. the multiplicity, in the lattice the payload says it is about
+    try:
+        mult = toric.multiplicity(rays, order, basis)
+        ok = str(mult["value"]) == str(p["multiplicity"])
+    except toric.NotToric:
+        # No multiplicity is a legitimate answer -- a non-simplicial cone has
+        # none in this sense -- and the certificate has to have SAID so.
+        ok = p.get("multiplicity") is None
+    checks.append((t("verify.toric.multiplicity"), ok,
+                   t("verify.toric.index", value=str(p["multiplicity"]),
+                     where=p.get("multiplicity_in", "?"))))
+
+    # 2. primitivity, per generator, in that same lattice
+    bad = []
+    for name in order:
+        coords = toric.in_lattice(rays[name], basis)
+        got = None if coords is None else int(toric.content(
+            [Fraction(c).numerator for c in coords]))
+        if got != p["primitive"].get(name):
+            bad.append(name)
+    checks.append((t("verify.toric.primitive"), not bad,
+                   t("verify.toric.contents",
+                     n=sum(1 for v in p["primitive"].values() if v == 1),
+                     total=len(order))))
+
+    # 3. the height functional, and the pairing it has to satisfy
+    u = p.get("height_functional")
+    if u is None:
+        checks.append((t("verify.toric.no_height"),
+                       toric.height_functional(rays, order) is None,
+                       t("verify.toric.height_absent")))
+    else:
+        vec = [Fraction(v) for v in u]
+        ones = all(toric.pairing(vec, rays[n]) == 1 for n in order)
+        checks.append((t("verify.toric.height"), ones,
+                       t("verify.toric.height_is",
+                         values=", ".join(u[:4]))))
+
+        # 4. every discrepancy is the pairing minus one, recomputed
+        wrong = [n for n in order
+                 if str(toric.pairing(vec, rays[n]) - 1)
+                 != str(p["discrepancies"].get(n))]
+        for name, entry in (p.get("subdivision") or {}).items():
+            if "discrepancy" in entry:
+                got = toric.pairing(vec, [int(c) for c in entry["coords"]]) - 1
+                if str(got) != str(entry["discrepancy"]):
+                    wrong.append(name)
+        checks.append((t("verify.toric.discrepancy"), not wrong,
+                       t("verify.toric.discrepancies",
+                         n=len(p["discrepancies"]) + len(p.get("subdivision")
+                                                         or {}),
+                         bad=", ".join(wrong[:3]) or "-")))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "toric_cone", True, checks=checks,
+        warnings=[t("verify.toric.scope"), t("verify.toric.lattice",
+                                             where=p.get("multiplicity_in",
+                                                         "?"))],
+        method_key="verify.toric.method",
+        detail=t("verify.toric.detail", n=len(order),
+                 dim=p["dimension"], mult=str(p["multiplicity"])),
+    )
+
+
 def _verify_integer_matrix(cert, limits) -> VerifyReport:
     """Every claim as integer multiplication, and the one sign as a modulus."""
     from . import lattice
@@ -2298,6 +2403,18 @@ def _verify_integer_matrix(cert, limits) -> VerifyReport:
     checks.append((t("verify.lattice.rank"), rank == p["rank"],
                    t("verify.lattice.rank_is", r=rank, n=n, m=m)))
 
+    # The fingerprint is recomputed from the matrix in the payload, so a
+    # certificate whose matrix was edited after the fact disagrees with its
+    # own number -- and so does one whose number was edited to match somebody
+    # else's matrix.
+    if p.get("fingerprint") is not None:
+        from . import interchange
+
+        checks.append((t("verify.lattice.fingerprint"),
+                       str(interchange.fingerprint(A)) == str(p["fingerprint"]),
+                       t("verify.lattice.fingerprint_is",
+                         value=str(p["fingerprint"]))))
+
     if n == m:
         want = sign
         for d in diag:
@@ -2307,7 +2424,10 @@ def _verify_integer_matrix(cert, limits) -> VerifyReport:
 
     return VerifyReport(
         all(c[1] for c in checks), "integer_matrix", True, checks=checks,
-        warnings=[t("verify.lattice.scope")],
+        warnings=([t("verify.lattice.scope")] if not p.get("fingerprint")
+                  else [t("verify.lattice.scope_fingerprinted",
+                          value=str(p["fingerprint"])),
+                        t("verify.lattice.scope")]),
         method_key="verify.lattice.method",
         detail=t("verify.lattice.detail", question=p["question"], n=n, m=m),
     )

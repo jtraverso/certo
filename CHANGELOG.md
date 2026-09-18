@@ -7,6 +7,107 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.9.2] — 2026-09-18
+
+Three things a user's report asked for, in the order they asked.
+
+### The transcription point, closed
+
+`matrix` certifies the matrix it is given. What it could not do was notice
+that the matrix is not the one your proof is about — and the way that happens
+is not exotic: somebody types coordinates into Python from a Lean file, and
+one entry is wrong. A user put it in one line: **you can perfectly certify the
+wrong matrix.**
+
+What closes it is not a stronger certificate. It is a number both sides
+compute separately from their own copy:
+
+    h = 0;  h = (h*B + rows) mod p;  h = (h*B + cols) mod p
+    for each row, in order, for each entry, in order:
+        h = (h*B + (entry mod p)) mod p        p = 2^61 - 1,  B = 1000003
+
+Horner and nothing else — **no library on either side**, which is the point: a
+digest somebody has to install something to reproduce is a digest nobody
+reproduces. Lean closes the comparison with `decide`; a referee closes it with
+patience.
+
+`matrix` now accepts a canonical JSON data file instead of an inline matrix,
+so the spec names a *file* and never sees the coordinates. The fingerprint
+travels in the certificate and `verify` recomputes it. Measured, each of these
+gives a different number: one entry changed, a sign flipped, the matrix
+transposed, two rows swapped, a row missing, a column of zeros added. A file
+edited by hand after it was written is **refused on load** — the case that
+actually happens.
+
+It is not cryptographic and says so: it catches the keyboard, not an
+adversary.
+
+### `lint` knows about a matrix before Smith runs
+
+Thresholds set by measuring rather than by feel:
+
+| | Smith | Hermite |
+|---|---|---|
+| 32×32 | 0.04 s | 0.10 s |
+| 64×64 | **2.2 s** | 2.12 s |
+| 80×80 | 5.63 s | 7.37 s |
+
+A user's real matrix is 64×64, so the threshold sits well above it: **warning
+somebody about the size they work at every day is noise, and noise is how a
+linter gets ignored about the rest.** Verified against three real specs —
+zero findings.
+
+It does catch: a determinant asked of a rectangle, a question that is not one
+of the four, a selection out of range or with a repeated index, all-zero rows
+and columns, duplicated rows ("a line pasted twice"), and a data file whose
+fingerprint disagrees — all before anything is computed.
+
+### `certo cone`: local toric data, computed instead of assumed
+
+An audit of the crepant criterion, written against 0.9, took two formulas as
+**hypotheses**:
+
+    assume("discrepancy_formula",  discrepancy == height - 1)
+    assume("multiplicity_formula", multiplicity == height)
+
+Those are the step where a cone becomes a number, and nothing was computing
+them from a cone. Now the generators go in and the numbers come out:
+primitivity, the multiplicity, the height functional found by an exact solve,
+and a discrepancy per ray.
+
+Three decisions the real instance forced:
+
+**The lattice is declared and it changes the answer, not the error message.**
+One cell is multiplicity 16 read in `Z^4` and 1 read in the lattice its
+generators are primitive in. Neither is wrong. The first implementation took
+the determinant in ambient coordinates always and would have reported 16 with
+total confidence.
+
+**Crepant is a question about what a subdivision adds.** A generator's
+discrepancy is zero *by construction* wherever a height functional exists. The
+first version reported the A₁ singularity as crepant on that basis — it said
+nothing and sounded like something. With no subdivision named the answer is
+`None`.
+
+**A missing quantity is recorded, not refused.** Three rays in the plane span
+no full-dimensional simplicial cone, so there is no multiplicity in this
+sense — but there is still a height question, and refusing the certificate
+lost it.
+
+It proves no geometry, and a test pins that: the payload contains none of the
+words *smooth*, *SNC*, *variety* or *resolution*, and `verify` says every time
+that multiplicity one ⇒ smooth chart and discrepancy zero ⇒ crepant
+modification are theorems about varieties that nothing here establishes.
+
+### Also
+
+The MCP reachability test caught `cone` shipping without its tool — the same
+test that caught `enum` in 0.8. `run_examples.py` now passes `PYTHONPATH` so
+the suite tests the tree it lives in rather than whatever is installed.
+
+Schema stays at 4.
+
+
 ## [0.9.1] — 2026-09-18
 
 Four problems a user reported against 0.9.0, and one of them contradicted a

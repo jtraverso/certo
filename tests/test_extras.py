@@ -7395,6 +7395,388 @@ def test_only_pth_files_that_execute_are_counted():
         assert doctor._startup_hooks() == ["runs.pth"]
 
 
+# --- data that crosses a boundary, and the number that says it arrived -----
+
+
+def test_the_fingerprint_catches_what_retyping_actually_gets_wrong():
+    """Reported by a user: "you can perfectly certify the wrong matrix." Each
+    of these is a thing that happens when somebody copies coordinates by hand,
+    and each has to give a different number or the fingerprint is theatre."""
+    import copy
+
+    from certo import interchange
+
+    base = [[4, 2, 2, 1], [0, 2, 0, 1], [0, 0, 2, 1], [0, 0, 0, 1]]
+    h = interchange.fingerprint(base)
+
+    def moved(fn):
+        m = copy.deepcopy(base)
+        fn(m)
+        return interchange.fingerprint(m) != h
+
+    assert moved(lambda m: m[0].__setitem__(0, 5))        # one entry
+    assert moved(lambda m: m[1].__setitem__(2, 1))        # a zero became one
+    assert moved(lambda m: m[0].__setitem__(0, -4))       # a sign
+    assert interchange.fingerprint([list(r) for r in zip(*base)]) != h
+    assert interchange.fingerprint([base[1], base[0]] + base[2:]) != h
+    assert interchange.fingerprint(base[:3]) != h
+    assert interchange.fingerprint([r + [0] for r in base]) != h
+
+    # and it is stable: the same data gives the same number, always
+    assert interchange.fingerprint(copy.deepcopy(base)) == h
+
+
+def test_a_file_edited_after_it_was_written_is_refused():
+    """The case that actually happens: somebody fixes just one entry by hand
+    and the file no longer matches the number it carries."""
+    import json
+    import tempfile
+
+    from certo import interchange
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_xchg_"))
+    f = d / "cell.json"
+    interchange.dump([[1, 2], [3, 4]], f, name="two by two")
+
+    assert interchange.load(f)["entries"] == [[1, 2], [3, 4]]
+
+    raw = json.loads(f.read_text(encoding="utf-8"))
+    raw["entries"][0][0] = 9
+    f.write_text(json.dumps(raw), encoding="utf-8")
+    try:
+        interchange.load(f)
+        raise AssertionError("expected a refusal")
+    except interchange.NotInterchangeable as e:
+        assert "edited after it was written" in str(e)
+
+
+def test_a_matrix_can_arrive_as_a_file_the_spec_never_reads():
+    """The difference between a transcription and a hand-off: the spec names
+    a path, and the coordinates are written by whatever holds the object."""
+    import tempfile
+
+    from certo import MatrixSpec, interchange
+    from certo.engines import algebra
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_xchg_"))
+    f = d / "cell.json"
+    # one local cell: four rays, and the Smith form a user measured
+    interchange.dump([[4, 2, 2, 1], [0, 2, 0, 1], [0, 0, 2, 1], [0, 0, 0, 1]],
+                     f, name="one local cell")
+
+    r = algebra.integer_matrix(
+        MatrixSpec(matrix=str(f), question="smith"), LIM)
+    assert r.verdict is Verdict.PROVED
+    assert r.certificate.payload["invariants"] == [1, 2, 2, 4]
+    assert r.certificate.payload["det"] == 16
+    assert r.certificate.payload["fingerprint"] == \
+        str(interchange.fingerprint(interchange.load(f)["entries"]))
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok
+    assert any("FINGERPRINT" in w for w in rep.warnings)
+
+
+def test_the_recipe_travels_so_the_other_side_can_recompute_it():
+    """A number whose recipe lives only in certo's documentation is a number
+    the other side has to take on faith, and faith across the boundary is the
+    whole problem."""
+    from certo import interchange
+
+    recipe = interchange.describe()
+    assert recipe["algorithm"] == "horner"
+    assert int(recipe["prime"]) == (1 << 61) - 1
+    assert int(recipe["base"]) == 1_000_003
+    assert "rows" in recipe["order"]
+
+    # recomputing it from the recipe alone gives the same number
+    matrix = [[7, -3], [0, 5]]
+    p, b = int(recipe["prime"]), int(recipe["base"])
+    h = 0
+    h = (h * b + len(matrix)) % p
+    h = (h * b + len(matrix[0])) % p
+    for row in matrix:
+        for entry in row:
+            h = (h * b + (entry % p)) % p
+    assert h == interchange.fingerprint(matrix)
+
+
+def test_a_forged_fingerprint_does_not_verify():
+    import copy
+
+    from certo import MatrixSpec
+    from certo.engines import algebra
+
+    cert = algebra.integer_matrix(
+        MatrixSpec(matrix=[[2, 1], [1, 3]], question="smith"),
+        LIM).certificate
+    base = json.loads(json.dumps(cert.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    # a number that is not the one these entries give
+    assert not bent(lambda p: p.__setitem__("fingerprint", "1"))
+    # the matrix edited while the number stayed
+    assert not bent(lambda p: p["matrix"][0].__setitem__(0, 9))
+
+
+# --- lint knows about a matrix before Smith runs ---------------------------
+
+
+def _lint_matrix(body):
+    import tempfile
+
+    from certo import lint as linter
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_lintm_"))
+    f = d / "s.py"
+    f.write_text("from certo import MatrixSpec\n\n\ndef spec():\n    "
+                 "return MatrixSpec({}, title=\"t\")\n".format(body),
+                 encoding="utf-8")
+    return linter.lint(str(f))
+
+
+def test_lint_refuses_a_question_the_matrix_cannot_answer():
+    """A determinant of a rectangle, and a question that is not one of the
+    four -- both before Smith spends a minute finding out."""
+    rep = _lint_matrix("matrix=[[1, 2, 3], [4, 5, 6]], question=\"det\"")
+    assert rep["errors"] == 1
+    assert "2 by 3" in rep["findings"][0]["text"]
+
+    rep = _lint_matrix("matrix=[[1, 2], [3, 4]], question=\"eigen\"")
+    assert rep["errors"] == 1
+    assert "not a question this answers" in rep["findings"][0]["text"]
+
+    # a minor IS square, and is not complained about
+    rep = _lint_matrix("matrix=[[1, 2, 3], [4, 5, 6]], question=\"det\", "
+                       "rows=[0, 1], cols=[0, 1]")
+    assert rep["errors"] == 0
+
+
+def test_lint_names_the_shapes_that_mean_a_construction_lost_a_term():
+    """An all-zero row and a repeated row are not errors -- the rank is still
+    the rank -- but in a wall of numbers they are invisible, and in data typed
+    by hand they usually mean something went wrong upstream."""
+    rep = _lint_matrix("matrix=[[1, 0, 2], [0, 0, 0], [3, 0, 4]]")
+    assert rep["errors"] == 0 and rep["warnings"] == 1
+    assert "all-zero" in rep["findings"][0]["text"]
+
+    rep = _lint_matrix("matrix=[[1, 2], [1, 2], [3, 4]]")
+    assert rep["warnings"] == 1
+    assert "pasted twice" in rep["findings"][0]["text"]
+
+    # a repeated ZERO row is reported once, as an empty block, not twice
+    rep = _lint_matrix("matrix=[[0, 0], [0, 0], [1, 2]]")
+    assert rep["warnings"] == 1
+
+
+def test_lint_checks_a_selection_before_it_is_used():
+    rep = _lint_matrix("matrix=[[1, 2], [3, 4]], rows=[0, 5], cols=[0, 0]")
+    texts = " ".join(f["text"] for f in rep["findings"])
+    assert rep["errors"] == 1 and "outside 0..2" in texts
+    assert "same index twice" in texts
+
+    rep = _lint_matrix("matrix=[[1, 2], [3, 4]], rows=[]")
+    assert rep["errors"] >= 1
+    assert any("selects nothing" in f["text"] for f in rep["findings"])
+
+
+def test_lint_says_nothing_about_the_size_people_actually_work_at():
+    """A user's real matrix is 64 by 64. Warning about the size somebody works
+    at every day is noise, and noise is how a linter gets ignored about the
+    rest -- so the threshold sits well above it."""
+    body = ("matrix=[[1 if i == j else 0 for j in range(64)] "
+            "for i in range(64)], question=\"smith\"")
+    rep = _lint_matrix(body)
+    assert rep["errors"] == 0 and rep["warnings"] == 0 and rep["notes"] == 0
+
+    # and it does speak up when the size is genuinely a different problem
+    big = ("matrix=[[1 if i == j else 0 for j in range(120)] "
+           "for i in range(120)], question=\"smith\"")
+    rep = _lint_matrix(big)
+    texts = " ".join(f["text"] for f in rep["findings"])
+    assert "14400 entries" in texts
+    assert "n^4" in texts or "minutes rather than seconds" in texts
+
+
+def test_lint_reads_a_data_file_and_refuses_a_broken_one():
+    """A fingerprint that disagrees is caught before anything is computed."""
+    import json
+    import tempfile
+
+    from certo import interchange, lint as linter
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_lintdata_"))
+    data = d / "cell.json"
+    interchange.dump([[4, 2], [0, 2]], data, name="cell")
+
+    spec = d / "s.py"
+    spec.write_text(
+        "from certo import MatrixSpec\n\n\ndef spec():\n"
+        "    return MatrixSpec(matrix=r\"{}\", question=\"smith\", "
+        "title=\"t\")\n".format(str(data).replace("\\", "\\\\")),
+        encoding="utf-8")
+    assert linter.lint(str(spec))["errors"] == 0
+
+    raw = json.loads(data.read_text(encoding="utf-8"))
+    raw["entries"][0][0] = 9
+    data.write_text(json.dumps(raw), encoding="utf-8")
+
+    rep = linter.lint(str(spec))
+    assert rep["errors"] == 1
+    assert "edited after it was written" in rep["findings"][0]["text"]
+
+
+# --- local toric data, computed instead of assumed -------------------------
+
+
+def _cone(**kw):
+    from certo import ConeSpec
+    from certo.engines import algebra
+
+    kw.setdefault("title", "t")
+    return algebra.toric_cone(ConeSpec(**kw), LIM)
+
+
+CELL = {"v0": (4, 0, 0, 0), "m01": (2, 2, 0, 0),
+        "m02": (2, 0, 2, 0), "b": (1, 1, 1, 1)}
+CELL_ORDER = ["v0", "m01", "m02", "b"]
+
+
+def test_the_formulas_an_audit_took_as_hypotheses_are_computed():
+    """An audit of the crepant criterion assumed `discrepancy == height - 1`
+    and `multiplicity == height`. Those are the step where a cone becomes a
+    number, and nothing was computing them from a cone."""
+    r = _cone(rays=CELL, order=CELL_ORDER,
+              lattice=[list(CELL[n]) for n in CELL_ORDER],
+              subdivision={"bary": (1, 1, 1, 1)})
+    p = r.certificate.payload
+
+    assert r.verdict is Verdict.PROVED
+    assert p["multiplicity"] == "1" and p["regular"] is True
+    assert p["height_one"] is True
+    assert p["height_functional"] == ["1/4"] * 4
+    assert p["height_unique"] is True
+    assert all(v == "0" for v in p["discrepancies"].values())
+    assert p["subdivision"]["bary"]["discrepancy"] == "0"
+    assert p["crepant"] is True
+
+    rep = verify(_roundtrip(r.certificate), LIM)
+    assert rep.ok and rep.solver_free
+
+
+def test_the_same_cone_gives_a_different_multiplicity_in_a_different_lattice():
+    """Not an error -- a different number, confidently. Which is why the
+    lattice is declared and travels with the answer."""
+    declared = _cone(rays=CELL, order=CELL_ORDER,
+                     lattice=[list(CELL[n]) for n in CELL_ORDER])
+    ambient = _cone(rays=CELL, order=CELL_ORDER, lattice=None)
+
+    assert declared.certificate.payload["multiplicity"] == "1"
+    assert ambient.certificate.payload["multiplicity"] == "16"
+    assert declared.certificate.payload["multiplicity_in"] == "declared lattice"
+    assert "Z^4" in ambient.certificate.payload["multiplicity_in"]
+
+    # the generators are primitive in one reading and not in the other
+    assert set(declared.certificate.payload["primitive"].values()) == {1}
+    assert ambient.certificate.payload["primitive"]["v0"] == 4
+
+    for r in (declared, ambient):
+        rep = verify(_roundtrip(r.certificate), LIM)
+        assert rep.ok
+        assert any("half a sentence" in w for w in rep.warnings)
+
+
+def test_crepant_is_about_what_a_subdivision_adds_and_nothing_else():
+    """A generator's discrepancy is zero BY CONSTRUCTION wherever a height
+    functional exists. The first version reported the A1 singularity crepant
+    on that basis, which said nothing and sounded like something."""
+    a1 = _cone(rays={"a": (1, 0), "b": (1, 2)}, order=["a", "b"])
+    p = a1.certificate.payload
+
+    assert p["multiplicity"] == "2"
+    assert p["height_one"] is True
+    assert p["generators_at_height_one"] is True
+    assert p["crepant"] is None          # nothing was subdivided
+
+    # name a ray and the question becomes answerable
+    with_ray = _cone(rays={"a": (1, 0), "b": (1, 2)}, order=["a", "b"],
+                     subdivision={"mid": (1, 1)})
+    q = with_ray.certificate.payload
+    assert q["subdivision"]["mid"]["discrepancy"] == "0"
+    assert q["crepant"] is True
+
+    # and a ray off the hyperplane is not crepant
+    off = _cone(rays={"a": (1, 0), "b": (1, 2)}, order=["a", "b"],
+                subdivision={"high": (2, 2)})
+    assert off.certificate.payload["crepant"] is False
+
+
+def test_a_missing_quantity_is_recorded_rather_than_refused():
+    """Three rays in the plane span no full-dimensional simplicial cone, so
+    there is no multiplicity in this sense -- but they do have a height
+    question, and refusing the certificate would lose it."""
+    r = _cone(rays={"a": (1, 0), "b": (0, 1), "c": (1, 1)},
+              order=["a", "b", "c"])
+    p = r.certificate.payload
+
+    assert r.verdict is Verdict.PROVED
+    assert p["multiplicity"] is None and p["regular"] is None
+    assert "index of the sublattice" in p["multiplicity_why_not"]
+    # the thing worth knowing about these three rays
+    assert p["height_one"] is False
+    assert p["generators_at_height_one"] is False
+    assert verify(_roundtrip(r.certificate), LIM).ok
+
+
+def test_a_forged_cone_certificate_does_not_verify():
+    """Every number is redone from the generators, so editing one is editing
+    it away from what the rays give."""
+    import copy
+
+    base = json.loads(json.dumps(
+        _cone(rays=CELL, order=CELL_ORDER,
+              lattice=[list(CELL[n]) for n in CELL_ORDER],
+              subdivision={"bary": (1, 1, 1, 1)}).certificate.to_dict()))
+    assert verify(Certificate.from_dict(base), LIM).ok
+
+    def bent(fn):
+        d = copy.deepcopy(base)
+        fn(d["payload"])
+        return verify(Certificate.from_dict(d), LIM).ok
+
+    assert not bent(lambda p: p.__setitem__("multiplicity", "1000"))
+    assert not bent(lambda p: p["primitive"].__setitem__("v0", 7))
+    assert not bent(lambda p: p.__setitem__("height_functional", ["1"] * 4))
+    assert not bent(lambda p: p["discrepancies"].__setitem__("b", "5"))
+    assert not bent(lambda p: p["subdivision"]["bary"].__setitem__(
+        "discrepancy", "-1"))
+    assert not bent(lambda p: p["rays"]["v0"].__setitem__(0, 5))
+
+
+def test_the_certificate_refuses_to_say_anything_about_varieties():
+    """certo hands over what the theorems consume and stops. A certificate
+    that quietly asserted a smooth chart would be the substitution this
+    project exists to refuse."""
+    r = _cone(rays=CELL, order=CELL_ORDER,
+              lattice=[list(CELL[n]) for n in CELL_ORDER])
+    rep = verify(_roundtrip(r.certificate), LIM)
+
+    warned = " ".join(rep.warnings)
+    assert "not the theorems" in warned
+    assert "smooth chart" in warned and "crepant modification" in warned
+    for word in ("SNC", "reduced"):
+        assert word in warned, word
+
+    text = json.dumps(r.certificate.payload)
+    for claim in ("smooth", "snc", "variety", "resolution"):
+        assert claim not in text.lower(), claim
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

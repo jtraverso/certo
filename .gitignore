@@ -32,3 +32,6 @@ Thumbs.db
 # one of these named somebody's unpublished project in the repository name
 # list until it was noticed.
 FEEDBACK*.md
+
+# written by examples/interchange_matrix.py on first run
+examples/interchange_cell.json
