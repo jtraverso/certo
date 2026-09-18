@@ -7167,6 +7167,234 @@ def test_reading_lean_survives_and_is_a_different_capability():
     assert leanexport.hollow_count("example : 1 = 1 := by norm_num") == 0
 
 
+# --- the version is declared once, and a stale install says so -------------
+
+
+def test_the_version_is_declared_in_exactly_one_place():
+    """It used to be written in `pyproject.toml` AND in `__init__.py`, and a
+    release had to edit both. They drifted: the installed metadata reported
+    0.6.0 while the CLI reported 0.9.0, for three releases, and a user noticed
+    before we did."""
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+    # no literal version in the project table
+    table = pyproject.split("[project]", 1)[1].split("\n[", 1)[0]
+    assert not re.search(r'^version\s*=\s*"', table, re.M), table
+    assert 'dynamic = ["version"]' in table
+    assert 'version = {attr = "certo.__version__"}' in pyproject
+
+    import certo
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", certo.__version__), certo.__version__
+
+
+def test_a_stale_editable_install_is_reported_rather_than_silent():
+    """One declaration means the two cannot be WRITTEN apart. An editable
+    install still goes stale on its own the moment the version moves, and
+    silence about that is what let the drift run."""
+    import io
+    from contextlib import redirect_stdout
+
+    import certo
+    from certo import cli, doctor
+
+    real = certo.__version__
+    try:
+        certo.__version__ = "99.0.0"
+        cli.__version__ = "99.0.0"
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["--version"])
+        out = buf.getvalue()
+        assert "99.0.0" in out                    # what is running
+        assert real in out                        # what is installed
+        assert "pip install -e ." in out          # and what to do
+
+        ok, detail = doctor._installed_metadata()
+        assert ok is False
+        assert real in detail and "99.0.0" in detail
+    finally:
+        certo.__version__ = real
+        cli.__version__ = real
+
+    # and it is quiet when they agree
+    ok, detail = doctor._installed_metadata()
+    assert ok is True and real in detail
+
+
+def test_the_metadata_check_does_not_fail_an_uninstalled_checkout():
+    """Running from a source tree with no install is normal, not broken: a
+    doctor that cries wolf about it gets ignored about everything else."""
+    import builtins
+
+    from certo import doctor
+
+    real = builtins.__import__
+
+    def refuse(name, *a, **k):
+        if name == "importlib.metadata":
+            raise ImportError("no metadata here")
+        return real(name, *a, **k)
+
+    builtins.__import__ = refuse
+    try:
+        ok, detail = doctor._installed_metadata()
+    finally:
+        builtins.__import__ = real
+    assert ok is True
+    assert "no metadata to disagree" in detail
+
+
+# --- 0.9.0 defects: a hollow Lean file, and a half-finished install --------
+
+
+def test_status_finds_a_hollow_lean_file_it_did_not_write():
+    """Reported against 0.9.0. `status` read certificates and never opened a
+    `.lean`, so `theorem from_core : True` sat in a project untouched while
+    the report said everything was fine -- and it compiles, carries no
+    `sorry`, and passes an axiom audit, so nothing else was going to catch it
+    either.
+
+    The release notes claimed detection survived the export removal. It did
+    not: `hollow_count` existed and nothing called it on a user's files.
+    """
+    import tempfile
+
+    from certo import status_report
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_hollow_"))
+    (d / "Old.lean").write_text(
+        "import Mathlib\n\ntheorem from_core : True := by\n  trivial\n",
+        encoding="utf-8")
+    (d / "Real.lean").write_text(
+        "theorem two (a : Nat) : a = a := by rfl\n", encoding="utf-8")
+
+    found = status_report.hollow_lean(d)
+    assert len(found) == 1, found
+    assert found[0]["name"] == "from_core"
+    assert found[0]["line"] == 3
+    assert "passes an axiom audit" in found[0]["text"]
+
+    # and the whole report carries it, even with no certificate in sight
+    rep = status_report.scan(str(d))
+    assert rep["certificates"] == 0
+    assert len(rep["hollow_lean"]) == 1
+    assert any("from_core" in h["text"] for h in rep["hollow"])
+
+
+def test_a_directory_with_only_a_hollow_theorem_exits_nonzero():
+    """Nothing established, and the file that says so passes every gate. That
+    is the worst case, not the empty one, so it must not exit zero."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+
+    from certo.cli import main
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_hollow_cli_"))
+    (d / "X.lean").write_text("theorem nothing : True := by trivial\n",
+                              encoding="utf-8")
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(["status", str(d)])
+    out = buf.getvalue()
+
+    assert rc == 1
+    assert "state True and nothing else" in out
+    assert "X.lean:1" in out and "nothing" in out
+
+    # an empty directory is still just empty
+    e = pathlib.Path(tempfile.mkdtemp(prefix="certo_empty_"))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = main(["status", str(e)])
+    assert rc == 0
+
+
+def test_a_lean_build_tree_is_not_walked():
+    """Mathlib under `.lake` is megabytes of somebody else's code, and
+    walking it turns a status call into a minute."""
+    import tempfile
+
+    from certo import status_report
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_lake_"))
+    deep = d / ".lake" / "packages" / "mathlib"
+    deep.mkdir(parents=True)
+    (deep / "Dep.lean").write_text("theorem x : True := by trivial\n",
+                                   encoding="utf-8")
+    (d / "Mine.lean").write_text("theorem y : True := by trivial\n",
+                                 encoding="utf-8")
+
+    found = status_report.hollow_lean(d)
+    assert [f["name"] for f in found] == ["y"], found
+
+
+def test_doctor_names_a_half_finished_install():
+    """The root cause of the version drift: on Windows pip cannot replace a
+    file another process holds open, and `certo-mcp.exe` is held for as long
+    as the MCP server runs, so `pip install -e .` aborts part-way."""
+    from certo import doctor
+
+    keys = [key for key, _required, _probe in doctor.CHECKS]
+    assert "install" in keys and "metadata" in keys
+    # neither is required: a stale install does not stop anything working,
+    # it makes a bug report name the wrong version
+    for key, required, _probe in doctor.CHECKS:
+        if key in ("install", "metadata"):
+            assert required is False, key
+
+    ok, detail = doctor._partial_install()
+    assert isinstance(ok, bool) and detail
+
+
+def test_doctor_names_the_interpreter_startup_rather_than_blaming_certo():
+    """A user reported `certo --help` staying alive indefinitely. It was not
+    certo: `site` runs every `.pth` before a single line of certo executes,
+    and one here loads a certificate-store shim that reaches for the system
+    trust store. certo contributes under a tenth of a second and can do
+    nothing about the rest -- but a `certo --help` that hangs is otherwise
+    indistinguishable from a certo that hangs."""
+    from certo import doctor
+
+    keys = [key for key, _r, _p in doctor.CHECKS]
+    assert "startup" in keys
+    for key, required, _probe in doctor.CHECKS:
+        if key == "startup":
+            assert required is False     # not certo's to fix
+
+    ok, detail = doctor._startup()
+    assert isinstance(ok, bool) and detail
+    # whichever way it goes, the number is in the message
+    assert any(ch.isdigit() for ch in detail)
+
+    # only `.pth` files that RUN code are named: a path entry costs nothing
+    hooks = doctor._startup_hooks()
+    assert isinstance(hooks, list)
+    assert all(h.endswith(".pth") for h in hooks)
+
+
+def test_only_pth_files_that_execute_are_counted():
+    """A `.pth` that adds a path costs nothing at startup; one that begins
+    `import` executes every time, and that is where a hang lives."""
+    import tempfile
+    from unittest import mock
+
+    from certo import doctor
+
+    d = pathlib.Path(tempfile.mkdtemp(prefix="certo_pth_"))
+    (d / "plain.pth").write_text("/some/path\n", encoding="utf-8")
+    (d / "runs.pth").write_text("import something_slow\n", encoding="utf-8")
+
+    with mock.patch("site.getsitepackages", return_value=[str(d)]):
+        assert doctor._startup_hooks() == ["runs.pth"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

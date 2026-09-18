@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib
 import os
 import shutil
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -76,7 +77,140 @@ def _lean():
     return _binary("lake", ("--version",), must_run=True)
 
 
+def _startup():
+    """How much of a certo invocation is the interpreter starting up?
+
+    A user reported `certo --help` staying alive indefinitely. It was not
+    certo: `site` runs every `.pth` in site-packages before a single line of
+    certo executes, and one of them here loads a certificate-store shim that
+    reaches for the system trust store. On a corporate network that can block.
+    certo contributes under a tenth of a second and can do nothing about the
+    rest -- but it can say where the time went, and a `certo --help` that
+    hangs is otherwise indistinguishable from a certo that hangs.
+
+    The check is the symptom, bounded: if the plain interpreter does not come
+    back within the timeout, that IS the report.
+    """
+    import sys
+
+    def timed(args, limit):
+        start = time.perf_counter()
+        try:
+            subprocess.run([sys.executable, *args, "-c", "pass"],
+                           capture_output=True, timeout=limit)
+        except subprocess.TimeoutExpired:
+            return None
+        except (OSError, subprocess.SubprocessError):
+            return -1.0
+        return time.perf_counter() - start
+
+    bare = timed(["-S"], 20)
+    full = timed([], 20)
+    if full is None:
+        return False, t("doctor.detail.startup_hang", seconds=20,
+                        names=", ".join(_startup_hooks()[:3]) or "-")
+    if bare is None or bare < 0 or full < 0:
+        return True, t("doctor.detail.startup_unknown")
+
+    overhead = full - bare
+    if overhead < 0.5:
+        return True, t("doctor.detail.startup_ok",
+                       total="{:.2f}".format(full))
+    return False, t("doctor.detail.startup_slow",
+                    total="{:.2f}".format(full),
+                    overhead="{:.2f}".format(overhead),
+                    names=", ".join(_startup_hooks()[:3]) or "-")
+
+
+def _startup_hooks() -> list:
+    """The `.pth` files that RUN code rather than just adding a path.
+
+    A path entry costs nothing. A line beginning `import` executes at every
+    interpreter start, which is where the time -- and any hang -- lives.
+    """
+    import glob
+    import os
+    import site
+
+    out = []
+    try:
+        roots = list(site.getsitepackages())
+    except Exception:  # noqa: BLE001
+        return out
+    for d in roots:
+        for f in glob.glob(os.path.join(d, "*.pth")) + \
+                glob.glob(os.path.join(d, "Lib", "site-packages", "*.pth")):
+            try:
+                text = open(f, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            if any(ln.startswith("import ") for ln in text.splitlines()):
+                out.append(os.path.basename(f))
+    return sorted(set(out))
+
+
+def _partial_install():
+    """Did a pip install stop halfway and leave the package in pieces?
+
+    On Windows pip cannot replace a file another process holds open, and
+    `certo-mcp.exe` is held open for as long as the MCP server runs. So
+    `pip install -e .` from inside an editor with the server attached aborts
+    part-way, renames the old distribution to `~`-something, and leaves
+    nothing installed under the real name -- which is how `pip show certo`
+    came to report a version three releases old while the tool reported the
+    current one.
+
+    The leftover is pip's own marker and it is the only reliable trace, so
+    that is what is looked for.
+    """
+    import site
+
+    leftovers = []
+    roots = []
+    try:
+        roots = list(site.getsitepackages())
+    except Exception:  # noqa: BLE001  -- a venv without the helper
+        pass
+    for d in roots:
+        p = Path(d) / "Lib" / "site-packages"
+        for base in (Path(d), p):
+            if not base.is_dir():
+                continue
+            for entry in base.glob("~*"):
+                leftovers.append(entry.name)
+    if not leftovers:
+        return True, t("doctor.detail.install_clean")
+    return False, t("doctor.detail.install_partial",
+                    n=len(leftovers), names=", ".join(sorted(leftovers)[:3]))
+
+
+def _installed_metadata():
+    """Does `pip show certo` agree with the code that is running?
+
+    They are declared once now, so they cannot be WRITTEN apart -- but an
+    editable install goes stale on its own the moment the version moves, and
+    a user found ours reporting 0.6.0 while the tool reported 0.9.0. A
+    disagreement here is not a broken install; it is a stale one, and saying
+    which is the whole value of the check.
+    """
+    from . import __version__
+
+    try:
+        from importlib.metadata import version
+
+        installed = version("certo")
+    except Exception as e:  # noqa: BLE001
+        return True, t("doctor.detail.metadata_absent", why=type(e).__name__)
+    if installed == __version__:
+        return True, t("doctor.detail.metadata_ok", version=installed)
+    return False, t("doctor.detail.metadata_stale", installed=installed,
+                    running=__version__)
+
+
 CHECKS = [
+    ("startup", False, _startup),
+    ("install", False, _partial_install),
+    ("metadata", False, _installed_metadata),
     # (key, required, probe)
     ("python", True, lambda: (sys.version_info >= (3, 11),
                               sys.version.split()[0])),

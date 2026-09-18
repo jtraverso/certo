@@ -11,6 +11,7 @@ join the repository without joining this file.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -105,9 +106,16 @@ PREREQS = {
 }
 
 
+#: The suite tests the tree it lives in, not whatever happens to be
+#: installed. Without this a half-finished `pip install` -- which on Windows
+#: is what happens whenever the MCP server holds `certo-mcp.exe` open -- makes
+#: every example fail for a reason that has nothing to do with the examples.
+ENV = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
+
+
 def run(args, label, expect=None):
     p = subprocess.run([sys.executable, "-m", "certo.cli", *args],
-                       cwd=ROOT, capture_output=True, text=True,
+                       cwd=ROOT, capture_output=True, text=True, env=ENV,
                        encoding="utf-8", errors="replace", timeout=900)
     if expect is not None:
         # An example that exists to be REJECTED has to be rejected: a linter

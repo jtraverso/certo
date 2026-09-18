@@ -31,6 +31,7 @@ import json
 from pathlib import Path
 
 from .certificate import Certificate
+
 from .i18n import t
 
 #: Where each kind keeps the sub-certificates it is built from. A certificate
@@ -147,6 +148,46 @@ def _headline(data: dict) -> str:
     return ""
 
 
+#: A theorem whose statement is `True` compiles, carries no `sorry`, and
+#: passes an axiom audit. It is invisible to every gate a formalisation
+#: project runs, which is exactly why it has to be looked for by name.
+HOLLOW_SHAPES = (" : True := by", " : True := ")
+
+
+def hollow_lean(root) -> list:
+    """Every `.lean` file under here that states nothing, and where.
+
+    This was the gap: `status` read certificates and never opened a Lean
+    file, so `theorem from_core : True` sat in a project untouched while the
+    report said everything was fine. A user found it by looking; nothing in
+    certo was looking.
+
+    It reads files certo did NOT write, on purpose. certo no longer emits a
+    hollow statement, which is why the only ones left are somebody else's --
+    and those are the ones that matter, because nobody remembers writing
+    them.
+    """
+    out = []
+    for f in sorted(Path(root).rglob("*.lean")):
+        # a Lean build tree is megabytes of dependencies, none of it the
+        # user's, and walking it turns a status call into a minute
+        if any(part in (".lake", "lake-packages", ".git") for part in f.parts):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if any(shape in line for shape in HOLLOW_SHAPES):
+                name = line.split()
+                name = name[1].rstrip(":") if len(name) > 1 else "?"
+                out.append({"path": str(f), "rel": _rel(f, Path(root)),
+                            "line": n, "name": name,
+                            "text": t("status.hollow.lean", name=name,
+                                      line=n)})
+    return out
+
+
 def scan(where=".", verify_all=False, limits=None) -> dict:
     """Read every certificate under `where` and work out where things stand."""
     from .certificate import verify as verify_cert
@@ -158,6 +199,11 @@ def scan(where=".", verify_all=False, limits=None) -> dict:
         files = [root]
     else:
         raise FileNotFoundError(str(root))
+
+    # Lean files are read whether or not there is a single certificate here:
+    # a project whose only artefact is a hollow theorem is precisely the one
+    # that needs telling.
+    lean_hollow = hollow_lean(root)
 
     nodes, embedded, broken, skipped = {}, set(), [], 0
     for f in files:
@@ -239,7 +285,10 @@ def scan(where=".", verify_all=False, limits=None) -> dict:
         "owed": [dict(o, path=n["path"], rel=n["rel"])
                  for n in order for o in n["owed"]],
         "hollow": [{"path": n["path"], "rel": n["rel"], "text": h}
-                   for n in order for h in n["hollow"]],
+                   for n in order for h in n["hollow"]]
+        + [{"path": h["path"], "rel": h["rel"], "text": h["text"]}
+           for h in lean_hollow],
+        "hollow_lean": lean_hollow,
         "stale": [{"path": n["path"], "rel": n["rel"], "spec": n["spec"],
                    "why": n["stale"]}
                   for n in order if n["stale"]],

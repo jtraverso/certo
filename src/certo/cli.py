@@ -1479,6 +1479,24 @@ def cmd_repro(args):
     return 1 if m["refused"] else 0
 
 
+def _print_hollow_lean(rep):
+    """Lean files that state nothing, named with their line.
+
+    `status` read certificates and never opened a `.lean`, so a
+    `theorem X : True` sat in a project untouched while the report said
+    everything was fine. It compiles, carries no `sorry`, and passes an axiom
+    audit -- which is exactly why it has to be looked for by name.
+    """
+    rows = rep.get("hollow_lean") or []
+    if not rows:
+        return
+    print(t("cli.status.lean_hollow", n=len(rows)))
+    for row in rows[:8]:
+        print("  {}:{}  {}".format(row["rel"], row["line"], row["name"]))
+    if len(rows) > 8:
+        print(t("cli.status.lean_more", n=len(rows) - 8))
+
+
 def cmd_status(args):
     """Where the proof stands, read off the certificates themselves."""
     from . import status_report
@@ -1496,8 +1514,14 @@ def cmd_status(args):
 
     if not rep["certificates"]:
         print(t("cli.status.empty", path=rep["root"], skipped=rep["skipped"]))
-        return 0
+        # A directory with no certificates and a hollow theorem in it is the
+        # WORST case, not the empty one: nothing was established and the file
+        # that says so passes every gate. Reporting "nothing here" and exiting
+        # zero is how it stayed unnoticed.
+        _print_hollow_lean(rep)
+        return 1 if rep.get("hollow_lean") else 0
 
+    _print_hollow_lean(rep)
     print(t("cli.status.header", n=rep["certificates"], path=rep["root"]))
     print("  " + "   ".join("{} {}".format(k, v)
                             for k, v in rep["kinds"].items()))
@@ -2149,9 +2173,33 @@ def _version_line() -> str:
             commit = out.stdout.strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    return t("cli.version", version=__version__,
+    line = t("cli.version", version=__version__,
              commit=commit or t("cli.version.no_commit"),
              schema=SCHEMA_VERSION)
+    stale = installed_version()
+    if stale is not None and stale != __version__:
+        # A user reported the CLI saying one version and `pip show` another.
+        # The two declarations are now one, so they cannot be WRITTEN apart --
+        # but an editable install still goes stale on its own, and silence
+        # here is what let it run for three releases.
+        line += "\n" + t("cli.version.drift", installed=stale,
+                          running=__version__)
+    return line
+
+
+def installed_version():
+    """What the packaging metadata claims, or None when it is not installed.
+
+    Deliberately not the source of `__version__`: a stale editable install
+    would then make the CLI report the OLD number confidently, which is worse
+    than reporting a disagreement.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("certo")
+    except Exception:  # noqa: BLE001  -- includes PackageNotFoundError
+        return None
 
 
 def main(argv=None) -> int:

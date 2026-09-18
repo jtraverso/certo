@@ -7,6 +7,82 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.9.1] — 2026-09-18
+
+Four problems a user reported against 0.9.0, and one of them contradicted a
+claim in 0.9.0's own release notes.
+
+### `status` never opened a Lean file
+
+0.9.0 said, of removing the Lean exporters: *"detection of hollow statements
+survives — `certo status` and `hollow_count` still find a `theorem X : True`
+in a file certo did not write"*. **That was false.** `status` read
+certificates and never opened a `.lean`; `hollow_count` existed and nothing
+called it on a user's files. A `theorem from_core : True` sat in a project
+untouched while the report said everything was fine — and it compiles, carries
+no `sorry`, and passes an axiom audit, so nothing else was going to catch it
+either.
+
+```
+$ certo status .
+no certificates under . (0 files were not certificates)
+1 Lean statement(s) here state True and nothing else. Each one compiles,
+carries no `sorry`, and passes an axiom audit, so every gate a formalisation
+runs calls it green:
+  Old.lean:3  from_core
+```
+
+It exits **1**: a directory with no certificates and a hollow theorem is the
+worst case, not the empty one. `.lake` build trees are skipped, because
+walking Mathlib turns a status call into a minute.
+
+### `pip show certo` reported a version three releases old
+
+Two causes, and the second is the one that matters.
+
+The version was declared twice — in `pyproject.toml` and in `__init__.py` —
+so a release had to edit both and they drifted. It is now declared once, in
+`__init__.py`, with `pyproject.toml` reading it.
+
+But the *mechanism* is worse: on Windows pip cannot replace a file another
+process holds open, and `certo-mcp.exe` is held for as long as the MCP server
+runs. `pip install -e .` from an editor with the server attached aborts
+part-way, renames the old distribution to `~`-something, and leaves nothing
+installed under the real name. Reproduced accidentally while fixing this —
+the same reinstall failed the same way and left the package unimportable.
+
+`certo doctor` now reports both: a leftover `~` directory with what to do
+about it, and a disagreement between the installed metadata and the running
+code. `certo --version` says so too, since that is where somebody looks.
+`__version__` is deliberately *not* read from the metadata: a stale install
+would then make the CLI report the old number confidently, which is worse than
+reporting a disagreement.
+
+### `certo --help` stayed alive indefinitely
+
+Not certo. Measured here:
+
+| | |
+|---|---|
+| bare interpreter | **1.30 s** |
+| `python -S` | **0.24 s** |
+| importing `certo.cli` | 0.08 s |
+
+The rest is `site` running every `.pth` in site-packages before a single line
+of certo executes, and one of them loads a certificate-store shim that reaches
+for the system trust store — which on a corporate network can block.
+
+certo cannot fix it, so `doctor` names it instead, and the check is the
+symptom bounded: if a bare interpreter does not return inside the timeout,
+*that* is the report. Only `.pth` files that begin with `import` are counted;
+one that merely adds a path costs nothing.
+
+### Still open
+
+The manual transcription point between Lean data and the Python matrix. Not
+touched.
+
+
 ## [0.9.0] — 2026-09-18
 
 Four new commands, three defects fixed, and one deliberate removal that is
