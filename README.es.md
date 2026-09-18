@@ -13,7 +13,7 @@ formalización cuesta horas.
 
 | | |
 |---|---|
-| **[Página del proyecto →](https://jtraverso.github.io/certo/)** | la introducción didáctica: para qué sirve, en una página, en ambos idiomas |
+| **[Página del proyecto →](https://jtraverso.github.io/certo-math/)** | la introducción didáctica: para qué sirve, en una página, en ambos idiomas |
 | **[Comandos](docs/es/COMMANDS.md)** | los cuarenta y seis, una entrada cada uno: la pregunta, el spec, el certificado, y qué **no** establece |
 | **[Specs](docs/es/SPECS.md)** | el DSL: cada tipo con un ejemplo mínimo que funciona, opciones comunes, códigos de salida |
 | **[Certificados](docs/es/CERTIFICATES.md)** | por qué son el centro, los cuarenta y siete tipos, cuáles se re-comprueban sin solver |
@@ -54,6 +54,18 @@ artefacto, y la mayoría se comprueba sin solver alguno.
 Requiere Python 3.11+.
 
 ```bash
+pip install "certo-math[mcp,numerics]"
+```
+
+El paquete importable y los comandos son `certo`, no `certo-math`:
+`from certo import Spec`, `certo prove spec.py`. Solo la distribución
+lleva el nombre largo, porque `certo` a secas es una palabra disputada.
+
+Desde un clon, en cambio:
+
+```bash
+git clone https://github.com/jtraverso/certo-math
+cd certo-math
 pip install -e ".[mcp,numerics]"
 ```
 

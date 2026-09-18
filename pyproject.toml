@@ -3,14 +3,39 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "certo"
+# The DISTRIBUTION is `certo-math`; the import package and the commands stay
+# `certo`. Renaming the package would break every spec ever written, every
+# `.mcp.json`, and the provenance in every certificate already issued -- and
+# "certo" alone is a crowded word in search. You type the distribution once.
+name = "certo-math"
 # ONE source of truth. This used to be written here AND in `__init__.py`, and
 # a release had to edit both -- so they drifted, and the installed metadata
 # reported 0.6.0 while the CLI reported 0.9.0. A user noticed before we did.
 dynamic = ["version"]
-description = "A laboratory for supporting mathematical proofs (CLI + MCP): decide, enumerate, optimise, synthesise and certify."
+description = "Certificates for the work before the proof: decide, enumerate, optimise, reduce and certify -- and re-check it all without trusting the tool. CLI + MCP."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Juan Pablo Traverso"}]
+keywords = ["proof", "certificate", "smt", "z3", "linear-programming",
+            "combinatorics", "lean", "mcp", "formalisation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
 dependencies = ["z3-solver>=4.12", "pulp>=2.7"]
+
+[project.urls]
+Homepage = "https://jtraverso.github.io/certo-math/"
+Repository = "https://github.com/jtraverso/certo-math"
+Changelog = "https://github.com/jtraverso/certo-math/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/jtraverso/certo-math/blob/main/docs/COMMANDS.md"
 
 [project.optional-dependencies]
 mcp = ["mcp>=2.0"]

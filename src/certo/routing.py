@@ -164,6 +164,36 @@ def prepared(spec):
 #: flags: a question that needs a mode -- which variable to eliminate, whether
 #: to prove optimality -- is a question with a missing piece, and guessing the
 #: piece would answer something else.
+#: The certificate kind each command emits on its conclusive path.
+#:
+#: DECLARED rather than derived, because an engine may emit different kinds on
+#: different paths -- `prove` gives an `unsat_core` or a `model` depending on
+#: the answer, and `shrink` gives `mus` or `shrink_graph` depending on the
+#: spec. What keeps it honest is `tests/run_examples`, which compares this
+#: against the kind every example actually produces.
+KIND_OF = {
+    "prove": "unsat_core", "check": "model", "core": "unsat_core",
+    "audit": "hypothesis_audit", "farkas": "farkas", "compose": "proof",
+    "induct": "induction", "synth": "cegis", "opt": "lp_dual",
+    "mixed": "mixed_design", "order": "asymptotic", "bounds": "ball",
+    "ideal": "ideal", "eliminate": "resultant",
+    "parametric": "parametric_bound", "peak": "integer_peak",
+    "reduce": "symmetry_reduction", "matrix": "integer_matrix",
+    "solve": "linear_system", "quotient": "equitable_quotient",
+    "cone": "toric_cone", "range": "variable_range",
+    "cycle": "dependency_cycle", "bind": "lean_binding",
+    "family": "family_extremum", "ratio": "ratio_bound",
+    "moment": "first_moment", "entry": "first_entry", "exists": "drat",
+    "cover": "exact_cover", "sos": "sos", "number": "number",
+    "cases": "drat", "enum": "graph_set", "sweep": "sweep",
+    "shrink": "mus", "bisect": "bisect",
+    # These report or route; they make no claim of their own.
+    "lint": None, "status": None, "doctor": None, "ask": None,
+    "commands": None, "repro": None, "verify": None, "export": None,
+    "ledger": None, "catalogue": None,
+}
+
+
 RUNNERS = {
     "prove": ("certo.engines.smt", "prove"),
     "check": ("certo.engines.smt", "check"),
@@ -185,6 +215,11 @@ RUNNERS = {
     "solve": ("certo.engines.algebra", "linear_system"),
     "quotient": ("certo.engines.algebra", "equitable_quotient"),
     "cone": ("certo.engines.algebra", "toric_cone"),
+    # `range` stays out on purpose: it needs `--var`, which is a decision
+    # `ask` cannot make. `cycle` and `bind` need nothing, so routing them
+    # is the whole point of having one entry point.
+    "cycle": ("certo.engines.algebra", "dependency_cycle"),
+    "bind": ("certo.engines.algebra", "lean_binding"),
     "family": ("certo.engines.algebra", "family_max"),
     # `CoverSpec` answers two questions: `cover` checks one you have, and
     # `exists` asks whether any does. `ask` takes the first as the default,

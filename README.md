@@ -13,7 +13,7 @@ costs hours.
 
 | | |
 |---|---|
-| **[Project page →](https://jtraverso.github.io/certo/)** | the didactic introduction: what certo is for, in one page, in both languages |
+| **[Project page →](https://jtraverso.github.io/certo-math/)** | the didactic introduction: what certo is for, in one page, in both languages |
 | **[Commands](docs/COMMANDS.md)** | all forty-six, one entry each: the question, the spec, the certificate, and what it does not establish |
 | **[Specs](docs/SPECS.md)** | the DSL: every spec type with a minimal working example, shared options, exit codes |
 | **[Certificates](docs/CERTIFICATES.md)** | why they are the centre, the forty-seven kinds, which re-check without a solver |
@@ -54,6 +54,18 @@ artefact, and most of them check without a solver at all.
 Requires Python 3.11+.
 
 ```bash
+pip install "certo-math[mcp,numerics]"
+```
+
+The import package and the commands are `certo`, not `certo-math`:
+`from certo import Spec`, `certo prove spec.py`. Only the distribution
+carries the longer name, because `certo` alone is a crowded word.
+
+From a checkout instead:
+
+```bash
+git clone https://github.com/jtraverso/certo-math
+cd certo-math
 pip install -e ".[mcp,numerics]"
 ```
 

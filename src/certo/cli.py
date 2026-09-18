@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -470,6 +471,22 @@ def cmd_ask(args):
 
 def cmd_commands(args):
     """Which command answers which question, in the terminal."""
+    if getattr(args, "table", False):
+        # The one table the documents are checked against. A flag rather than
+        # a command: the surface is the thing this project has to keep small,
+        # and this is the same question asked for machines.
+        from .catalogue import as_markdown, as_text, counts
+
+        if args.json:
+            from .catalogue import rows
+            print(json.dumps({"counts": counts(), "rows": rows()}, indent=2,
+                             ensure_ascii=False))
+        elif args.markdown:
+            from .i18n import DEFAULT_LANG
+            print(as_markdown(getattr(args, "lang", None) or DEFAULT_LANG))
+        else:
+            print(as_text())
+        return 0
     if args.json:
         print(json.dumps(
             [{"group": t(g), "rows": [{"question": t(q), "command": c}
@@ -1815,6 +1832,13 @@ def build_parser():
     common.add_argument("--lang", choices=available(),
                         help="output language (default: en, or $CERTO_LANG)")
     common.add_argument("--cert", metavar="FILE", help="write the certificate there")
+    # It guarantees exactly one thing: no code from the spec file runs. Not
+    # that the spec means what you think -- `lint` and the scope warnings are
+    # what work on that, and a mode that made people stop reading their own
+    # spec would trade a small risk for a larger one.
+    common.add_argument("--safe", action="store_true",
+                        help="refuse to EXECUTE a spec: only `.json` data "
+                             "specs run (same as CERTO_NO_EXEC=1)")
     common.add_argument("--timeout-ms", type=int, default=10_000, dest="timeout_ms")
     common.add_argument("--rlimit", type=int, default=20_000_000,
                         help="DETERMINISTIC work limit for z3")
@@ -1994,6 +2018,10 @@ def build_parser():
 
     sp = add("commands", "which command answers which question",
              aliases=("what",))
+    sp.add_argument("--table", action="store_true",
+                    help="the derived command/spec/engine/certificate table")
+    sp.add_argument("--markdown", action="store_true",
+                    help="with --table, as the documents carry it")
     sp.set_defaults(func=cmd_commands)
 
     sp = add("lint", "check a spec before spending the compute: no goal, an "
@@ -2304,16 +2332,29 @@ def installed_version():
     would then make the CLI report the OLD number confidently, which is worse
     than reporting a disagreement.
     """
-    try:
-        from importlib.metadata import PackageNotFoundError, version
+    from importlib.metadata import PackageNotFoundError, version
 
-        return version("certo")
-    except Exception:  # noqa: BLE001  -- includes PackageNotFoundError
-        return None
+    from .doctor import DISTRIBUTION
+
+    # Only PackageNotFoundError is swallowed. A blanket `except Exception`
+    # here hid a NameError for one commit and took the drift warning with it
+    # -- the same "guard goes quiet" this check exists to prevent, introduced
+    # while fixing it.
+    for name in (DISTRIBUTION, "certo"):    # the second: an older install
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            continue
+    return None
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+
+    # One flag, one process-wide setting: every `load_spec` in every
+    # engine reads it, so a command added later cannot forget to.
+    if getattr(args, "safe", False):
+        os.environ["CERTO_NO_EXEC"] = "1"
     if getattr(args, "lang", None):
         set_lang(args.lang)
     if getattr(args, "version", False):

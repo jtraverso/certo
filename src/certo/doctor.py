@@ -184,6 +184,12 @@ def _partial_install():
                     n=len(leftovers), names=", ".join(sorted(leftovers)[:3]))
 
 
+#: The name on PyPI. The import package is `certo`; this is what a
+#: metadata lookup has to ask for, and it is checked against
+#: `pyproject.toml` by a test so a rename cannot mute the check.
+DISTRIBUTION = "certo-math"
+
+
 def _installed_metadata():
     """Does `pip show certo` agree with the code that is running?
 
@@ -198,9 +204,17 @@ def _installed_metadata():
     try:
         from importlib.metadata import version
 
-        installed = version("certo")
-    except Exception as e:  # noqa: BLE001
-        return True, t("doctor.detail.metadata_absent", why=type(e).__name__)
+        installed = version(DISTRIBUTION)
+    except Exception:  # noqa: BLE001
+        try:
+            # Installs made before the distribution was renamed still carry
+            # the old name. Without this the check would find nothing, take
+            # the quiet branch, and stop working -- a guard that goes silent
+            # is worse than one that was never written.
+            installed = version("certo")
+        except Exception as e:  # noqa: BLE001
+            return True, t("doctor.detail.metadata_absent",
+                           why=type(e).__name__)
     if installed == __version__:
         return True, t("doctor.detail.metadata_ok", version=installed)
     return False, t("doctor.detail.metadata_stale", installed=installed,

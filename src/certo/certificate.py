@@ -1520,55 +1520,7 @@ def _replay(cert, limits, kind):
 
 
 def verify(cert: Certificate, limits=None) -> VerifyReport:
-    fn = {
-        "model": _verify_model,
-        "unsat_core": _verify_unsat_core,
-        "lp_dual": _verify_lp_dual,
-        "cegis": _verify_cegis,
-        "graph_set": _verify_graph_set,
-        "cnf_model": _verify_cnf_model,
-        "drat": _verify_drat,
-        "shrink_graph": _verify_shrink_graph,
-        "mus": _verify_mus,
-        "bisect": _verify_bisect,
-        "sweep": _verify_sweep,
-        "domain_sweep": _verify_domain_sweep,
-        "sweep_range": _verify_sweep_range,
-        "core_matrix": _verify_core_matrix,
-        "shrink_domain": _verify_shrink_domain,
-        "farkas": _verify_farkas,
-        "synth_proved": _verify_synth_proved,
-        "proof": _verify_proof,
-        "ball": _verify_ball,
-        "induction": _verify_induction,
-        "orbit_witnesses": _verify_orbit_witnesses,
-        "ideal": _verify_ideal,
-        "resultant": _verify_resultant,
-        "first_entry": _verify_first_entry,
-        "first_moment": _verify_first_moment,
-        "symmetry_reduction": _verify_symmetry_reduction,
-        "hypothesis_audit": _verify_hypothesis_audit,
-        "integer_matrix": _verify_integer_matrix,
-        "variable_range": _verify_variable_range,
-        "dependency_cycle": _verify_dependency_cycle,
-        "lean_binding": _verify_lean_binding,
-        "toric_cone": _verify_toric_cone,
-        "equitable_quotient": _verify_equitable_quotient,
-        "linear_system": _verify_linear_system,
-        "parametric_symmetry": _verify_parametric_symmetry,
-        "ratio_bound": _verify_ratio_bound,
-        "family_extremum": _verify_family_extremum,
-        "integer_peak": _verify_integer_peak,
-        "parametric_bound": _verify_parametric_bound,
-        "exact_cover": _verify_exact_cover,
-        "sos": _verify_sos,
-        "number": _verify_number,
-        "mixed_design": _verify_mixed_design,
-        "gap": _verify_gap,
-        "farkas_ray": _verify_farkas_ray,
-        "branch_bound": _verify_branch_bound,
-        "asymptotic": _verify_asymptotic,
-    }.get(cert.kind)
+    fn = VERIFIERS.get(cert.kind)
     if fn is None:
         return VerifyReport(
             False, cert.kind, cert.solver_free,
@@ -4414,3 +4366,62 @@ def _value(z3, sort, val):
     if sort == "Bool":
         return z3.BoolVal(val)
     raise ValueError("sort no soportado: " + str(sort))
+
+
+#: Every certificate kind, and what re-checks it. A kind that is not here
+#: verifies as unknown rather than as valid, which is the safe direction.
+#:
+#: Lifted out of `verify()` for two reasons. It was rebuilt on every call
+#: -- forty-seven entries, per certificate, in a loop that `status` runs
+#: over a whole directory -- and nothing outside could read it, so the
+#: catalogue that keeps the documents honest had no source for the kinds
+#: and a new kind meant editing a table nobody could see.
+VERIFIERS = {
+    "model": _verify_model,
+    "unsat_core": _verify_unsat_core,
+    "lp_dual": _verify_lp_dual,
+    "cegis": _verify_cegis,
+    "graph_set": _verify_graph_set,
+    "cnf_model": _verify_cnf_model,
+    "drat": _verify_drat,
+    "shrink_graph": _verify_shrink_graph,
+    "mus": _verify_mus,
+    "bisect": _verify_bisect,
+    "sweep": _verify_sweep,
+    "domain_sweep": _verify_domain_sweep,
+    "sweep_range": _verify_sweep_range,
+    "core_matrix": _verify_core_matrix,
+    "shrink_domain": _verify_shrink_domain,
+    "farkas": _verify_farkas,
+    "synth_proved": _verify_synth_proved,
+    "proof": _verify_proof,
+    "ball": _verify_ball,
+    "induction": _verify_induction,
+    "orbit_witnesses": _verify_orbit_witnesses,
+    "ideal": _verify_ideal,
+    "resultant": _verify_resultant,
+    "first_entry": _verify_first_entry,
+    "first_moment": _verify_first_moment,
+    "symmetry_reduction": _verify_symmetry_reduction,
+    "hypothesis_audit": _verify_hypothesis_audit,
+    "integer_matrix": _verify_integer_matrix,
+    "variable_range": _verify_variable_range,
+    "dependency_cycle": _verify_dependency_cycle,
+    "lean_binding": _verify_lean_binding,
+    "toric_cone": _verify_toric_cone,
+    "equitable_quotient": _verify_equitable_quotient,
+    "linear_system": _verify_linear_system,
+    "parametric_symmetry": _verify_parametric_symmetry,
+    "ratio_bound": _verify_ratio_bound,
+    "family_extremum": _verify_family_extremum,
+    "integer_peak": _verify_integer_peak,
+    "parametric_bound": _verify_parametric_bound,
+    "exact_cover": _verify_exact_cover,
+    "sos": _verify_sos,
+    "number": _verify_number,
+    "mixed_design": _verify_mixed_design,
+    "gap": _verify_gap,
+    "farkas_ray": _verify_farkas_ray,
+    "branch_bound": _verify_branch_bound,
+    "asymptotic": _verify_asymptotic,
+}

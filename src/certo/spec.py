@@ -7,6 +7,7 @@ than SMT-LIB, and validation sits on top.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 import types
 from dataclasses import dataclass, field
@@ -389,8 +390,13 @@ class BisectSpec:
 # ---------------------------------------------------------------------------
 
 
-def load_spec(path, expected=None):
+def load_spec(path, expected=None, safe=False):
     """Import a .py file and return whatever its `spec()` function returns.
+
+    A `.json` file is read as DATA instead, with nothing executed, and `safe`
+    refuses a `.py` outright. The guarantee is exactly "no code from this file
+    runs" -- not that the spec means what you think it does, which is what
+    `lint` and the scope warnings are for.
 
     Two things this does NOT do the usual way, both of them on purpose.
 
@@ -410,6 +416,17 @@ def load_spec(path, expected=None):
     p = Path(path).resolve()
     if not p.exists():
         raise FileNotFoundError(t("spec.not_found", path=p))
+
+    if p.suffix.lower() == ".json":
+        from .dataspec import load as _load_data
+        return _load_data(p, expected)
+    # The environment can force it for a whole process, which is how the MCP
+    # server is protected with one line in `.mcp.json` rather than a parameter
+    # on each of forty-six tools -- and a setting a caller cannot forget.
+    if safe or os.environ.get("CERTO_NO_EXEC", "").strip() not in ("", "0"):
+        from .dataspec import BUILDABLE
+        raise PermissionError(t("spec.exec_refused", path=p.name,
+                                known=", ".join(BUILDABLE)))
 
     here = str(p.parent)
     if here not in sys.path:

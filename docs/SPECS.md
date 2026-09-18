@@ -245,6 +245,67 @@ falling back to a cheaper invariant, because an invariant that merged two
 non-isomorphic families would merge two orbits and nothing downstream would
 notice.
 
+## A spec that executes nothing
+
+`load_spec` compiles and runs the `.py` it is handed. For a person editing
+their own file that is the trust an editor already has. For an **agent** it is
+the thinnest part of the surface: a model that writes a spec writes a program,
+and the loader cannot tell a linear program from anything else Python can do.
+
+Most of the corpus does not need it. Write the spec as **data** instead:
+
+```json
+{
+  "type": "LPSpec",
+  "sense": "max",
+  "var_names": ["x", "y"],
+  "bounds": {"x": [0, 10], "y": [0, 10]},
+  "obj": {"x": 2, "y": 3},
+  "cons": [["cap_a", {"x": 1, "y": 1}, "<=", 1]]
+}
+```
+
+```bash
+certo opt spec.json          # a .json spec never executes anything
+certo opt spec.py --safe     # refuses: this file would be executed
+CERTO_NO_EXEC=1 certo-mcp    # the whole server, in one line of .mcp.json
+```
+
+Buildable from data: `LPSpec`, `PackingSpec`, `MatrixSpec`,
+`LinearSystemSpec`, `ConeSpec`, `CycleSpec`, `CoverSpec`, `CNFSpec`,
+`NumberSpec`, `EquitableQuotientSpec`. Anything carrying a z3 formula or a
+callable is absent on purpose — there is no way to write one in JSON, and
+inventing an expression language is what this project decided not to do.
+
+**What it guarantees, exactly: no code from the file runs.** Nothing more. A
+JSON `LPSpec` can still encode the wrong program, and `lint`, the scope
+warnings and `verify`'s re-derivation are what work on that. A mode that made
+people stop reading their own spec would trade a small risk for a larger one.
+
+**Numbers are exact or refused.** `"7/12"` is a `Fraction`; `0.583` raises,
+because a float here is a float in the certificate and `verify` would call it
+not citable.
+
+**An unknown key is refused, not ignored.** A field name silently dropped is
+how a constraint goes missing — this project has paid for that once already. A
+key starting with `_` is a comment, since JSON has none and no spec field
+begins with one.
+
+## One table behind every count
+
+```bash
+certo commands --table              # command, spec, engine, certificate
+certo commands --table --markdown   # as the documents carry it
+certo commands --table --json
+```
+
+Derived from the parser, the routing map and the verifier registry, and the
+tests compare every document against it rather than against each other. The
+README table once said twenty-eight while listing twenty-nine with thirty-nine
+in the CLI; the project page said forty-three the day after the forty-sixth
+command shipped. None of that is a hard problem. Each is a number nobody
+recomputed.
+
 ## Options and exit codes
 
 Common options go **after** the subcommand:

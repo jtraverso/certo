@@ -7,6 +7,144 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.11.0] — 2026-09-18
+
+A reviewer worked through the repository at 0.10.0 and was right about almost
+everything they could check. This is what came of it, including the two places
+they were wrong — one of which was the project's fault.
+
+### `certo-math` on PyPI, and `import certo` unchanged
+
+The distribution is now **`certo-math`**:
+
+```bash
+pip install "certo-math[mcp,numerics]"
+```
+
+The import package and the commands stay `certo`. Renaming those would break
+every spec ever written (`from certo import Spec`), every `.mcp.json`, and the
+provenance recorded in every certificate already issued — for no gain a reader
+can see. You type the distribution once and the import every day, which is the
+split scikit-learn and Pillow make.
+
+The name is longer because `certo` alone is crowded in search. It was **not**
+taken on PyPI: the review said it was, and checking the index returned 404.
+
+The repository moved to `github.com/jtraverso/certo-math`, and the project page
+with it. GitHub redirects the old paths.
+
+### One table, and every surface checked against it
+
+Four surfaces describe the same commands — two READMEs, two command
+references, the project page, the routing table the terminal prints — and each
+has drifted at least once. The README table said twenty-eight while listing
+twenty-nine with thirty-nine in the CLI. The Spanish README ran two releases
+behind. **The project page still said forty-three the day after the
+forty-sixth command shipped**, because the parity test covered the markdown and
+not the page.
+
+```bash
+certo commands --table              # command, spec, engine, certificate
+certo commands --table --markdown
+certo commands --table --json
+```
+
+Derived from the parser, the routing map and the verifier registry. Four tests
+compare every document against it, including `docs/index.html`, and they found
+six stale counts in three files on the first run.
+
+It is a flag rather than a command. The diagnosis that prompted it is that the
+surface grows faster than it can be learned; answering that with a
+forty-seventh command would have been the wrong reply.
+
+**It also found a real gap.** `range`, `cycle` and `bind` were absent from
+`RUNNERS`, so `certo ask` could not route them. `cycle` and `bind` now route;
+`range` stays out because it needs `--var`, which is a decision `ask` cannot
+make.
+
+### A spec that executes nothing
+
+`load_spec` compiles and runs the `.py` it is handed. For a person editing
+their own file that is the trust an editor already has; for an agent it is the
+thinnest part of the surface, because a model that writes a spec writes a
+program.
+
+```bash
+certo opt spec.json          # a .json spec never executes anything
+certo opt spec.py --safe     # refuses: this file would be executed
+CERTO_NO_EXEC=1 certo-mcp    # the whole server, one line in .mcp.json
+```
+
+Ten spec types build from data: `LPSpec`, `PackingSpec`, `MatrixSpec`,
+`LinearSystemSpec`, `ConeSpec`, `CycleSpec`, `CoverSpec`, `CNFSpec`,
+`NumberSpec`, `EquitableQuotientSpec`. Anything carrying a z3 formula or a
+callable is absent on purpose: there is no way to write one in JSON, and
+inventing an expression language is what this project decided not to do.
+
+**It guarantees exactly one thing: no code from the file runs.** Not that the
+spec means what you think — `lint`, the scope warnings and `verify`'s
+re-derivation are what work on that, and a mode that made people stop reading
+their own spec would trade a small risk for a larger one. The documentation
+says so where the mode is described, rather than leaving "safe" to be read as
+"correct".
+
+Numbers are exact or refused: `"7/12"` is a `Fraction`, `0.583` raises, because
+a float here is a float in the certificate. An unknown key is refused rather
+than ignored — a field name silently dropped is how a constraint goes missing,
+and 0.10.0 shipped the fix for exactly that. A key starting with `_` is a
+comment, since JSON has none.
+
+### The verifier registry has a name
+
+`verify()` rebuilt a forty-seven entry dispatch table on every call — per
+certificate, inside the loop `status` runs over a whole directory — and nothing
+outside could read it. It is now `certificate.VERIFIERS`: a new kind is
+additive in one place, and the catalogue has a source for the kinds instead of
+a number somebody typed.
+
+### CI checks the rule it was not checking
+
+`determinism` is rule three — the budget is work, not wall clock — and it was
+the one cross-cutting rule CI did not run. Added, along with macOS and Python
+3.13. The 3.13 leg installs **without** the numerics extra on purpose: the CLI
+has to work on an install that has only z3 and pulp, and that is the
+configuration nobody tests by accident.
+
+### The backlog was two releases stale, and it cost a review
+
+The reviewer's third priority was local toric data as a checker, measured
+against the T1 cells. **That shipped in 0.9.2**, along with the Lean↔matrix
+transcription point they listed as P2. They recommended building what exists,
+because the document that ranks the work still said "at 0.9.1".
+
+That is the same failure as a README table nobody recomputes, on the one
+surface where being wrong redirects effort rather than confusing a reader. The
+file now separates what shipped from what is open, and the rule is written into
+it: an item leaves the list in the same commit that ships it.
+
+The top item is now splitting `cli.py` and `spec.py`, and it is the first entry
+ranked from a measurement of this repository rather than of a problem: adding
+three commands in 0.10.0 touched six files and two locale catalogues, for each
+of the three.
+
+### Not done, and why
+
+A REPL and a notebook were declined. The diagnosis they came with is that the
+surface grows faster than it can be learned or audited; two more surfaces, one
+of them an artefact that has to be kept in step, is not an answer to that — and
+keeping things in step is the failure mode this release is mostly about.
+
+A content-addressed certificate cache is on the list rather than in this
+release: it is real value, and it introduces a staleness surface, which is what
+`status --verify` exists to catch. Nobody has measured `compose` as slow.
+
+### Compatibility
+
+The schema is unchanged and frozen. No command was renamed or removed, the
+import package is still `certo`, and `--safe` defaults off. Installing from a
+checkout works exactly as before; `pip install certo` becomes
+`pip install certo-math`.
+
 ## [0.10.0] — 2026-09-18
 
 Six gaps a user reported after two sessions of real work, and one defect found

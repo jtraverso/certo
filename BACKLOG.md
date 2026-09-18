@@ -8,7 +8,19 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-18, at 0.9.1. The toric work is no longer specified from a report alone: a user ran `matrix` on the T1 cells and the numbers are on the table below. See "What changed the ranking".
+Last updated: 2026-09-18, at **0.10.0**.
+
+**This file went stale and it cost somebody a review.** A competent reader
+worked through the repository at 0.10.0, found this list still saying "at
+0.9.1", and recommended as their third priority a piece of work that had
+shipped in 0.9.2 -- local toric data as a checker, measured against the T1
+cells. They were right about everything they could check and wrong about this,
+because the document that ranks the work was two releases behind the work.
+
+That is the same failure as a README table nobody recomputes, on the one
+surface where being wrong redirects effort rather than confusing a reader. The
+rule this project applies everywhere else applies here: **an item leaves this
+list in the same commit that ships it.**
 
 ---
 
@@ -24,14 +36,37 @@ the shape of the corpus LPs all changed the moment they were measured.
 
 | | Item | Effort | Confidence | Radius | Unblocks |
 |---|---|---|---|---|---|
-| **P1** | Local toric geometry: cone, monoid, affine chart, divisors, multiplicity, discrepancy | **M-L** | **med** | low | the two geometric theorems T1 and T3 are blocked on exactly this |
-| **P2** | The transcription point between Lean data and a Python matrix | **S** | high | low | removes the one manual step left in a route that is otherwise checked end to end |
+| **P1** | Split `cli.py` and `spec.py` the way `certificate.py` was split | **M** | high | **high** | a new command touches six files today; the catalogue removed two of them |
+| **P2** | Affine semigroups: saturation, normality, Hilbert basis — as a CHECKER | **M** | med | low | the part of the toric route `cone` does not cover |
 | **P2** | Chow ring and toric intersection | **L** | **low** | none | — |
 | **P3** | A canonical form that scales, on its own | **L** | med | **high** | nothing that is currently blocked |
+| **P3** | Content-addressed certificate cache for `compose` / `status` | **M** | med | med | nobody has measured these as slow; it also adds a staleness surface |
 
-**The toric item moved up and its confidence moved with it**, for the reason
-this table keeps insisting on: it is no longer specified from a report. A user
-ran `matrix` on the real cells and the numbers came back --
+### Shipped, and removed from this list
+
+| Item | Where |
+|---|---|
+| Local toric geometry: cone, multiplicity, height, discrepancy | `certo cone`, **0.9.2** — measured against the T1 cells below |
+| The transcription point between Lean data and a Python matrix | `certo.interchange`, **0.9.2** — canonical JSON with a fingerprint both sides recompute |
+| Circularity detection in a parameter's own dependencies | `certo cycle`, **0.10.0** |
+| Growth classes beyond polynomial | the ladder behind `cycle`, **0.10.0** |
+| Exponent inference from relations | `order(relations=)`, **0.10.0** |
+| The admissible range of a variable, not one witness | `certo range`, **0.10.0** |
+| Certificate ↔ Lean declaration binding | `certo bind`, **0.10.0** |
+| Overdetermination: compatibility of two definitions | already `eliminate`; documented in **0.10.0** |
+| One derived table behind every documented count | `certo commands --table`, **0.10.0** |
+| A spec mode that executes nothing | `--safe` / `CERTO_NO_EXEC`, **0.10.0** |
+
+**Modularisation moved to the top, and it is the first item here ranked from
+a measurement of this repository rather than of a problem.** Adding `range`,
+`cycle` and `bind` in 0.10.0 touched `spec.py`, `certificate.py`,
+`engines/algebra.py`, `cli.py`, `routing.py`, `mcp_server.py` and two locale
+catalogues -- for each of the three. Lifting the verifier registry out of
+`verify()` removed one of those files from the list and gave the catalogue a
+source; `cli.py` at 2.3k lines and `spec.py` at 1.5k are the two that remain.
+
+The toric numbers below are what moved that item up in the first place, and
+they are kept because they are what `cone` was built against --
 
 | | rank | determinant | Smith |
 |---|---|---|---|

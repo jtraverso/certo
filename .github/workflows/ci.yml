@@ -16,20 +16,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python: ["3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.12", "3.13"]
+        # 3.13 is where the wheels for the optional numerics are thinnest, so
+        # it runs without them: the CLI has to work on an install that has
+        # only z3 and pulp, and that is the configuration nobody tests by
+        # accident.
+        exclude:
+          - {os: macos-latest, python: "3.11"}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e ".[mcp,numerics]"
+      - name: install
+        shell: bash
+        run: |
+          if [ "${{ matrix.python }}" = "3.13" ]; then
+            pip install -e ".[mcp]"        # no numerics wheels to rely on yet
+          else
+            pip install -e ".[mcp,numerics]"
+          fi
       - name: capabilities
         run: certo doctor
+      # `determinism` was the one cross-cutting rule CI did not check, which
+      # is the shape of promise that quietly stops being true. It is rule
+      # three: the budget is work, not wall clock.
       - name: tests
         shell: bash
-        run: for t in smoke mcp i18n extras adversarial; do python tests/test_$t.py; done
+        run: |
+          for t in smoke mcp i18n extras adversarial determinism; do
+            python tests/test_$t.py
+          done
 
   # The examples are the documentation, and documentation that no longer runs
   # is worse than none. Each one is executed exactly as the README shows it.

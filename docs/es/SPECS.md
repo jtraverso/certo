@@ -248,6 +248,70 @@ familia muy regular eso degenera hacia `n!`, así que hay un tope; alcanzarlo
 fusionara dos familias no isomorfas fusionaría dos órbitas y nada aguas abajo se
 enteraría.
 
+## Un spec que no ejecuta nada
+
+`load_spec` compila y ejecuta el `.py` que recibe. Para una persona editando
+su propio archivo eso es la confianza que ya tiene un editor. Para un
+**agente** es la parte más fina de la superficie: un modelo que escribe un spec
+escribe un programa, y el cargador no distingue un programa lineal de
+cualquier otra cosa que Python pueda hacer.
+
+La mayor parte del corpus no lo necesita. Escribe el spec como **datos**:
+
+```json
+{
+  "type": "LPSpec",
+  "sense": "max",
+  "var_names": ["x", "y"],
+  "bounds": {"x": [0, 10], "y": [0, 10]},
+  "obj": {"x": 2, "y": 3},
+  "cons": [["cap_a", {"x": 1, "y": 1}, "<=", 1]]
+}
+```
+
+```bash
+certo opt spec.json          # un spec .json nunca ejecuta nada
+certo opt spec.py --safe     # rechaza: este archivo se ejecutaría
+CERTO_NO_EXEC=1 certo-mcp    # el servidor entero, en una línea de .mcp.json
+```
+
+Construibles desde datos: `LPSpec`, `PackingSpec`, `MatrixSpec`,
+`LinearSystemSpec`, `ConeSpec`, `CycleSpec`, `CoverSpec`, `CNFSpec`,
+`NumberSpec`, `EquitableQuotientSpec`. Lo que lleva una fórmula z3 o un
+invocable está ausente a propósito: no hay forma de escribirlo en JSON, e
+inventar un lenguaje de expresiones es justo lo que este proyecto decidió no
+hacer.
+
+**Lo que garantiza, exactamente: ningún código del archivo se ejecuta.** Nada
+más. Un `LPSpec` en JSON todavía puede codificar el programa equivocado, y
+`lint`, los avisos de alcance y la re-derivación de `verify` son lo que
+trabaja sobre eso. Un modo que hiciera a la gente dejar de leer su propio spec
+cambiaría un riesgo pequeño por uno mayor.
+
+**Los números son exactos o se rechazan.** `"7/12"` es un `Fraction`; `0.583`
+lanza, porque un flotante aquí es un flotante en el certificado y `verify` lo
+llamaría no citable.
+
+**Una clave desconocida se rechaza, no se ignora.** Un nombre de campo
+descartado en silencio es como desaparece una restricción — este proyecto ya lo
+pagó una vez. Una clave que empieza por `_` es un comentario, ya que JSON no
+tiene y ningún campo de spec empieza así.
+
+## Una tabla detrás de cada recuento
+
+```bash
+certo commands --table              # comando, spec, motor, certificado
+certo commands --table --markdown   # como la llevan los documentos
+certo commands --table --json
+```
+
+Derivada del parser, la tabla de rutas y el registro de verificadores, y los
+tests comparan cada documento contra ella en vez de unos contra otros. La tabla
+del README llegó a decir veintiocho listando veintinueve con treinta y nueve en
+el CLI; la página del proyecto decía cuarenta y tres el día después de publicar
+el comando cuarenta y seis. Nada de eso es difícil. Cada uno es un número que
+nadie recalculó.
+
 ## Opciones y códigos de salida
 
 Las opciones comunes van **después** del subcomando:

@@ -1,4 +1,4 @@
-# Los cuarenta y tres comandos
+# Los cuarenta y seis comandos
 
 Agrupados por la pregunta que responden, en el mismo orden y con las mismas
 palabras que `certo commands` imprime en tu terminal. Si alguna vez discrepan,

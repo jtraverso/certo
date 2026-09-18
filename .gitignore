@@ -35,3 +35,6 @@ FEEDBACK*.md
 
 # written by examples/interchange_matrix.py on first run
 examples/interchange_cell.json
+
+# Build artefacts. The wheel and the sdist are produced from the tree, and a
+# committed one is a stale copy of something that has a version number.

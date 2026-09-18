@@ -8238,6 +8238,278 @@ def test_a_binding_names_a_hypothesis_that_is_not_there():
             raise AssertionError("bound to a hypothesis that is not there")
 
 
+# --- one table, and every surface checked against it -----------------------
+
+
+def _surfaces():
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for rel in ("README.md", "README.es.md", "docs/COMMANDS.md",
+                "docs/es/COMMANDS.md", "docs/CERTIFICATES.md",
+                "docs/es/CERTIFICATES.md", "docs/index.html"):
+        yield rel, (root / rel).read_text(encoding="utf-8")
+
+
+def test_the_catalogue_is_derived_and_covers_every_command():
+    """The table the documents are compared against has to come from the code
+    that runs, or it is one more thing to keep in step."""
+    from certo import catalogue, routing
+
+    rows = catalogue.rows()
+    names = {r["command"] for r in rows}
+    assert names == set(_subcommands())
+    assert len(rows) == catalogue.counts()["commands"]
+
+    # every command has a declared kind entry, even if that entry is None
+    missing = sorted(names - set(routing.KIND_OF))
+    assert not missing, {"commands with no KIND_OF entry": missing}
+
+    # and every kind named is one the registry can actually verify
+    from certo.certificate import VERIFIERS
+
+    unknown = sorted({k for k in routing.KIND_OF.values()
+                      if k is not None and k not in VERIFIERS})
+    assert not unknown, {"kinds nothing verifies": unknown}
+
+
+def test_every_document_that_states_a_count_states_the_right_one():
+    """`docs/index.html` said forty-three the day after the forty-sixth
+    command shipped, because the parity test covered the markdown and not the
+    page. The README table said twenty-eight while listing twenty-nine with
+    thirty-nine in the CLI. Same failure, three surfaces, and none of it is a
+    hard problem: it is a number nobody recomputes."""
+    import re
+
+    from certo import catalogue
+
+    counts = catalogue.counts()
+    en, es = catalogue.WORDS_EN, catalogue.WORDS_ES
+
+    def numerals(k):
+        """Every way a document might spell a number -- and only those.
+
+        Matching "any word before `comandos`" flagged `lista de comandos`,
+        which is prose. A test that cries wolf is a test that gets muted, and
+        this one is guarding the surface that drifted first.
+        """
+        out = {str(v): v for v in range(1, 100)}
+        out.update({w: k2 for k2, w in en.items()})
+        out.update({w: k2 for k2, w in es.items()})
+        return out
+
+    SPELLINGS = numerals(0)
+    UNITS = (("commands", "commands"), ("comandos", "commands"),
+             ("certificate kinds", "kinds"), ("tipos de certificado", "kinds"))
+
+    wrong = []
+    for rel, text in _surfaces():
+        low = text.lower()
+        for unit, which in UNITS:
+            want = counts[which]
+            for spelling, value in SPELLINGS.items():
+                if value == want:
+                    continue
+                # A boundary, or `43 commands` also reports `3 commands`.
+                if re.search(r"(?<![\w-])" + re.escape(spelling) + r"\s+"
+                             + re.escape(unit), low):
+                    wrong.append({"in": rel,
+                                  "says": "{} {}".format(spelling, unit),
+                                  "should be": want})
+    assert not wrong, wrong
+
+
+def test_the_readme_tables_list_exactly_the_commands_that_exist():
+    """The table is where a reader looks for whether something exists at all:
+    a user concluded `audit` did not, because it was missing from this one."""
+    import re
+
+    from certo import catalogue
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    names = {r["command"] for r in catalogue.rows()}
+    for rel, pattern in (("README.md", r"^## The [a-z-]+ commands$"),
+                         ("README.es.md", r"^## Los [a-z ]+ comandos$")):
+        text = (root / rel).read_text(encoding="utf-8")
+        head = re.search(pattern, text, re.M)
+        assert head, rel + ": the commands section was renamed"
+        block = re.split(r"\n## ", text.split(head.group(0), 1)[1])[0]
+        listed = re.findall(r"^\| `([a-z]+)`", block, re.M)
+        assert set(listed) == names, {
+            "readme": rel, "missing": sorted(names - set(listed)),
+            "not a command": sorted(set(listed) - names)}
+        assert len(listed) == len(set(listed)), rel + ": a command twice"
+
+
+def test_the_project_page_is_a_surface_like_any_other():
+    """It was not covered, and it drifted first. It also carries the install
+    line, which pointed at a package that does not exist on PyPI and would
+    have 404'd for every visitor."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    page = (root / "docs/index.html").read_text(encoding="utf-8")
+
+    from certo import catalogue
+
+    n = catalogue.counts()
+    assert "{} commands".format(n["commands"]) in page
+    assert "{} comandos".format(n["commands"]) in page
+    assert "{} certificate kinds".format(n["kinds"]) in page
+    assert "{} tipos de certificado".format(n["kinds"]) in page
+
+    # both language halves are still there, and the links still resolve
+    assert 'id="en"' in page and 'id="es"' in page
+
+
+# --- a spec that executes nothing ------------------------------------------
+
+
+def test_a_json_spec_runs_with_nothing_executed():
+    """`load_spec` compiles and runs the `.py` it is handed. For a person
+    editing their own file that is the trust an editor already has; for an
+    AGENT it is the thinnest part of the surface, because a model that writes
+    a spec writes a program. Most of the corpus is data."""
+    from certo import LPSpec
+    from certo.spec import load_spec
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    spec = load_spec(str(root / "examples/lp_as_data.json"), LPSpec)
+    assert isinstance(spec, LPSpec)
+    assert spec.var_names == ["x", "y"]
+
+    from certo.engines import lp
+
+    res = lp.opt(spec)
+    assert res.certificate is not None
+    # max 2x+3y with x+y <= 1 and x+2y <= 1 is 2, at x=1: the second row is
+    # what stops y from paying for itself.
+    assert res.certificate.payload["objective"] == "2"
+
+
+def test_safe_refuses_a_python_spec_by_flag_and_by_environment():
+    """One setting, process-wide, so a command added later cannot forget it --
+    and so the MCP server is protected by a line in `.mcp.json` rather than a
+    parameter on each of forty-six tools."""
+    import os
+
+    from certo.spec import load_spec
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    py = str(root / "examples/amgm.py")
+
+    try:
+        load_spec(py, safe=True)
+    except PermissionError as e:
+        assert "EXECUTED" in str(e) or "EJECUTAR" in str(e)
+    else:
+        raise AssertionError("a .py ran under safe=True")
+
+    old = os.environ.get("CERTO_NO_EXEC")
+    os.environ["CERTO_NO_EXEC"] = "1"
+    try:
+        load_spec(py)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("a .py ran under CERTO_NO_EXEC=1")
+    finally:
+        if old is None:
+            os.environ.pop("CERTO_NO_EXEC", None)
+        else:
+            os.environ["CERTO_NO_EXEC"] = old
+
+    # and the data spec still runs under the same setting
+    os.environ["CERTO_NO_EXEC"] = "1"
+    try:
+        assert load_spec(str(root / "examples/lp_as_data.json")) is not None
+    finally:
+        os.environ.pop("CERTO_NO_EXEC", None)
+
+
+def test_an_unknown_field_is_refused_rather_than_dropped():
+    """A key silently ignored is how a constraint goes missing, and this
+    project has already paid for that: a coefficient on an undeclared variable
+    turned a certified 1/3 into a certified 10."""
+    import json
+    import tempfile
+
+    from certo.dataspec import NotData
+    from certo.spec import load_spec
+
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "s.json"
+        f.write_text(json.dumps(
+            {"type": "LPSpec", "var_names": ["a"], "objetive": {"a": 1}}),
+            encoding="utf-8")
+        try:
+            load_spec(str(f))
+        except NotData as e:
+            assert "objetive" in str(e)
+        else:
+            raise AssertionError("a misspelled field was accepted")
+
+
+def test_a_float_is_refused_because_the_certificate_would_carry_it():
+    """A float here is a float in the payload, and `verify` would call it not
+    citable. Saying so once, at load, beats saying it at the end of a run."""
+    import json
+    import tempfile
+
+    from certo.dataspec import NotData
+    from certo.spec import load_spec
+
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "s.json"
+        f.write_text(json.dumps(
+            {"type": "LPSpec", "var_names": ["a"], "obj": {"a": 0.333}}),
+            encoding="utf-8")
+        try:
+            load_spec(str(f))
+        except NotData as e:
+            assert "exact" in str(e) or "exacto" in str(e)
+        else:
+            raise AssertionError("a float was accepted")
+
+
+def test_a_spec_type_that_carries_formulas_is_not_pretended_buildable():
+    """There is no way to write a z3 formula in JSON, and inventing an
+    expression language is the thing this project decided not to build."""
+    from certo.dataspec import BUILDABLE, NotData, build
+
+    assert "Spec" not in BUILDABLE          # carries formulas
+    assert "SweepSpec" not in BUILDABLE     # carries callables
+    assert "LPSpec" in BUILDABLE
+
+    try:
+        build("Spec", {})
+    except NotData as e:
+        assert "LPSpec" in str(e)
+    else:
+        raise AssertionError("a formula-carrying spec was built from data")
+
+
+def test_the_distribution_name_the_code_looks_up_is_the_one_declared():
+    """The rename to `certo-math` would have silenced the staleness check.
+
+    `doctor` asked `importlib.metadata` for "certo", which raises once the
+    distribution is called something else -- and the except branch returns
+    "metadata absent", quietly, forever. A guard that goes silent is worse
+    than one that was never written, so the name is tied to `pyproject.toml`
+    here rather than repeated in three files."""
+    import re
+
+    from certo.doctor import DISTRIBUTION
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    toml = (root / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r'^name = "([^"]+)"', toml, re.M)
+    assert m, "pyproject has no name"
+    assert DISTRIBUTION == m.group(1), {
+        "pyproject says": m.group(1), "the code looks up": DISTRIBUTION}
+
+    # and the import package is deliberately NOT renamed with it
+    import certo
+
+    assert certo.__name__ == "certo"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

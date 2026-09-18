@@ -1,4 +1,4 @@
-# The forty-three commands
+# The forty-six commands
 
 Grouped by the question they answer, in the same order and the same words as
 `certo commands` prints in your terminal. If the two ever disagree, the
