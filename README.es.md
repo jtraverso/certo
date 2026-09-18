@@ -6,7 +6,7 @@ romper las afirmaciones falsas, medir lo que sobrevive, reducirlo a lo que
 realmente es, y ensamblar el resto— y cada paso vuelve con un **certificado
 que cualquiera puede re-comprobar sin fiarse de certo.**
 
-CLI y MCP. Cuarenta y tres comandos. Corre en milisegundos donde una
+CLI y MCP. Cuarenta y seis comandos. Corre en milisegundos donde una
 formalización cuesta horas.
 
 *English: [README.md](README.md) · cualquier comando acepta `--lang en`.*
@@ -14,9 +14,9 @@ formalización cuesta horas.
 | | |
 |---|---|
 | **[Página del proyecto →](https://jtraverso.github.io/certo/)** | la introducción didáctica: para qué sirve, en una página, en ambos idiomas |
-| **[Comandos](docs/es/COMMANDS.md)** | los cuarenta y tres, una entrada cada uno: la pregunta, el spec, el certificado, y qué **no** establece |
+| **[Comandos](docs/es/COMMANDS.md)** | los cuarenta y seis, una entrada cada uno: la pregunta, el spec, el certificado, y qué **no** establece |
 | **[Specs](docs/es/SPECS.md)** | el DSL: cada tipo con un ejemplo mínimo que funciona, opciones comunes, códigos de salida |
-| **[Certificados](docs/es/CERTIFICATES.md)** | por qué son el centro, los cuarenta y cuatro tipos, cuáles se re-comprueban sin solver |
+| **[Certificados](docs/es/CERTIFICATES.md)** | por qué son el centro, los cuarenta y siete tipos, cuáles se re-comprueban sin solver |
 | **[Casos trabajados](docs/es/CASES.md)** | problemas reales de punta a punta: simetría, barridos, cotas paramétricas, empaquetamientos, datos tóricos |
 | **[Límites](docs/es/LIMITS.md)** | qué no hace, y las preguntas frecuentes |
 | **[Recorrido](examples/WALKTHROUGH.md)** | un problema, siete comandos, quince segundos |
@@ -125,7 +125,7 @@ en tu idioma.
 5. Los certificados se escriben a disco y no viajan en la respuesta MCP. Llama
    a `verify` con la ruta que te dan.
 
-## Los cuarenta y tres comandos
+## Los cuarenta y seis comandos
 
 Agrupados como los agrupa [`certo commands`](docs/es/COMMANDS.md). Las entradas
 completas, con lo que cada uno **no** establece, en
@@ -167,6 +167,9 @@ completas, con lo que cada uno **no** establece, en
 | `sweep` | Predicado y/o valor sobre una familia o CUALQUIER dominio finito | nauty o Python | familia **+ certificados del predicado** |
 | `shrink` | Minimiza un contraejemplo (grafo o MUS) | CDCL / reducción | testigo de minimalidad |
 | `bisect` | El umbral de una constante | prove o cases | el par que lo acota |
+| `range` | El intervalo admisible de una variable sobre el régimen, no un punto suyo | dual LP exacto | **una combinación de Farkas en cada extremo**, sin solver |
+| `cycle` | Un parámetro que depende de sí mismo: compone las clases de crecimiento y cierra el ciclo | escalera de crecimiento | **la cadena, sus clases y la única comparación**, sin solver |
+| `bind` | Ata un certificado a la declaración Lean que debe justificarlo, y comprueba que lo hace | implicación Z3 | **la hipótesis, el enunciado, y si uno cubre al otro** |
 | `lint` | Comprueba un spec antes de gastar el cómputo en él | — | — |
 | `status` | Dónde está una demostración: demostrado, debido, hueco, obsoleto | — | — |
 | `doctor` | Qué puede hacer esta instalación, y qué cuesta cada hueco | — | — |
@@ -263,7 +266,7 @@ porque un número que nadie recalcula es un número equivocado.
 for t in smoke mcp i18n extras adversarial determinism; do python tests/test_$t.py; done
 ```
 
-`python tests/run_examples.py` corre los 59 specs de ejemplo y verifica cada
+`python tests/run_examples.py` corre los 65 specs de ejemplo y verifica cada
 certificado que producen.
 
 Notas de versión en [CHANGELOG.md](CHANGELOG.md); lo planeado, lo bloqueado y

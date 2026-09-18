@@ -7,6 +7,166 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.10.0] — 2026-09-18
+
+Six gaps a user reported after two sessions of real work, and one defect found
+while checking the fifth of them. Nothing they reported was a bug: every item
+was something certo did exactly as asked and could not be asked to do more.
+
+### A typo turned a certified 1/3 into a certified 10
+
+Found while probing the range request, and the worst kind of defect this
+project can have. `LPSpec.as_leq_system` builds each row as
+`coeffs.get(v, 0) for v in var_names`, so a coefficient on a name that was
+never declared with `variable()` is indistinguishable from a zero once the row
+exists — and the constraint meant to hold the variable back was not in the
+program at all.
+
+```
+constraint on `b`  (correct):  EXACT optimum certified: 1/3
+constraint on `bb` (one typo): EXACT optimum certified: 10
+```
+
+`lint` said "nothing that will bite" — its `no_variables` check only fires when
+NONE were declared — and `verify` passed, because 10 really is the optimum of
+the program that was built. A confidently wrong number with a certificate
+attached.
+
+Now refused at the single normalisation point every consumer goes through — the
+two LP engines, the branch-and-bound node rebuild, `family` — and reported by
+`lint` before the compute is spent, in both languages. The check is at
+normalisation rather than at `constraint()`, so declaring after use stays
+legal; a test pins that.
+
+### `certo range`: the interval, not one point of it
+
+`check --hypotheses-only` exhibits a MODEL. That answers whether the regime is
+inhabited and nothing else, and a user who needed `a <= 1/3` got `a = 0` and
+derived the rest by hand.
+
+Both ends are exact rational LP duals, so the multipliers ARE the proof: `1/3`
+times the row `3a - 1 <= 0` gives `a <= 1/3`, and duality says nothing tighter
+follows. Checking one is adding fractions.
+
+The variables are FREE — a regime is not a packing and `a` may be negative — so
+the dual constraint is an equality rather than an inequality. A dual derived
+under `x >= 0` would certify a bound that does not hold.
+
+An EMPTY regime is its own answer, not an infinite interval. Over an empty
+regime every direction is unbounded, and the first version read that as
+`(-inf, +inf)`: the variable ranges over everything. There is no variable.
+Inhabitation is asked first. A strict binding row leaves the endpoint OPEN and
+says so, and a non-linear hypothesis is refused by name rather than dropped —
+dropping it would widen the range, wrong in the direction that looks safe.
+
+### `certo cycle`: a parameter that depends on itself
+
+The most expensive shape in the report, found three times in one session and
+only because the user already suspected it. Three innocent lines, none of which
+mentions a cycle:
+
+```
+k     >= tower(1/delta)        the regularity lemma's bound
+rho   <= K / (3 k**2)          what the crude count leaves
+delta <= rho                   Chebyshev
+```
+
+Declare each dependency as a growth CLASS — `poly` with a degree, `exp`,
+`tower`, optionally of the reciprocal — and certo composes them once and
+compares the two ends. `delta -> k -> rho -> delta` gives
+`delta <= K/(3 tower(1/delta)**2)`, whose right-hand side vanishes faster than
+any power of delta, so no positive delta survives.
+
+This subsumes the second request as well, and that is the point of doing them
+together. Finding it by hand means inventing a stand-in a solver can see —
+`k >= 1/delta` was the one used — which proves something strictly weaker and
+leaves the tower carried in prose. Here the tower is what is declared, what is
+composed, and what the certificate says.
+
+MONOTONICITY IS TRACKED. `rho <= K/(3k**2)` bounds rho from above only because
+the map decreases in `k`, and what is available is a lower bound on `k`. An
+edge whose available side does not support the direction needed is REFUSED by
+name: composing it anyway could declare a live regime empty, which is the one
+error this must not make. `empty` is only ever set on a STRICT comparison, and
+anything else comes back "not established by this route", never "there is no
+cycle".
+
+`exp` of a VANISHING argument is a constant, not growth. Claiming a tier there
+would close a loop that does not close.
+
+### `order(relations=...)`: exponents derived, not assigned
+
+`OrderSpec` asked for the exponent of every symbol. On the reported term that
+was six numbers worked out mentally from `|E| <= Lmass`, `C >= n`,
+`d' >= C(n,2)` — and one wrong entry gives a clean false answer, which is
+exactly where automating pays.
+
+Every relation is LINEAR in the exponents, so the system is a linear program
+solved exactly. `["E ~ n**2", "tC ~ 1", "Lmass ~ E * tC", "C ~ n",
+"dp ~ C**2"]` yields `{C: 1, E: 2, Lmass: 2, dp: 2, tC: 0}` — the same six
+numbers, and nobody had to be right about them.
+
+The growth variable is pinned at one. Leaving it free made every interval
+unbounded and every verdict `undecided`: true of the system as written, and not
+what was meant.
+
+It refuses rather than guesses. The Laurent core needs a number per symbol and
+an interval is not one, so a symbol left one-sided is refused WITH its
+interval: `Lmass in [1, +inf)` says which bound is missing, and "cannot infer"
+does not.
+
+### `certo bind`: what the certificate assumed vs what the lemma gives
+
+A bound certified ASSUMING the fine counting estimate, and a packaged
+`patCount_K4_le` that uses density `<= 1` and gives something useless. Nothing
+warned; it was found three modules later, by going to read the statement.
+
+certo reads the certificate's provenance, loads the spec it came from, finds
+the hypothesis named in `discharges`, and asks whether what you say the
+declaration PROVIDES entails it. The gap is reported at BIND time, which is
+when you are looking at the statement.
+
+It remains a BRIDGE and is labelled one: nothing here reads Mathlib, so that
+your rendering is faithful is your claim, exactly as a `compose` bridge is.
+What changes is when it bites. A spec that has moved since the certificate was
+issued is reported STALE rather than read as if it had not.
+
+### Overdetermination was already `eliminate`, and now says so
+
+Two equations defining the same quantity — `A m = P6 t^4` and
+`A^2 m = P11 t^6` — are compatible exactly where the resultant in `A` vanishes:
+`m t^6 (P6^2 t^2 - m P11)`, so away from the degenerate cases the condition is
+`P6^2 / P11 = m / t^2`. That is the identity the doubling argument produces,
+recovered rather than assumed. No new machinery; the gap was that nothing said
+this was the command for it. Documented, with `examples/overdetermined.py`.
+
+### A message called with the wrong placeholders
+
+`verify.range.detail` belonged to `sweep_range` and reads
+`{sizes} sizes; first failure: {first}`. A new command reused the
+`verify.range.*` namespace, called that key with `var=` and `interval=`, and
+every certificate it produced failed its own verifier with `KeyError: 'sizes'`.
+The self-check caught it at run time. Now a test catches it at test time, by
+AST: every literal `t("key", ...)` call is checked against the placeholders its
+message declares.
+
+It found six more, all the other way — a message that declares no placeholder
+being handed data it then drops. Two scope warnings were saying "at or above
+the floor" while the floor was passed in and discarded, which is precisely the
+vagueness that lets someone misread a scope later. All six now print what they
+were given.
+
+The test also has a false-positive guard, learned the hard way: a call using
+`**kwargs` hides its names, and two working commands were nearly "fixed" on the
+strength of one such report.
+
+### Compatibility
+
+The schema is unchanged and frozen. Three new certificate kinds —
+`variable_range`, `dependency_cycle`, `lean_binding` — and new kinds have
+always been additive. `OrderSpec.relations` is optional and defaults to None,
+so every existing spec behaves exactly as before.
+
 ## [0.9.2] — 2026-09-18
 
 Three things a user's report asked for, in the order they asked.

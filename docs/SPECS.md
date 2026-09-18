@@ -48,6 +48,8 @@ back, and an unnamed hypothesis is one you cannot be told about.
 | `MatrixSpec` | `matrix` |
 | `LinearSystemSpec` | `solve` |
 | `ConeSpec` | `cone` |
+| `CycleSpec` | `cycle` |
+| `BindSpec` | `bind` |
 | `FamilySpec` | `family` |
 | `CoverSpec` | `cover`, `exists` |
 | `RatioSpec` | `ratio` |

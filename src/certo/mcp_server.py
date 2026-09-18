@@ -1388,6 +1388,90 @@ async def solve(spec_path: str | None = None, spec_source: str | None = None,
 
 
 @mcp.tool(description=(
+    "RANGE: how far one variable may go over a regime -- the whole interval, "
+    "not one point of it. `check --hypotheses-only` exhibits a MODEL, which "
+    "answers whether the regime is inhabited and nothing else; a user who "
+    "needed `a <= 1/3` got `a = 0` and derived the rest by hand. Both ends "
+    "here are exact rational LP duals, so the certificate carries the "
+    "NON-NEGATIVE COMBINATION of hypotheses that yields each bound and "
+    "checking it is adding fractions. The variables are FREE -- a regime is "
+    "not a packing and `a` may be negative. AN EMPTY REGIME IS ITS OWN "
+    "ANSWER, not an infinite interval: over an empty regime every direction "
+    "is unbounded, and reading that as `the variable ranges over everything` "
+    "is the permissive-looking mistake. A strict binding row makes the "
+    "endpoint OPEN and says so. Linear hypotheses only: a non-linear one is "
+    "refused by name rather than dropped, because dropping it would widen "
+    "the range -- wrong in the direction that looks safe."))
+@_guard
+async def range(spec_path: str | None = None,  # noqa: A001 - the tool IS `range`
+                spec_source: str | None = None,
+                var: str = "", timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import Spec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), Spec)
+    res = await _off(algebra.variable_range, spec, var, _limits(timeout_ms),
+                     str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "CYCLE: a parameter that depends on itself, and whether the loop can "
+    "close. The expensive shape is three innocent lines -- `k >= "
+    "tower(1/delta)`, `rho <= K/(3k^2)`, `delta <= rho` -- none of which "
+    "mentions a cycle, and there is one. Declare each dependency as a GROWTH "
+    "CLASS (`poly` with a degree, `exp`, `tower`, optionally of the "
+    "reciprocal) and certo composes them once and compares the two ends. When "
+    "the comparison is STRICT in the direction that refutes the closing "
+    "constraint, no positive parameter survives, and the certificate is the "
+    "chain plus that one comparison -- no solver. THE CLASSES ARE YOURS: that "
+    "`k` grows like a tower is what your lemma says, and certo checks only "
+    "what follows from it. MONOTONICITY IS TRACKED, so an edge whose "
+    "available bound points the wrong way is REFUSED rather than composed -- "
+    "composing it could declare a live regime empty. A cycle that is not "
+    "refuted comes back `not established by this route`, never `there is no "
+    "cycle`."))
+@_guard
+async def cycle(spec_path: str | None = None, spec_source: str | None = None,
+                timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import CycleSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), CycleSpec)
+    res = await _off(algebra.dependency_cycle, spec, _limits(timeout_ms),
+                     str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
+    "BIND: tie a certificate to the Lean declaration meant to justify it, and "
+    "check that the declaration actually gives what the certificate assumed. "
+    "The failure this exists for: a bound certified ASSUMING a fine counting "
+    "estimate, and a packaged lemma that uses density <= 1 and gives "
+    "something useless -- discovered three modules later, by reading the "
+    "statement. certo reads the certificate's provenance, loads the spec it "
+    "came from, finds the named hypothesis, and asks whether what you say the "
+    "declaration PROVIDES entails it. A gap is reported at bind time, which "
+    "is when you are looking at the statement. IT REMAINS A BRIDGE: nothing "
+    "here reads Mathlib, so that your rendering is faithful is your claim, "
+    "and `verify` says so every time. A spec that changed since the "
+    "certificate was issued is reported STALE rather than read as if it had "
+    "not."))
+@_guard
+async def bind(spec_path: str | None = None, spec_source: str | None = None,
+               timeout_ms: int = 60_000) -> dict:
+    from .engines import algebra
+    from .spec import BindSpec, load_spec
+
+    f = _spec_file(spec_path, spec_source)
+    spec = load_spec(str(f), BindSpec)
+    res = await _off(algebra.lean_binding, spec, _limits(timeout_ms), str(f))
+    return _emit(res, spec_file=f)
+
+
+@mcp.tool(description=(
     "CONE: the local toric data two geometric theorems consume, computed from "
     "the ray generators instead of assumed. Returns, exactly and without a "
     "solver: whether each generator is PRIMITIVE, the MULTIPLICITY (the index "

@@ -347,6 +347,21 @@ def _check_domain(spec, limits):
 def _check_lp(spec, limits):
     if not spec.var_names:
         yield _f(ERROR, "lp.no_variables")
+
+    # The expensive one. `no_variables` only fires when NONE were declared;
+    # the shape that actually bites is one typo among several correct names,
+    # where the program still solves and the answer is confidently wrong.
+    declared = set(spec.var_names)
+    stray = {}
+    for where, coeffs in ([("objective", spec.obj)] +
+                          [(n, c) for n, c, _s, _r in spec.cons]):
+        for key in coeffs:
+            if key not in declared:
+                stray.setdefault(key, where)
+    if stray:
+        yield _f(ERROR, "lp.undeclared_variable",
+                 names=", ".join(sorted(stray)[:4]),
+                 where=", ".join(sorted(set(stray.values()))[:3]))
     if not spec.cons:
         yield _f(ERROR, "lp.no_constraints")
     if spec.integer:

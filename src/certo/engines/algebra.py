@@ -50,6 +50,9 @@ ENGINE_LATTICE = "certo/unimodular"
 ENGINE_ORBIT = "certo/orbit-quotient"
 ENGINE_EXACT = "certo/exact-elimination"
 ENGINE_TORIC = "certo/toric-local"
+ENGINE_RANGE = "certo/exact-range"
+ENGINE_CYCLE = "certo/growth-classes"
+ENGINE_BIND = "certo/lean-binding"
 
 
 def _poly(expr, variables):
@@ -367,6 +370,101 @@ def toric_cone(spec, limits: Limits | None = None,
               "crepant": out["crepant"],
               "height_functional": out["height_functional"],
               "discrepancies": out["discrepancies"]})
+
+
+def variable_range(spec, var, limits: Limits | None = None,
+                   spec_path: str = "") -> Result:
+    """How far a variable may go over the regime, with a dual at each end."""
+    from ..certificate import range_certificate
+    from ..rangebound import NotRangeable, bounds_of
+
+    t0 = time.perf_counter()
+    try:
+        out = bounds_of(spec, var, limits)
+    except NotRangeable as e:
+        return Result("range", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_RANGE, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = range_certificate(out, title=spec.title).stamp(spec_path or None)
+
+    if out["empty"]:
+        # Not a range and not a failure: the regime has no points, which is
+        # the answer `check --hypotheses-only` gives with a minimal clash.
+        return Result(
+            "range", Status.UNSAT, Verdict.PROVED, ENGINE_RANGE, ms, cert,
+            detail=t("engine.varrange.empty", var=var),
+            meta={"empty": True, "interval": out["interval"]})
+
+    return Result(
+        "range", Status.SAT, Verdict.SATISFIABLE, ENGINE_RANGE, ms, cert,
+        detail=t("engine.varrange.found", var=var, interval=out["interval"]),
+        meta={"empty": False, "interval": out["interval"],
+              "lower": out["lower"]["bound"], "upper": out["upper"]["bound"]})
+
+
+def dependency_cycle(spec, limits: Limits | None = None,
+                     spec_path: str = "") -> Result:
+    """Compose the declared growth classes around the chain and close it."""
+    from ..certificate import dependency_cycle_certificate
+    from ..cycles import NotCyclic, certify
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec)
+    except NotCyclic as e:
+        return Result("cycle", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_CYCLE, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = dependency_cycle_certificate(out, title=spec.title).stamp(
+        spec_path or None)
+    arrow = " -> ".join(out["cycle"])
+
+    if out["empty"]:
+        return Result(
+            "cycle", Status.UNSAT, Verdict.PROVED, ENGINE_CYCLE, ms, cert,
+            detail=t("engine.cycle.empty", cycle=arrow,
+                     param=out["parameter"]),
+            meta={"empty": True, "cycle": out["cycle"]})
+
+    # Never "there is no cycle": only that composing these classes did not
+    # refute the closing constraint.
+    return Result(
+        "cycle", Status.SAT, Verdict.SATISFIABLE, ENGINE_CYCLE, ms, cert,
+        detail=t("engine.cycle.open", cycle=arrow, why=out.get("why") or "-"),
+        meta={"empty": False, "cycle": out["cycle"], "why": out.get("why")})
+
+
+def lean_binding(spec, limits: Limits | None = None,
+                 spec_path: str = "") -> Result:
+    """Does the declaration provide what the certificate assumed?"""
+    from ..binding import NotBindable, certify
+    from ..certificate import lean_binding_certificate
+
+    t0 = time.perf_counter()
+    try:
+        out = certify(spec, limits)
+    except NotBindable as e:
+        return Result("bind", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                      ENGINE_BIND, 0.0, None, detail=str(e))
+
+    ms = (time.perf_counter() - t0) * 1000
+    cert = lean_binding_certificate(out, title=spec.title).stamp(
+        spec_path or None)
+
+    if out["covers"]:
+        return Result(
+            "bind", Status.UNSAT, Verdict.PROVED, ENGINE_BIND, ms, cert,
+            detail=t("engine.bind.covers", decl=out["declaration"] or "-",
+                     name=out["discharges"]),
+            meta={"covers": True, "declaration": out["declaration"]})
+
+    return Result(
+        "bind", Status.SAT, Verdict.REFUTED, ENGINE_BIND, ms, cert,
+        detail=t("engine.bind.gap", decl=out["declaration"] or "-",
+                 name=out["discharges"]),
+        meta={"covers": False, "declaration": out["declaration"]})
 
 
 def integer_matrix(spec, limits: Limits | None = None,

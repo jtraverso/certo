@@ -37,11 +37,13 @@ SPEC_OF = {
     "number": "NumberSpec", "compose": "ProofSpec", "lint": "*",
     "audit": "*", "reduce": "SymmetrySpec", "matrix": "MatrixSpec", "solve": "LinearSystemSpec",
     "quotient": "EquitableQuotientSpec", "cone": "ConeSpec",
+    "range": "Spec", "cycle": "CycleSpec",
+    "bind": "BindSpec",
 }
 
 #: Which commands leave a certificate that re-checks with NO solver.
 SOLVER_FREE = {
-    "cone", "quotient", "solve", "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
+    "cone", "quotient", "range", "cycle", "solve", "matrix", "reduce", "farkas", "parametric", "peak", "entry", "moment", "ratio", "exists",
     "cover", "ideal", "eliminate", "sos", "number", "order", "bounds",
     "cases",
 }
@@ -70,6 +72,8 @@ BY_QUESTION = (
         ("commands.q.quotient", "quotient"),
         ("commands.q.matrix", "matrix"),
         ("commands.q.cone", "cone"),
+        ("commands.q.range", "range --var X"),
+        ("commands.q.cycle", "cycle"),
         ("commands.q.solve", "solve"),
         ("commands.q.parametric", "parametric"),
         ("commands.q.peak", "peak"),
@@ -97,6 +101,7 @@ BY_QUESTION = (
         ("commands.q.synth", "synth"),
         ("commands.q.compose", "compose"),
         ("commands.q.verify", "verify"),
+        ("commands.q.bind", "bind"),
         ("commands.q.export", "export --lean"),
         ("commands.q.ledger", "ledger"),
     )),

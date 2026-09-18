@@ -25,7 +25,7 @@ certificate was checked — *"verified without a solver"*, *"checked by
 counting, no solver"*, *"by re-running the spec, not by trusting its
 answers"*. The table below is the map; the header is the territory.
 
-## The forty-four kinds
+## The forty-seven kinds
 
 | Kind | What it attests | Solver-free? |
 |---|---|---|
@@ -69,6 +69,9 @@ answers"*. The table below is the map; the header is the territory.
 | `toric_cone` | primitivity, multiplicity, height, discrepancies | **yes**, exact determinant and solve |
 | `family_extremum` | the largest of a family, and a dual for the rest | rebuilds each item's program |
 | `hypothesis_audit` | a verdict per hypothesis, with the breaking assignment | no — substituting a witness leaves a ground formula, and deciding that is still a solver call |
+| `variable_range` | the interval a variable may take, both ends a Farkas combination | **yes**, adding fractions |
+| `dependency_cycle` | a cycle in a parameter's own dependencies, and the comparison that closes it | **yes**, class arithmetic |
+| `lean_binding` | what a certificate assumed, against what a declaration provides | no, re-asks the entailment |
 | `cegis` | the object has no counterexamples in the bounded domain | no, re-solves |
 | `synth_proved` | the bounded discovery **and** the universal statement | no, re-solves |
 | `proof` | the lemmas, **and** that each is used as its certificate allows | no, re-solves |

@@ -837,6 +837,58 @@ def toric_cone_certificate(payload, title="") -> Certificate:
     )
 
 
+def range_certificate(payload, title="") -> Certificate:
+    """The admissible interval of one variable, with the multipliers for each
+    end.
+
+    `check --hypotheses-only` exhibits a POINT of the regime. That answers
+    whether it is inhabited and nothing else, and the question people have
+    next is how far the variable may go. Both ends here are LP duals, so the
+    payload carries the non-negative combination of hypotheses that yields the
+    bound, and checking one is multiplying out and adding fractions.
+
+    AN EMPTY REGIME IS ITS OWN ANSWER, not an infinite interval. Over an empty
+    regime every direction is unbounded, and reading that as "the variable
+    ranges over everything" is the permissive-looking mistake; the payload says
+    `empty` and the interval prints as such.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="variable_range", solver_free=True, payload=out,
+        note_key="cert.note.variable_range",
+    )
+
+
+def dependency_cycle_certificate(payload, title="") -> Certificate:
+    """A cycle in a parameter's own dependencies, and the class that closes it.
+
+    The three lines that produce one never mention a cycle. Composing their
+    growth CLASSES does, and the composition is finite: one walk of the chain
+    and one comparison, both redone during verification.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="dependency_cycle", solver_free=True, payload=out,
+        note_key="cert.note.dependency_cycle",
+    )
+
+
+def lean_binding_certificate(payload, title="") -> Certificate:
+    """What a certificate assumed, against what a declaration provides.
+
+    Not solver-free: the entailment is a satisfiability question, and it is
+    re-asked during verification rather than believed.
+    """
+    out = dict(payload)
+    out["title"] = title
+    return Certificate(
+        kind="lean_binding", solver_free=False, payload=out,
+        note_key="cert.note.lean_binding",
+    )
+
+
 def integer_matrix_certificate(question, matrix, result, title="") -> Certificate:
     """An exact answer about an integer matrix, with the transforms that
     make it checkable by multiplication instead of by elimination.
@@ -1252,7 +1304,7 @@ def branch_bound_certificate(incumbent, incumbent_cert, nodes, order, sense,
 
 
 def order_certificate(laurent, orders, var, terms, collected, degree, verdict,
-                      expect, cancelled, title="") -> Certificate:
+                      expect, cancelled, title="", derived=None) -> Certificate:
     """The exponent of `var`, and the substitution that produced it.
 
     The Laurent polynomial travels, so re-checking this needs neither z3 nor
@@ -1269,6 +1321,10 @@ def order_certificate(laurent, orders, var, terms, collected, degree, verdict,
         payload={"laurent": laurent, "orders": orders, "var": var,
                  "terms": terms, "collected": collected, "degree": degree,
                  "verdict": verdict, "expect": expect, "cancelled": cancelled,
+                 # Present only when the exponents were DERIVED: the relations
+                 # travel so `verify` re-solves them instead of trusting the
+                 # numbers they produced.
+                 "derived": derived,
                  "title": title},
         note_key="cert.note.asymptotic",
     )
@@ -1493,6 +1549,9 @@ def verify(cert: Certificate, limits=None) -> VerifyReport:
         "symmetry_reduction": _verify_symmetry_reduction,
         "hypothesis_audit": _verify_hypothesis_audit,
         "integer_matrix": _verify_integer_matrix,
+        "variable_range": _verify_variable_range,
+        "dependency_cycle": _verify_dependency_cycle,
+        "lean_binding": _verify_lean_binding,
         "toric_cone": _verify_toric_cone,
         "equitable_quotient": _verify_equitable_quotient,
         "linear_system": _verify_linear_system,
@@ -2348,6 +2407,93 @@ def _verify_toric_cone(cert, limits) -> VerifyReport:
         method_key="verify.toric.method",
         detail=t("verify.toric.detail", n=len(order),
                  dim=p["dimension"], mult=str(p["multiplicity"])),
+    )
+
+
+def _verify_variable_range(cert, limits) -> VerifyReport:
+    """Redo both ends from the rows: multipliers are checked, never believed."""
+    from . import rangebound
+
+    p = cert.payload
+    got = rangebound.check(p)
+    checks = []
+    for side, key in (("upper", "verify.varrange.upper"),
+                      ("lower", "verify.varrange.lower")):
+        end, res = p[side], got[side]
+        if end["bound"] is None:
+            checks.append((t(key), res["ok"],
+                           t("verify.varrange.open", why=end.get("why", "?"))))
+        else:
+            checks.append((t(key), res["ok"],
+                           t("verify.varrange.combines",
+                             value=end["bound"],
+                             rows=", ".join(sorted(end["multipliers"]))[:48]
+                             or "-")))
+
+    warnings = [t("verify.varrange.regime_only")]
+    if p.get("empty"):
+        warnings.append(t("verify.varrange.empty_scope"))
+    for side in ("lower", "upper"):
+        if p[side].get("strict"):
+            warnings.append(t("verify.varrange.strict", side=side))
+
+    return VerifyReport(
+        all(c[1] for c in checks), "variable_range", True, checks=checks,
+        warnings=warnings, method_key="verify.varrange.method",
+        detail=t("verify.varrange.detail", var=p["variable"],
+                 interval=p["interval"]),
+    )
+
+
+def _verify_dependency_cycle(cert, limits) -> VerifyReport:
+    """Redo every composition and the closing comparison from the steps."""
+    from . import cycles
+
+    p = cert.payload
+    got = cycles.check(p)
+    c = p["closes"]
+    checks = [
+        (t("verify.cycle.steps"), got["steps_ok"],
+         t("verify.cycle.recomposed", n=len(p["steps"]),
+           bad=", ".join(got["bad"][:3]) or "-")),
+        (t("verify.cycle.comparison"), got["comparison_ok"],
+         t("verify.cycle.compared", left=c["left"], rel=c["rel"],
+           right=c["right"], cmp=got["comparison"])),
+        (t("verify.cycle.verdict"), got["empty_ok"],
+         t("verify.cycle.empty" if p["empty"] else "verify.cycle.open")),
+    ]
+    warnings = [t("verify.cycle.declared_classes")]
+    if not p["empty"]:
+        warnings.append(t("verify.cycle.not_refuted", why=p.get("why") or "-"))
+    return VerifyReport(
+        all(x[1] for x in checks), "dependency_cycle", True, checks=checks,
+        warnings=warnings, method_key="verify.cycle.method",
+        detail=t("verify.cycle.detail",
+                 cycle=" -> ".join(p["cycle"]), empty=str(p["empty"])),
+    )
+
+
+def _verify_lean_binding(cert, limits) -> VerifyReport:
+    """Re-ask the entailment from the formulas the payload carries."""
+    from . import binding
+
+    p = cert.payload
+    got = binding.check(p, limits)
+    checks = [
+        (t("verify.bind.entails"), got["agrees"],
+         t("verify.bind.covers" if got["covers"] else "verify.bind.gap",
+           name=p["discharges"], decl=p["declaration"] or "-")),
+    ]
+    warnings = [t("verify.bind.bridge", decl=p["declaration"] or "-")]
+    if p["spec"].get("stale"):
+        warnings.append(t("verify.bind.stale", path=p["spec"]["path"]))
+    if not p["covers"]:
+        warnings.append(t("verify.bind.does_not_cover", name=p["discharges"]))
+    return VerifyReport(
+        all(x[1] for x in checks), "lean_binding", False, checks=checks,
+        warnings=warnings, method_key="verify.bind.method",
+        detail=t("verify.bind.detail", decl=p["declaration"] or "-",
+                 name=p["discharges"], covers=str(p["covers"])),
     )
 
 

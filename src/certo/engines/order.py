@@ -32,16 +32,41 @@ def order(spec, limits: Limits | None = None, spec_path: str = "") -> Result:
     def ms():
         return (time.perf_counter() - t0) * 1000
 
+    derived = None
+    orders = dict(spec.orders or {})
+    if getattr(spec, "relations", None):
+        # The six numbers people put here are derived mentally from relations
+        # they already know, and one wrong entry gives a clean false answer.
+        # Solving the relations instead is a linear program over the exponents.
+        from .. import orderinfer
+
+        try:
+            poly0 = asymptotics.parse(spec.expression)
+            symbols = sorted({sym for m in poly0.terms for sym, _p in m})
+        except asymptotics.NotAsymptotic as e:
+            return Result("order", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                          ENGINE, ms(), None,
+                          detail=t("engine.order.not_asymptotic",
+                                   detail=str(e)))
+        try:
+            derived = orderinfer.derive_orders(
+                spec.relations, spec.orders, symbols, spec.var)
+        except orderinfer.NotInferable as e:
+            return Result("order", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
+                          ENGINE, ms(), None, detail=str(e))
+        orders = derived["orders"]
+
     try:
         poly = asymptotics.parse(spec.expression)
-        rep = asymptotics.order(poly, spec.orders, spec.var)
+        rep = asymptotics.order(poly, orders, spec.var)
     except asymptotics.NotAsymptotic as e:
         return Result("order", Status.OUT_OF_THEORY, Verdict.INCONCLUSIVE,
                       ENGINE, ms(), None,
                       detail=t("engine.order.not_asymptotic", detail=str(e)))
 
     cert = order_certificate(
-        laurent=_serialize(poly), orders={k: str(v) for k, v in spec.orders.items()},
+        laurent=_serialize(poly), orders={k: str(v) for k, v in orders.items()},
+        derived=derived,
         var=spec.var, terms=rep["terms"], collected=rep["collected"],
         degree=rep["degree"], verdict=rep["verdict"], expect=spec.expect,
         cancelled=rep["cancelled"], title=spec.title,

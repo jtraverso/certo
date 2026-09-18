@@ -48,6 +48,8 @@ devuelven, y una hipótesis sin nombre es una sobre la que no te pueden avisar.
 | `MatrixSpec` | `matrix` |
 | `LinearSystemSpec` | `solve` |
 | `ConeSpec` | `cone` |
+| `CycleSpec` | `cycle` |
+| `BindSpec` | `bind` |
 | `FamilySpec` | `family` |
 | `CoverSpec` | `cover`, `exists` |
 | `RatioSpec` | `ratio` |

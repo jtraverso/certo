@@ -6,7 +6,7 @@ the claims that are false, measure what survives, reduce it to what it really
 is, and assemble the rest — and every step comes back with a **certificate
 anyone can re-check without trusting certo.**
 
-CLI and MCP. Forty-three commands. Runs in milliseconds where a formalisation
+CLI and MCP. Forty-six commands. Runs in milliseconds where a formalisation
 costs hours.
 
 *Español: [README.es.md](README.es.md) · run any command with `--lang es`.*
@@ -14,9 +14,9 @@ costs hours.
 | | |
 |---|---|
 | **[Project page →](https://jtraverso.github.io/certo/)** | the didactic introduction: what certo is for, in one page, in both languages |
-| **[Commands](docs/COMMANDS.md)** | all forty-three, one entry each: the question, the spec, the certificate, and what it does not establish |
+| **[Commands](docs/COMMANDS.md)** | all forty-six, one entry each: the question, the spec, the certificate, and what it does not establish |
 | **[Specs](docs/SPECS.md)** | the DSL: every spec type with a minimal working example, shared options, exit codes |
-| **[Certificates](docs/CERTIFICATES.md)** | why they are the centre, the forty-four kinds, which re-check without a solver |
+| **[Certificates](docs/CERTIFICATES.md)** | why they are the centre, the forty-seven kinds, which re-check without a solver |
 | **[Worked cases](docs/CASES.md)** | real problems end to end: symmetry, sweeps, parametric bounds, packings, toric data |
 | **[Limits](docs/LIMITS.md)** | what it does not do, and the FAQ |
 | **[Walkthrough](examples/WALKTHROUGH.md)** | one problem, seven commands, fifteen seconds |
@@ -124,7 +124,7 @@ your terminal, in your language.
 5. Certificates are written to disk and do not travel in an MCP response.
    Call `verify` with the path you are given.
 
-## The forty-three commands
+## The forty-six commands
 
 Grouped as [`certo commands`](docs/COMMANDS.md) groups them. Full entries,
 with what each one does **not** establish, in
@@ -166,6 +166,9 @@ with what each one does **not** establish, in
 | `sweep` | Predicate and/or value over a family or ANY finite domain | nauty or Python | family **+ predicate certificates** |
 | `shrink` | Minimise a counterexample (graph or MUS) | CDCL / reduction | minimality witness |
 | `bisect` | A constant's threshold | prove or cases | the pair that brackets it |
+| `range` | The admissible interval of one variable over the regime, not one point of it | exact LP dual | **a Farkas combination at each end**, solver-free |
+| `cycle` | A parameter that depends on itself: compose the growth classes and close the loop | growth ladder | **the chain, its classes and the one comparison**, solver-free |
+| `bind` | Tie a certificate to the Lean declaration meant to justify it, and check it does | Z3 entailment | **the hypothesis, the statement, and whether one covers the other** |
 | `lint` | Check a spec before spending the compute on it | — | — |
 | `status` | Where a proof stands: proved, owed, hollow, stale | — | — |
 | `doctor` | What this install can do, and what each gap costs | — | — |
@@ -259,7 +262,7 @@ number nobody recomputes goes stale.
 for t in smoke mcp i18n extras adversarial determinism; do python tests/test_$t.py; done
 ```
 
-`python tests/run_examples.py` runs all 59 example specs and verifies every
+`python tests/run_examples.py` runs all 65 example specs and verifies every
 certificate they produce.
 
 Release notes in [CHANGELOG.md](CHANGELOG.md); what is planned, blocked and

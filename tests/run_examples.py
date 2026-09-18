@@ -82,6 +82,14 @@ CASES = [
     ("bisect_constant.py", "bisect", []),
     ("bisect_ramsey.py", "bisect", []),
     ("compose_proof.py", "compose", []),
+
+    # 0.10: the six the feedback asked for
+    ("variable_range.py", "range", ["--var", "a"]),
+    ("dependency_cycle.py", "cycle", []),
+    ("order_relations.py", "order", []),
+    ("overdetermined.py", "eliminate", []),
+    ("counting_bound.py", "prove", []),
+    ("lean_binding.py", "bind", []),
 ]
 
 #: Commands that report rather than certify. `status` is not here because it
@@ -104,6 +112,12 @@ PREREQS = {
     "compose_proof.py": [
         ("cases", "ramsey.py", ["--cert", "out/r33_k6.json"]),
         ("cases", "ramsey_k5.py", ["--cert", "out/r33_k5.json"]),
+    ],
+    # `bind` reads the certificate it is tying to a declaration, so that
+    # certificate has to exist -- and carry the provenance the binding reads
+    # the hypothesis out of.
+    "lean_binding.py": [
+        ("prove", "counting_bound.py", ["--cert", "out/counting_bound.json"]),
     ],
 }
 

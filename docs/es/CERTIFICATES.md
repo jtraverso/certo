@@ -25,7 +25,7 @@ certificado en concreto: *"verificado sin solver"*, *"comprobado contando, sin
 solver"*, *"reejecutando el spec, no confiando en sus respuestas"*. La tabla de
 abajo es el mapa; la cabecera es el territorio.
 
-## Los cuarenta y cuatro tipos
+## Los cuarenta y siete tipos
 
 | Tipo | Qué atestigua | ¿Sin solver? |
 |---|---|---|
@@ -69,6 +69,9 @@ abajo es el mapa; la cabecera es el territorio.
 | `toric_cone` | primitividad, multiplicidad, altura, discrepancias | **sí**, determinante y resolución exactos |
 | `family_extremum` | el mayor de una familia, y un dual para el resto | reconstruye el programa de cada ítem |
 | `hypothesis_audit` | un veredicto por hipótesis, con la asignación que la rompe | no — sustituir un testigo deja una fórmula cerrada, y decidirla sigue siendo una llamada al solver |
+| `variable_range` | el intervalo que puede tomar una variable, cada extremo una combinación de Farkas | **sí**, sumar fracciones |
+| `dependency_cycle` | un ciclo en las dependencias de un parámetro, y la comparación que lo cierra | **sí**, aritmética de clases |
+| `lean_binding` | lo que un certificado supuso, contra lo que provee una declaración | no, vuelve a preguntar la implicación |
 | `cegis` | el objeto no tiene contraejemplos en el dominio acotado | no, vuelve a resolver |
 | `synth_proved` | el descubrimiento acotado **y** el enunciado universal | no, vuelve a resolver |
 | `proof` | los lemas, **y** que cada uno se usa como su certificado permite | no, vuelve a resolver |

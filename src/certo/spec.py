@@ -234,6 +234,28 @@ class LPSpec:
         """
         from .exact import to_fraction
 
+        # A name that is not declared would be dropped by `row_of` below --
+        # silently, because a missing key is indistinguishable from a zero
+        # coefficient once the row is built. That is how one typo turned a
+        # certified optimum of 1/3 into a certified 10: the row meant to hold
+        # the variable back was not in the program at all, and the certificate
+        # was correct about the program that WAS built. Refused here rather
+        # than at `constraint()` so declaration order stays free.
+        declared = set(self.var_names)
+        unknown = {}
+        for where, coeffs in ([("objective", self.obj)] +
+                              [(name, c) for name, c, _s, _r in self.cons]):
+            for key in coeffs:
+                if key not in declared:
+                    unknown.setdefault(key, []).append(where)
+        if unknown:
+            raise ValueError(t(
+                "spec.undeclared_variable",
+                names=", ".join(sorted(unknown)[:4]),
+                where=", ".join(sorted({w for ws in unknown.values()
+                                        for w in ws})[:4]),
+                declared=", ".join(self.var_names[:6]) or "-"))
+
         A, b, names = [], [], []
         Z = to_fraction(0)
 
@@ -1116,6 +1138,75 @@ class ConeSpec:
 
 
 @dataclass
+class CycleSpec:
+    """A parameter that depends on itself, and the loop that has to close.
+
+        CycleSpec(
+            parameter="delta",
+            edges=[{"from": "delta", "to": "k", "rel": ">=",
+                    "fn": "tower", "of": "reciprocal"},
+                   {"from": "k", "to": "rho", "rel": "<=",
+                    "fn": "poly", "degree": -2}],
+            closes=("delta", "<=", "rho"),
+        )
+
+    Each edge says how one quantity bounds the next, as a GROWTH CLASS rather
+    than a function: `poly` with a degree, `exp`, or `tower`. `of="reciprocal"`
+    applies it to `1/source`, which is how a regularity bound in `1/delta` is
+    written. `closes` is the constraint that brings the chain back.
+
+    certo composes the classes once and compares the two ends. When the
+    comparison is STRICT in the direction that refutes the closing constraint,
+    the regime is empty for every positive value of the parameter -- and the
+    certificate is the chain, the classes and that one comparison.
+
+    MONOTONICITY IS TRACKED. A lower bound pushed through a decreasing map
+    becomes an upper bound; an edge whose available side does not support the
+    direction needed is REFUSED rather than composed anyway, because composing
+    it could declare a live regime empty.
+
+    IT DOES NOT CHECK YOUR CLASSES. That `k` really grows like a tower is what
+    the lemma says, and it is the spec's claim -- the same division as `reduce`
+    taking a group and `parametric` taking a dual.
+    """
+
+    parameter: str                   # the quantity going to zero
+    edges: list                      # dicts: from, to, rel, fn, degree, of
+    closes: object = None            # (left, "<=" | ">=", right)
+    title: str = ""
+
+
+@dataclass
+class BindSpec:
+    """A certificate, the Lean declaration meant to justify it, and the check.
+
+        BindSpec(
+            certificate="out/second_moment_rho.json",
+            declaration="PaperIV.MomentErrors.N1_from_counting",
+            discharges="fine_count",
+            provides=(count <= dens**3 * n**4),
+        )
+
+    certo reads the certificate's provenance, loads the spec it came from,
+    finds the hypothesis named in `discharges`, and asks whether what you say
+    the declaration PROVIDES is strong enough for it. A packaged lemma that
+    uses density `<= 1` where the certificate assumed the fine count does not
+    cover it, and that is reported at BIND time rather than three modules
+    later.
+
+    IT IS A BRIDGE. Nobody here reads Mathlib: that `provides` renders the
+    declaration faithfully is your claim. What changes is when it bites, and
+    that `status` can count it.
+    """
+
+    certificate: str                 # path to the certificate being justified
+    declaration: str = ""            # the Lean declaration's full name
+    discharges: str = ""             # the hypothesis it is meant to supply
+    provides: object = None          # a z3 formula: what the lemma gives
+    title: str = ""
+
+
+@dataclass
 class MatrixSpec:
     """An integer matrix, and which exact question to ask of it.
 
@@ -1427,6 +1518,7 @@ class OrderSpec:
 
     expression: object               # a z3 arithmetic term
     orders: dict                     # symbol -> exponent of `var`
+    relations: object = None         # ["E ~ n**2", "Lmass >= E * tC", ...]
     var: str = "n"
     expect: object = None            # "decays" | "constant" | "grows" | None
     title: str = ""

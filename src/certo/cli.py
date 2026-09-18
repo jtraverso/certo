@@ -323,6 +323,73 @@ def cmd_cone(args):
     return rc
 
 
+def cmd_range(args):
+    from .engines import algebra
+    from .spec import Spec, load_spec
+
+    spec = load_spec(args.spec, Spec)
+    res = algebra.variable_range(spec, args.var, limits_from(args),
+                                 spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        p = res.certificate.payload
+        for side, arrow in (("upper", "<="), ("lower", ">=")):
+            end = p[side]
+            if end["bound"] is None:
+                continue
+            print("  {} {} {}{}".format(
+                p["variable"], arrow, end["bound"],
+                "   (open: a strict row is binding)" if end["strict"] else ""))
+            print("    " + ", ".join(
+                "{} x {}".format(k, v)
+                for k, v in sorted(end["multipliers"].items())))
+        if p["empty"]:
+            print("  " + t("engine.varrange.ask_check"))
+    return rc
+
+
+def cmd_cycle(args):
+    from .engines import algebra
+    from .spec import CycleSpec, load_spec
+
+    spec = load_spec(args.spec, CycleSpec)
+    res = algebra.dependency_cycle(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        p = res.certificate.payload
+        for step in p["steps"]:
+            print("  {:<10} {} {:<6}{:<10} -> {}".format(
+                step["from"], step["rel"], step["fn"],
+                "" if step["fn"] != "poly" else "^" + step["degree"],
+                _cls(step["class"])))
+        c = p["closes"]
+        print("  closes: {} ({}) {} {} ({})".format(
+            c["left"], _cls(c["left_class"]), c["rel"],
+            c["right"], _cls(c["right_class"])))
+    return rc
+
+
+def _cls(d):
+    return ("u^" + d["exponent"] if d["tier"] == "poly"
+            else "{}(u)^{}".format(d["tier"], d["exponent"]))
+
+
+def cmd_bind(args):
+    from .engines import algebra
+    from .spec import BindSpec, load_spec
+
+    spec = load_spec(args.spec, BindSpec)
+    res = algebra.lean_binding(spec, limits_from(args), spec_path=args.spec)
+    rc = emit(res, args)
+    if not args.json and res.certificate is not None:
+        p = res.certificate.payload
+        print("  {} -> {}".format(p["certificate"], p["declaration"] or "-"))
+        print("  discharges: {}".format(p["discharges"]))
+        if p["spec"].get("stale"):
+            print("  " + t("verify.bind.stale", path=p["spec"]["path"]))
+    return rc
+
+
 def cmd_matrix(args):
     from .engines import algebra
     from .spec import MatrixSpec, load_spec
@@ -1883,6 +1950,22 @@ def build_parser():
 
 
 
+
+
+    sp = add("cycle", "a parameter that depends on itself: compose the growth "
+                      "classes around the chain and close the loop")
+    sp.add_argument("spec", help=".py file returning a CycleSpec")
+    sp.set_defaults(func=cmd_cycle)
+
+    sp = add("bind", "tie a certificate to the Lean declaration meant to "
+                     "justify it, and check that it does")
+    sp.add_argument("spec", help=".py file returning a BindSpec")
+    sp.set_defaults(func=cmd_bind)
+    sp = add("range", "the admissible interval of one variable over the "
+                      "regime, with the multipliers for each end")
+    sp.add_argument("spec", help=".py file returning a Spec")
+    sp.add_argument("--var", required=True, help="the variable to bound")
+    sp.set_defaults(func=cmd_range)
     sp = add("cone", "local toric data: primitivity, multiplicity, the height "
                      "functional and discrepancies")
     sp.add_argument("spec", help=".py file returning a ConeSpec")

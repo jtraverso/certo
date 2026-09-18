@@ -147,6 +147,80 @@ def test_every_lint_finding_has_a_message_in_both_languages():
         assert not missing, (lang, missing)
 
 
+def _literal_t_calls():
+    """Every `t("some.key", a=..., b=...)` in the package, by AST.
+
+    Literal keys only: a computed key cannot be checked here, and guessing at
+    one would produce failures nobody can act on.
+    """
+    import ast
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "src" / "certo"
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = (fn.id if isinstance(fn, ast.Name)
+                    else fn.attr if isinstance(fn, ast.Attribute) else None)
+            if name not in ("t", "_t"):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Constant):
+                continue
+            key = node.args[0].value
+            if not isinstance(key, str) or "." not in key:
+                continue
+            # `t(key, **counts)` hides its names from here. Reporting those
+            # would be a false alarm, and a test that cries wolf gets muted:
+            # two working commands were nearly "fixed" on the strength of one.
+            if any(k.arg is None for k in node.keywords):
+                continue
+            kw = {k.arg for k in node.keywords if k.arg}
+            yield str(path.name), node.lineno, key, kw
+
+
+def test_every_message_is_called_with_the_placeholders_it_declares():
+    """`verify.range.detail` belonged to `sweep_range` and reads
+    `{sizes} sizes; first failure: {first}`. A new command reused the
+    `verify.range.*` namespace, called that key with `var=` and `interval=`,
+    and every certificate it produced failed its own verifier with
+    `KeyError: 'sizes'`.
+
+    The self-check caught that one at run time. This catches it at test time,
+    and it catches the other half too: `verify.matrix.detail` shipped for
+    releases printing its own key as its text, because nothing ever called it
+    with anything.
+
+    A key used with the wrong placeholders is a message that either crashes or
+    renders a hole, and both of those reach a user."""
+    import re
+
+    cat = _catalogue("en")
+    wrong = []
+    for where, line, key, kw in _literal_t_calls():
+        if key not in cat:
+            continue                      # the missing-key test owns that
+        declared = set(re.findall(r"\{(\w+)(?:![rsa])?(?::[^{}]*)?\}",
+                                  cat[key]))
+        if declared != kw:
+            wrong.append({
+                "at": "{}:{}".format(where, line), "key": key,
+                "declares": sorted(declared), "called with": sorted(kw)})
+    assert not wrong, wrong
+
+
+def test_every_literal_key_that_is_called_exists_in_the_catalogue():
+    """`t()` returns the KEY when it is missing, so a typo ships as a line of
+    output reading `verify.matrix.detail` and nothing says a word. That is how
+    `core_matrix` printed its own key as its detail from the day it shipped."""
+    cat = _catalogue("en")
+    missing = sorted({(key, "{}:{}".format(w, ln))
+                      for w, ln, key, _kw in _literal_t_calls()
+                      if key not in cat})
+    assert not missing, missing
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

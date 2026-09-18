@@ -507,6 +507,26 @@ se cancelan realmente se cancelan.
 No puedes dividir por una suma —`1/(x + y)` tiene un orden que depende de cuál
 domine— y un símbolo sin entrada en `orders` es un **error**, no un supuesto.
 
+**`relations=` deriva los exponentes en vez de pedirlos.** Seis números
+sacados mentalmente de `|E| <= Lmass`, `C >= n`, `d' >= C(n,2)` son seis
+ocasiones de equivocarse, y una entrada mal da una respuesta limpia y falsa:
+
+```python
+OrderSpec(expression=..., orders={},
+          relations=["E ~ n**2", "tC ~ 1", "Lmass ~ E * tC",
+                     "C ~ n", "dp ~ C**2"])
+```
+
+Cada relación es **lineal en los exponentes** —`E ~ n**2` es `exp(E) = 2`,
+`Lmass ~ E * tC` es `exp(Lmass) = exp(E) + exp(tC)`— así que el sistema es un
+programa lineal, resuelto exactamente. La variable de crecimiento queda fijada
+en uno: es la escala, no una incógnita.
+
+**Refusa en vez de adivinar.** El núcleo de Laurent necesita un número por
+símbolo y un intervalo no lo es, así que unas relaciones que dejan un símbolo
+acotado por un solo lado se refusan nombrando el intervalo: `Lmass en
+[1, +inf)` dice qué cota falta, y *no se puede inferir* no lo dice.
+
 Alias: `certo asymptotics`, `certo decays`.
 
 ### `certo reduce`
@@ -634,6 +654,95 @@ nombrada la respuesta es `None` y no un `True` vacuo.
 Un cono no simplicial igual recibe respuesta: la multiplicidad ausente se
 registra con su razón, en vez de rechazar el certificado y perder las otras
 tres cantidades.
+
+### `certo range`
+
+**Pregunta** — ¿Hasta dónde llega esta variable — el intervalo entero, no un
+punto?
+**Spec** — `Spec`, con `--var` nombrando la variable
+**Responde** — el `min` y el `max` racionales exactos sobre el régimen, cada
+uno con la combinación no negativa de hipótesis que lo da
+**Certificado** — `variable_range`, **sin solver**: sumar fracciones
+**No establece** — nada sobre la **afirmación** del spec, que nunca se lee.
+Esto acota la variable sobre las hipótesis: el régimen, no el teorema.
+
+`check --hypotheses-only` exhibe un *punto*. Eso responde si el régimen está
+habitado y nada más, y un usuario que necesitaba `a <= 1/3` obtuvo `a = 0` y
+dedujo el resto a mano.
+
+```
+$ certo range examples/variable_range.py --var a
+SATISFACIBLE  [sat]
+  a recorre [0, 1/3], y ese es el intervalo entero -- no un punto suyo
+  a <= 1/3
+    cheb x 1/3
+```
+
+Los multiplicadores **son** la prueba: `1/3` por la fila `3a - 1 <= 0` da
+`a <= 1/3`, y la dualidad LP dice que ninguna combinación da una más ajustada.
+
+**Las variables son libres.** Un régimen no es un empaquetamiento —`a` puede
+ser negativa— y un dual derivado bajo `x >= 0` certificaría una cota que no
+vale. La restricción dual es una igualdad justo por eso.
+
+**Un régimen vacío es su propia respuesta, no un intervalo infinito.** Sobre un
+régimen vacío toda dirección es no acotada, y leer eso como *la variable
+recorre todo* es el error de aspecto permisivo, así que la habitación se
+pregunta primero.
+
+**Una fila estricta que ata deja el extremo abierto**: `a < 1/3` y `a <= 1/3`
+tienen el mismo supremo y solo uno lo contiene.
+
+Solo hipótesis lineales. Una no lineal se refusa por nombre en vez de
+descartarse, porque descartarla *ensancharía* el rango — equivocado en la
+dirección que parece segura.
+
+### `certo cycle`
+
+**Pregunta** — ¿Depende este parámetro de sí mismo — y puede cerrar el ciclo
+siquiera?
+**Spec** — `CycleSpec`
+**Responde** — la cadena, la clase de crecimiento de cada paso, y la única
+comparación que la cierra
+**Certificado** — `dependency_cycle`, **sin solver**: aritmética de clases
+**No establece** — que tus clases de crecimiento sean las reales. Que `k`
+crezca como una torre lo dice tu lema; esto comprueba lo que se sigue de ello.
+Y un ciclo que esta vía no refuta vuelve como *no establecido*, nunca *no hay
+ciclo*.
+
+Tres líneas inocentes, ninguna de las cuales menciona un ciclo:
+
+```
+k     >= tower(1/delta)        la cota del lema de regularidad
+rho   <= K / (3 k**2)          lo que deja el conteo grueso
+delta <= rho                   Chebyshev
+```
+
+Lo hay —`delta -> k -> rho -> delta`— y componer las cotas da
+`delta <= K/(3 tower(1/delta)**2)`, cuyo lado derecho se anula más rápido que
+cualquier potencia de delta.
+
+```
+$ certo cycle examples/dependency_cycle.py
+DEMOSTRADO  [unsat]
+  el ciclo delta -> k -> rho -> delta no puede cerrar: ningún delta positivo
+  lo sobrevive
+```
+
+**La clase es el argumento, no un sustituto suyo.** Encontrarlo a mano obliga a
+inventar un suplente que un solver pueda ver —`k >= 1/delta` fue el que se
+usó— que demuestra algo estrictamente más débil y deja la torre sostenida en
+prosa.
+
+**La monotonía se rastrea.** `rho <= K/(3k**2)` acota rho por arriba solo
+porque el mapa *decrece* en `k`, y lo disponible es una cota inferior de `k`.
+Una arista cuyo lado disponible no sostiene la dirección necesaria se **refusa
+por nombre**: componerla igualmente podría declarar vacío un régimen vivo, que
+es el único error que esto no debe cometer.
+
+La escalera es `const < poly(d) < exp < tower`, y `exp` de un argumento que *se
+anula* es una constante y no crecimiento — reclamar un nivel ahí cerraría un
+ciclo que no cierra.
 
 ### `certo solve`
 
@@ -1006,9 +1115,26 @@ fracciones, donde cada división es una división polinomial cuyo resto se
 Una resultante constante no nula es una refutación, concluyente en la dirección
 fuerte y al coste de un determinante.
 
+**Dos definiciones de la misma cantidad son esta pregunta.** Un primer momento
+que fija `A m = P6 t^4` y un segundo que fija `A^2 m = P11 t^6` son dos
+ecuaciones para una `A`, y si concuerdan es la resultante del par en `A`:
+
+```
+$ certo eliminate examples/overdetermined.py
+  eliminada A. Solo existe raíz común donde esto se anula:
+  m*P6^2*t^8 - m^2*P11*t^6
+```
+
+que factoriza como `m t^6 (P6^2 t^2 - m P11)`, así que fuera de los casos
+degenerados la condición de compatibilidad es `P6^2 / P11 = m / t^2` --la
+identidad que produce un argumento de doblado, recuperada en vez de supuesta.
+Una incompatibilidad hallada así se halla ahora, no cuando la formalización se
+niega a cerrar.
+
 **Exactamente dos polinomios**, porque eso es una resultante. Iterarla por
 pares sobre un sistema mayor introduce factores extraños que nada aquí podría
-certificar como espurios; usa `ideal` para eso.
+certificar como espurios; tres definiciones de una cantidad es una pregunta de
+pertenencia a un ideal, y `ideal` es el comando para eso.
 
 ### `certo sos`
 
@@ -1183,6 +1309,36 @@ por su cuenta, pero ya no corresponde a lo que hay ahora.
 Los avisos son la parte que envejece bien. Una demostración vacua sigue
 diciendo que es vacua; un barrido sigue diciendo qué no certificó; una
 multiplicidad sigue nombrando su retículo. Meses después, solo con el artefacto.
+
+### `certo bind`
+
+**Pregunta** — ¿Da realmente el lema de Lean lo que supuso mi certificado?
+**Spec** — `BindSpec`
+**Responde** — si lo que dices que **provee** la declaración implica la
+hipótesis sobre la que descansa el certificado
+**Certificado** — `lean_binding`; vuelve a preguntar la implicación, así que no
+es sin solver
+**No establece** — que tu versión de la declaración sea fiel. Nada aquí lee
+Mathlib. Es un **puente**, y `verify` lo dice siempre.
+
+El fallo para el que existe: una cota certificada *suponiendo* la estimación
+fina de conteo, y un `patCount_K4_le` empaquetado que usa densidad `<= 1` y da
+algo inútil — descubierto tres módulos después, yendo a leer el enunciado.
+
+```
+$ certo bind examples/lean_binding.py
+REFUTADO  [sat]
+  PaperIV.MomentErrors.N1_from_counting NO provee lo que fine_count supuso
+```
+
+certo lee la procedencia del certificado, carga el spec del que salió, busca la
+hipótesis nombrada en `discharges` y pregunta la implicación. Lo que cambia es
+**cuándo** muerde —al vincular, mientras miras el enunciado— y que `status`
+pueda contarlo.
+
+**Un spec que se movió se reporta obsoleto** en vez de leerse como si no. El
+certificado lleva el hash del archivo del que salió, y una vinculación
+comprobada contra un enunciado que ha cambiado sería peor que ninguna.
 
 ### `certo export`
 

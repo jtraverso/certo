@@ -1902,11 +1902,14 @@ def test_every_command_is_in_the_readme_table_and_the_count_is_right():
               34: "thirty-four", 35: "thirty-five", 36: "thirty-six",
               37: "thirty-seven", 38: "thirty-eight", 39: "thirty-nine",
               40: "forty", 41: "forty-one", 42: "forty-two",
-              43: "forty-three", 44: "forty-four", 45: "forty-five"}
+              43: "forty-three", 44: "forty-four", 45: "forty-five",
+              46: "forty-six", 47: "forty-seven", 48: "forty-eight"}
 
     SPANISH = {28: "veintiocho", 29: "veintinueve", 30: "treinta",
                39: "treinta y nueve", 40: "cuarenta", 41: "cuarenta y un",
-               42: "cuarenta y dos", 43: "cuarenta y tres"}
+               42: "cuarenta y dos", 43: "cuarenta y tres",
+               44: "cuarenta y cuatro", 45: "cuarenta y cinco",
+               46: "cuarenta y seis", 47: "cuarenta y siete"}
 
     root = pathlib.Path(__file__).resolve().parent.parent
     commands = set(_subcommands())
@@ -7849,6 +7852,390 @@ def test_the_readmes_point_at_documentation_that_exists():
                    if not (root / t.split("#")[0]).exists()]
         assert not missing, {"readme": name, "dead links": missing}
         assert any("docs/" in t for t in targets), name + ": links no docs"
+
+
+# --- a coefficient on a variable nobody declared ---------------------------
+
+
+def _lp_with(constraint_var):
+    from certo import LPSpec
+
+    lp = LPSpec(sense="max")
+    lp.variable("b", lo=0, hi=10)
+    lp.objective({"b": 1})
+    lp.constraint({constraint_var: 1}, "<=", "1/3", name="cheb")
+    return lp
+
+
+def test_an_undeclared_coefficient_is_refused_not_dropped():
+    """One typo used to change a certified 1/3 into a certified 10.
+
+    `as_leq_system` builds each row as `coeffs.get(v, 0) for v in var_names`,
+    so a name that was never declared is indistinguishable from a zero
+    coefficient once the row exists: the constraint meant to hold `b` back was
+    not in the program at all. `lint` said "nothing that will bite" -- its
+    `no_variables` check only fires when NONE were declared -- and `verify`
+    passed, because 10 really is the optimum of the program that was built.
+    That is the shape this whole project exists to refuse: a confidently wrong
+    number with a certificate attached."""
+    ok = _lp_with("b").as_leq_system()
+    assert ok, "the correct spec must still normalise"
+
+    try:
+        _lp_with("bb").as_leq_system()
+    except ValueError as e:
+        assert "bb" in str(e), e
+        assert "cheb" in str(e), "it must name WHERE the stray coefficient is"
+    else:
+        raise AssertionError("an undeclared coefficient was accepted")
+
+
+def test_the_objective_is_checked_too_and_order_does_not_matter():
+    """Declaring after use is fine -- the check is at normalisation, not at
+    `constraint()`, so a spec that builds its rows before its variables is
+    not punished for the order it chose."""
+    from certo import LPSpec
+
+    late = LPSpec(sense="max")
+    late.objective({"a": 1})
+    late.constraint({"a": 1}, "<=", 1, name="cap")
+    late.variable("a", lo=0, hi=5)
+    assert late.as_leq_system(), "declaration order must stay free"
+
+    stray = LPSpec(sense="max")
+    stray.variable("a", lo=0, hi=5)
+    stray.objective({"a": 1, "ghost": 3})
+    stray.constraint({"a": 1}, "<=", 1, name="cap")
+    try:
+        stray.as_leq_system()
+    except ValueError as e:
+        assert "ghost" in str(e) and "objective" in str(e), e
+    else:
+        raise AssertionError("a stray objective coefficient was accepted")
+
+
+def test_lint_reports_it_before_the_compute_is_spent():
+    """`lint` is the cheapest thing in the tool and this is exactly its job:
+    the run that follows would have been wrong, not slow."""
+    import tempfile
+
+    src = ("from certo import LPSpec\n"
+           "def spec():\n"
+           "    lp = LPSpec(sense='max')\n"
+           "    lp.variable('b', lo=0, hi=10)\n"
+           "    lp.objective({'b': 1})\n"
+           "    lp.constraint({'bb': 1}, '<=', '1/3', name='cheb')\n"
+           "    return lp\n")
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "typo_spec.py"
+        f.write_text(src, encoding="utf-8")
+        from certo.lint import lint
+
+        out = lint(str(f))
+        keys = [x["key"] for x in out["findings"]]
+        assert "lp.undeclared_variable" in keys, keys
+        assert out["errors"] >= 1, out
+
+
+# --- 0.10: the range of a variable, not one point of it --------------------
+
+
+def _range_regime(*rows, title="t"):
+    import z3
+
+    from certo import Spec
+
+    s = Spec(title=title)
+    for name, f in rows:
+        s.assume(name, f)
+    s.claim(z3.BoolVal(True))
+    return s
+
+
+def test_the_range_is_the_interval_and_both_ends_are_farkas():
+    """`check --hypotheses-only` hands back a POINT. A user needed `a <= 1/3`
+    and got `a = 0`, then derived the interval by hand. Both ends here are
+    non-negative combinations of the hypotheses, so the multipliers are the
+    proof and checking one is adding fractions."""
+    import z3
+
+    from certo import rangebound
+
+    a, b = z3.Reals("a b")
+    out = rangebound.bounds_of(_range_regime(
+        ("cheb", 3 * a <= 1), ("window", a + b <= 1),
+        ("b_nonneg", b >= 0), ("a_nonneg", a >= 0)), "a")
+
+    assert out["interval"] == "[0, 1/3]"
+    assert out["upper"]["bound"] == "1/3"
+    assert out["upper"]["multipliers"] == {"cheb": "1/3"}
+    assert out["lower"]["bound"] == "0"
+    assert not out["empty"]
+    assert all(v["ok"] for v in rangebound.check(out).values())
+
+
+def test_an_empty_regime_is_not_an_infinite_interval():
+    """Over an empty regime every direction is unbounded, and the first
+    version read that as `(-inf, +inf)`: the variable ranges over everything.
+    There is no variable. That is the permissive-looking error, so
+    inhabitation is asked FIRST."""
+    import z3
+
+    from certo import rangebound
+
+    a = z3.Real("a")
+    out = rangebound.bounds_of(
+        _range_regime(("hi", a <= 1), ("lo", a >= 3)), "a")
+    assert out["empty"] is True
+    assert out["interval"] == "(empty)"
+    assert out["upper"]["bound"] is None
+
+
+def test_a_strict_row_leaves_the_endpoint_open():
+    """`a < 1/3` and `a <= 1/3` have the same supremum and only one contains
+    it. Rounding that away would be a claim the regime does not support."""
+    import z3
+
+    from certo import rangebound
+
+    a = z3.Real("a")
+    out = rangebound.bounds_of(
+        _range_regime(("strict", 3 * a < 1), ("lo", a >= 0)), "a")
+    assert out["interval"] == "[0, 1/3)"
+    assert out["upper"]["strict"] is True
+
+
+def test_a_nonlinear_hypothesis_is_refused_not_dropped():
+    """Dropping one would WIDEN the range, which is wrong in the direction
+    that looks safe."""
+    import z3
+
+    from certo import rangebound
+
+    a = z3.Real("a")
+    try:
+        rangebound.bounds_of(_range_regime(("sq", a * a <= 4), ("lo", a >= 0)), "a")
+    except rangebound.NotRangeable as e:
+        assert "sq" in str(e)
+    else:
+        raise AssertionError("a non-linear hypothesis was accepted")
+
+
+# --- 0.10: a parameter that depends on itself ------------------------------
+
+
+def _cycle(**kw):
+    from certo import CycleSpec
+    from certo.cycles import certify
+
+    kw.setdefault("title", "t")
+    return certify(CycleSpec(**kw))
+
+
+TOWER = {"from": "delta", "to": "k", "rel": ">=",
+         "fn": "tower", "of": "reciprocal"}
+CRUDE = {"from": "k", "to": "rho", "rel": "<=", "fn": "poly", "degree": -2}
+
+
+def test_the_tower_closes_the_loop_without_a_stand_in():
+    """Found by hand three times in one session, and only by building a
+    substitute a solver could see (`k >= 1/delta`) -- which proves something
+    strictly weaker and leaves the tower carried in prose."""
+    from certo import cycles
+
+    out = _cycle(parameter="delta", edges=[TOWER, CRUDE],
+                 closes=("delta", "<=", "rho"))
+
+    assert out["empty"] is True
+    assert out["cycle"] == ["delta", "k", "rho", "delta"]
+    assert out["classes"]["k"] == {"tier": "tower", "exponent": "1"}
+    assert out["classes"]["rho"] == {"tier": "tower", "exponent": "-2"}
+    assert out["closes"]["comparison"] == 1
+
+    got = cycles.check(out)
+    assert got["steps_ok"] and got["comparison_ok"] and got["empty_ok"]
+
+
+def test_a_loop_that_is_not_refuted_says_so_rather_than_claiming_no_cycle():
+    """The dangerous direction is reporting a live regime empty, so `empty` is
+    only ever set on a STRICT comparison."""
+    out = _cycle(parameter="delta",
+                 edges=[{"from": "delta", "to": "k", "rel": ">=",
+                         "fn": "poly", "degree": "1/2", "of": "reciprocal"},
+                        {"from": "k", "to": "rho", "rel": "<=",
+                         "fn": "poly", "degree": -1}],
+                 closes=("delta", "<=", "rho"))
+    assert out["empty"] is False
+    assert out["why"] == "not_strict"
+
+
+def test_an_edge_whose_bound_points_the_wrong_way_is_refused():
+    """A lower bound pushed through an INCREASING map does not bound the
+    target from above. Composing it anyway could declare a live regime
+    empty."""
+    from certo.cycles import NotCyclic
+
+    try:
+        _cycle(parameter="delta",
+               edges=[TOWER, {"from": "k", "to": "rho", "rel": "<=",
+                              "fn": "poly", "degree": 2}],
+               closes=("delta", "<=", "rho"))
+    except NotCyclic as e:
+        assert "rho" in str(e) and "upper" in str(e)
+    else:
+        raise AssertionError("an unsound composition was accepted")
+
+
+def test_exp_of_a_vanishing_argument_is_a_constant_not_growth():
+    """`exp(x) -> 1` as `x -> 0`. Claiming a tier there would invent growth
+    out of an argument that vanishes, and a cycle would close that does not."""
+    from certo import growth as g
+
+    assert g.apply("exp", g.Class(g.POLY, -1)) == g.CONST
+    assert g.apply("tower", g.Class(g.POLY, 2)) == g.Class(g.TOWER, 1)
+    # a higher tier that decays is dominated by ANY polynomial
+    assert g.compare(g.Class(g.TOWER, -2), g.Class(g.POLY, -1)) == -1
+
+
+# --- 0.10: exponents derived, not assigned ---------------------------------
+
+
+def test_the_relations_give_the_six_numbers_nobody_should_derive_by_hand():
+    """A user assigned `Lmass: 2, C: 1, dp: 2, ...` mentally from `|E| <=
+    Lmass`, `C >= n`, `d' >= C(n,2)`. One wrong entry gives a clean false
+    answer, which is exactly where automating pays."""
+    from certo import orderinfer
+
+    got = orderinfer.derive_orders(
+        ["E ~ n**2", "tC ~ 1", "Lmass ~ E * tC", "C ~ n", "dp ~ C**2"],
+        {}, ["Lmass", "C", "dp", "E", "tC"])
+    assert got["orders"] == {"C": 1, "E": 2, "Lmass": 2, "dp": 2, "tC": 0}
+
+
+def test_an_undetermined_exponent_is_refused_with_the_interval_named():
+    """`order` needs a number per symbol; an interval is not one. Naming the
+    interval says which bound is missing, and `cannot infer` does not."""
+    from certo import orderinfer
+
+    try:
+        orderinfer.derive_orders(["C ~ n", "Lmass >= C"], {}, ["Lmass", "C"])
+    except orderinfer.NotInferable as e:
+        assert "Lmass" in str(e) and "+inf" in str(e)
+    else:
+        raise AssertionError("an undetermined exponent was accepted")
+
+
+def test_a_one_sided_relation_can_still_settle_the_whole_term():
+    """`dp >= C**2` bounds the exponent of dp only from below -- and dp is in
+    a denominator, so the TERM is still bounded above. Insisting every symbol
+    be pinned would refuse this, and it is the common shape."""
+    from certo import orderinfer
+
+    out = orderinfer.infer(["C ~ n", "dp >= C**2"], {},
+                           {"term": {"C": 2, "dp": -2}})
+    assert out["results"]["term"]["verdict"] == "decays"
+    assert out["results"]["term"]["upper"] == "-2"
+    assert out["results"]["term"]["lower"] is None
+
+
+# --- 0.10: what the certificate assumed vs what the lemma gives ------------
+
+
+def test_a_binding_catches_the_lemma_that_does_not_cover_the_hypothesis():
+    """The incident: a bound certified assuming the fine counting estimate,
+    and a packaged lemma using density <= 1 that gives something useless --
+    found three modules later, by reading the statement."""
+    import json
+    import tempfile
+
+    import z3
+
+    from certo import binding
+    from certo.certificate import Certificate
+
+    count, dens, n = z3.Reals("count dens n")
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d)
+        src = root / "counting.py"
+        src.write_text(
+            "import z3\n"
+            "from certo import Spec\n"
+            "def spec():\n"
+            "    count, dens, n = z3.Reals('count dens n')\n"
+            "    s = Spec()\n"
+            "    s.assume('fine_count', count <= dens*dens*dens*n**4)\n"
+            "    s.claim(count <= n**4)\n"
+            "    return s\n", encoding="utf-8")
+
+        cert = Certificate(kind="model", solver_free=True, payload={},
+                           note_key="cert.note.model").stamp(str(src))
+        (root / "c.json").write_text(
+            json.dumps(cert.to_dict()), encoding="utf-8")
+
+        class S:
+            certificate = "c.json"
+            declaration = "PaperIV.N1_from_counting"
+            discharges = "fine_count"
+            title = "t"
+            provides = None
+
+        S.provides = (count <= n**4)                 # density <= 1
+        weak = binding.certify(S, root=str(root))
+        assert weak["covers"] is False
+        assert not weak["spec"]["stale"]
+
+        S.provides = (count <= dens * dens * dens * n**4)
+        fine = binding.certify(S, root=str(root))
+        assert fine["covers"] is True
+
+        # and the payload is re-checked, never believed
+        assert binding.check(weak)["agrees"]
+        forged = dict(weak, covers=True)
+        assert not binding.check(forged)["agrees"]
+
+
+def test_a_binding_names_a_hypothesis_that_is_not_there():
+    """Binding to a hypothesis the spec does not declare would be a link to
+    nothing, and it is refused with what IS declared."""
+    import json
+    import tempfile
+
+    import z3
+
+    from certo import binding
+    from certo.certificate import Certificate
+
+    n = z3.Real("n")
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d)
+        src = root / "s.py"
+        src.write_text(
+            "import z3\n"
+            "from certo import Spec\n"
+            "def spec():\n"
+            "    n = z3.Real('n')\n"
+            "    s = Spec()\n"
+            "    s.assume('n_big', n >= 1)\n"
+            "    s.claim(n >= 0)\n"
+            "    return s\n", encoding="utf-8")
+        cert = Certificate(kind="model", solver_free=True, payload={},
+                           note_key="cert.note.model").stamp(str(src))
+        (root / "c.json").write_text(json.dumps(cert.to_dict()),
+                                     encoding="utf-8")
+
+        class S:
+            certificate = "c.json"
+            declaration = "D"
+            discharges = "no_such_hypothesis"
+            provides = (n >= 1)
+            title = "t"
+
+        try:
+            binding.certify(S, root=str(root))
+        except binding.NotBindable as e:
+            assert "no_such_hypothesis" in str(e) and "n_big" in str(e)
+        else:
+            raise AssertionError("bound to a hypothesis that is not there")
 
 
 if __name__ == "__main__":

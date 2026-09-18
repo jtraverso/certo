@@ -499,6 +499,26 @@ You cannot divide by a sum — `1/(x + y)` has an order that depends on which
 dominates — and a symbol with no entry in `orders` is an **error**, not an
 assumption.
 
+**`relations=` derives the exponents instead of asking for them.** Six
+numbers worked out mentally from `|E| <= Lmass`, `C >= n`, `d' >= C(n,2)` is
+six chances to be wrong, and one wrong entry gives a clean false answer:
+
+```python
+OrderSpec(expression=..., orders={},
+          relations=["E ~ n**2", "tC ~ 1", "Lmass ~ E * tC",
+                     "C ~ n", "dp ~ C**2"])
+```
+
+Every relation is **linear in the exponents** — `E ~ n**2` is `exp(E) = 2`,
+`Lmass ~ E * tC` is `exp(Lmass) = exp(E) + exp(tC)` — so the system is a linear
+program, solved exactly. The growth variable is pinned at one: it is the scale,
+not an unknown.
+
+It **refuses rather than guesses**. The Laurent core needs a number per symbol
+and an interval is not one, so relations that leave a symbol one-sided are
+refused with the interval named — `Lmass in [1, +inf)` says which bound is
+missing, and *cannot infer* does not.
+
 Aliases: `certo asymptotics`, `certo decays`.
 
 ### `certo reduce`
@@ -625,6 +645,99 @@ rather than a vacuous `True`.
 A non-simplicial cone still gets an answer: the missing multiplicity is
 recorded with the reason, rather than refusing the certificate and losing the
 other three quantities.
+
+### `certo range`
+
+**Question** — How far can this variable go — the whole interval, not one
+point?
+**Spec** — `Spec`, with `--var` naming the variable
+**Answers** — the exact rational `min` and `max` over the regime, each with the
+non-negative combination of hypotheses that yields it
+**Certificate** — `variable_range`, **solver-free**: adding fractions
+**Not established** — anything about the spec's **claim**, which is never read.
+This bounds the variable over the hypotheses — the regime, not the theorem.
+
+`check --hypotheses-only` exhibits a *point*. That answers whether the regime
+is inhabited and nothing else, and a user who needed `a <= 1/3` got `a = 0` and
+derived the rest by hand.
+
+```
+$ certo range examples/variable_range.py --var a
+SATISFIABLE  [sat]
+  a ranges over [0, 1/3], and that is the whole interval -- not one point of it
+  a <= 1/3
+    cheb x 1/3
+  a >= 0
+    a_nonneg x 1
+```
+
+The multipliers **are** the proof: `1/3` times the row `3a - 1 <= 0` gives
+`a <= 1/3`, and LP duality says no combination gives a tighter one.
+
+**The variables are free.** A regime is not a packing — `a` may be negative,
+and a dual derived under `x >= 0` would certify a bound that does not hold. The
+dual constraint here is an equality for exactly that reason.
+
+**An empty regime is its own answer, not an infinite interval.** Over an empty
+regime every direction is unbounded, and reading that as *the variable ranges
+over everything* is the permissive-looking mistake, so inhabitation is asked
+first.
+
+**A strict binding row leaves the endpoint open**: `a < 1/3` and `a <= 1/3`
+have the same supremum and only one contains it.
+
+Linear hypotheses only. A non-linear one is refused by name rather than
+dropped, because dropping it would *widen* the range — wrong in the direction
+that looks safe.
+
+### `certo cycle`
+
+**Question** — Does this parameter depend on itself — and can the loop close at
+all?
+**Spec** — `CycleSpec`
+**Answers** — the chain, the growth class of every step, and the one comparison
+that closes it
+**Certificate** — `dependency_cycle`, **solver-free**: class arithmetic
+**Not established** — that your growth classes are the real ones. That `k`
+grows like a tower is what your lemma says; this checks what follows from it.
+And a loop this route does not refute comes back *not established*, never
+*there is no cycle*.
+
+Three innocent lines, none of which mentions a cycle:
+
+```
+k     >= tower(1/delta)        the regularity lemma's bound
+rho   <= K / (3 k**2)          what the crude count leaves
+delta <= rho                   Chebyshev
+```
+
+There is one — `delta -> k -> rho -> delta` — and composing the bounds gives
+`delta <= K/(3 tower(1/delta)**2)`, whose right-hand side vanishes faster than
+any power of delta.
+
+```
+$ certo cycle examples/dependency_cycle.py
+PROVED  [unsat]
+  the cycle delta -> k -> rho -> delta cannot close: no positive delta survives it
+  delta      >= tower      -> tower(u)^1
+  k          <= poly ^-2   -> tower(u)^-2
+  closes: delta (u^-1) <= rho (tower(u)^-2)
+```
+
+**The class is the argument, not a substitute for it.** Finding this by hand
+means inventing a stand-in a solver can see — `k >= 1/delta` was the one
+actually used — which proves something strictly weaker and leaves the tower
+carried in prose.
+
+**Monotonicity is tracked.** `rho <= K/(3k**2)` bounds rho from above only
+because the map *decreases* in `k`, and a lower bound on `k` is what is
+available. An edge whose available side does not support the direction needed
+is **refused by name**: composing it anyway could declare a live regime empty,
+which is the one error this must not make.
+
+The ladder is `const < poly(d) < exp < tower`, and `exp` of a *vanishing*
+argument is a constant rather than growth — claiming a tier there would close a
+loop that does not close.
 
 ### `certo solve`
 
@@ -992,9 +1105,25 @@ rather than assumed.
 A non-zero constant resultant is a refutation, conclusive in the strong
 direction and costing one determinant.
 
+**Two definitions of the same quantity are this question.** A first moment
+fixing `A m = P6 t^4` and a second fixing `A^2 m = P11 t^6` are two equations
+for one `A`, and whether they agree is the resultant of the pair in `A`:
+
+```
+$ certo eliminate examples/overdetermined.py
+  eliminated A. A common root exists only where this vanishes:
+  m*P6^2*t^8 - m^2*P11*t^6
+```
+
+which factors as `m t^6 (P6^2 t^2 - m P11)`, so away from the degenerate cases
+the compatibility condition is `P6^2 / P11 = m / t^2` -- the identity a
+doubling argument produces, recovered rather than assumed. An incompatibility
+found this way is found now, not when the formalisation refuses to close.
+
 **Exactly two polynomials**, because that is what a resultant is. Iterating
 pairwise over a larger system introduces extraneous factors that nothing here
-could certify away; use `ideal` for that.
+could certify away; three definitions of one quantity is an ideal membership
+question, and `ideal` is the command for it.
 
 ### `certo sos`
 
@@ -1163,6 +1292,37 @@ still valid on its own, but it no longer corresponds to what is there now.
 The warnings are the part that ages well. A vacuous proof keeps saying it is
 vacuous; a sweep keeps saying what it did not certify; a multiplicity keeps
 naming its lattice. Months later, on the artefact alone.
+
+### `certo bind`
+
+**Question** — Does the Lean lemma actually give what my certificate assumed?
+**Spec** — `BindSpec`
+**Answers** — whether what you say the declaration **provides** entails the
+hypothesis the certificate rests on
+**Certificate** — `lean_binding`; re-asks the entailment, so not solver-free
+**Not established** — that your rendering of the declaration is faithful.
+Nothing here reads Mathlib. It is a **bridge**, and `verify` says so every
+time.
+
+The failure this exists for: a bound certified *assuming* the fine counting
+estimate, and a packaged `patCount_K4_le` that uses density `<= 1` and gives
+something useless — found three modules later, by going to read the statement.
+
+```
+$ certo bind examples/lean_binding.py
+REFUTED  [sat]
+  PaperIV.MomentErrors.N1_from_counting does NOT provide what fine_count
+  assumed: the certificate rests on something stronger than the declaration gives
+```
+
+certo reads the certificate's provenance, loads the spec it came from, finds
+the hypothesis named in `discharges`, and asks the entailment. What changes is
+**when** it bites — at bind time, while you are looking at the statement — and
+that `status` can count it.
+
+**A spec that has moved is reported stale** rather than read as if it had not.
+The certificate carries the hash of the file it was made from, and a binding
+checked against a statement that has since changed would be worse than none.
 
 ### `certo export`
 
