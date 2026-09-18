@@ -8,7 +8,7 @@ Items marked *(user feedback)* come from an external user's report after real
 use; those carry more weight than anything on this list that was invented in
 the abstract.
 
-Last updated: 2026-09-18, at **0.10.0**.
+Last updated: 2026-09-18, at **0.11.1**.
 
 **This file went stale and it cost somebody a review.** A competent reader
 worked through the repository at 0.10.0, found this list still saying "at
@@ -21,6 +21,12 @@ That is the same failure as a README table nobody recomputes, on the one
 surface where being wrong redirects effort rather than confusing a reader. The
 rule this project applies everywhere else applies here: **an item leaves this
 list in the same commit that ships it.**
+
+It then went stale again one release later -- this file said 0.10.0 while the
+tool said 0.11.0 -- which is the argument for the rule rather than against it.
+Unlike the command tables, there is no test that can enforce it: what belongs
+on a backlog is a judgement, and a judgement cannot be recomputed. It is the
+one surface here still held together by remembering.
 
 ---
 
@@ -54,8 +60,13 @@ the shape of the corpus LPs all changed the moment they were measured.
 | The admissible range of a variable, not one witness | `certo range`, **0.10.0** |
 | Certificate ↔ Lean declaration binding | `certo bind`, **0.10.0** |
 | Overdetermination: compatibility of two definitions | already `eliminate`; documented in **0.10.0** |
-| One derived table behind every documented count | `certo commands --table`, **0.10.0** |
-| A spec mode that executes nothing | `--safe` / `CERTO_NO_EXEC`, **0.10.0** |
+| One derived table behind every documented count | `certo commands --table`, **0.11.0** |
+| A spec mode that executes nothing | `--safe` / `CERTO_NO_EXEC`, **0.11.0** |
+| `certo-math` on PyPI, import package unchanged | **0.11.0** |
+| Trusted Publishing, with the tag checked against the version | `publish.yml`, **0.11.0** |
+| `determinism` in CI, plus macOS and 3.13 | **0.11.0** |
+| A job that tests the install carrying only z3 and pulp | `minimal`, **0.11.1** |
+| A channel for a certificate that verifies and should not | `SECURITY.md`, **0.11.1** |
 
 **Modularisation moved to the top, and it is the first item here ranked from
 a measurement of this repository rather than of a problem.** Adding `range`,

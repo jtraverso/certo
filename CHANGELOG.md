@@ -7,6 +7,55 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.11.1] — 2026-09-18
+
+Two documents and a CI correction. No code changed.
+
+### A place to send a certificate that verifies and should not
+
+`SECURITY.md`, in both languages. The absence was flagged in review and it
+mattered differently the moment `pip install certo-math` made this installable
+by strangers: the tool **executes spec files**, and the highest-severity bug it
+can have is not a crash.
+
+It names that bug first, because it does not fit anyone's definition of a
+vulnerability and is the one worth hearing about: a payload that passes
+`certo verify` while asserting something false breaks the entire claim, and it
+is worse than a crash in the way that matters — a crash stops you, and this
+does not. Both instances this project has had are cited, because a policy that
+says "report security issues" and a policy that says "we have accepted two
+exchanged branch-and-bound duals before" ask for different reports.
+
+It also states the execution model plainly, with the three ways not to run a
+stranger's spec as Python, and says what `--safe` does **not** guarantee.
+Out of scope is listed too: `unknown` is an answer, and a refusal this tool
+documents is the feature.
+
+### CI: 3.13 runs the full suite, and the bare install gets a job that fits it
+
+The 3.13 leg added in 0.11.0 installed without the `numerics` extra on the
+premise that its wheels were thin. They are not — python-flint and numpy both
+ship cp313 — so the leg failed dozens of tests that were right to assume what
+the extras provide, and 3.13 got a red X instead of coverage.
+
+What that leg was reaching for is a different claim: that the CLI works on an
+install carrying only z3 and pulp. A `minimal` job now makes it, and claims
+only what it can — the CLI starts, `doctor` names each gap and what it costs,
+the solver-free commands work, and `bounds` reports the missing backend by name
+rather than crashing.
+
+The capability checks added to three MCP tests stay. They were written for the
+wrong reason and are still right: a test that assumes an optional dependency
+cannot run on a supported configuration.
+
+### The backlog is at the release it is in
+
+It went stale one release after the entry explaining that going stale cost
+somebody a review. Unlike the command tables, no test can enforce this one:
+what belongs on a backlog is a judgement, and a judgement cannot be recomputed.
+It is the one surface here still held together by remembering, and the file now
+says so.
+
 ## [0.11.0] — 2026-09-18
 
 A reviewer worked through the repository at 0.10.0 and was right about almost
