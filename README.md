@@ -135,6 +135,10 @@ your terminal, in your language.
    "does not exist".
 5. Certificates are written to disk and do not travel in an MCP response.
    Call `verify` with the path you are given.
+6. Running more than a handful of questions? Use the
+   [in-process API](#in-process-api), not a loop over the CLI: the startup
+   dominates, and a fallback written to avoid it is a fallback in floating
+   point.
 
 ## The forty-six commands
 
@@ -211,6 +215,38 @@ not decided by this tool.
 | Does R(k,k)^(1/k) converge? | **No, in principle.** Asymptotic: not expressible |
 
 The full list, and the FAQ, in [`docs/LIMITS.md`](docs/LIMITS.md).
+
+## In-process API
+
+A CLI costs one Python startup per question. On a Windows laptop that is
+**1.2 s before certo is imported** — `python -c pass` alone — against ~70 ms
+of certo's own. A sweep of 853 linear programs is two minutes of work behind
+twenty minutes of starting Python.
+
+```python
+from certo import LPSpec, api
+
+spec = LPSpec(sense="max", title="w")
+...
+res = api.run("opt", spec)
+res.meta["objective"]     # '32/3' -- an exact string, not a float
+res.certificate           # the artefact `--cert` would have written
+```
+
+| | |
+|---|---|
+| `api.run(command, spec, limits=None, **options)` | returns a `Result` |
+| `api.runnable()` | every command that takes a spec |
+| `api.options(command)` | what that command accepts, read off the engine |
+
+`run` **verifies what it produced** and raises `api.SelfCheckFailed` rather
+than hand back a certificate that fails its own verifier. It costs under 1% of
+an `opt`. Pass `self_check=False` only after measuring.
+
+The engine modules under `certo.engines` stay private; `run`, `runnable` and
+`options` are the promise. Commands that read a directory or the environment
+(`verify`, `status`, `doctor`, `enum`, …) are not here — `certo.verify` and
+`certo.load_spec` are already exported for the first two.
 
 ## MCP server
 

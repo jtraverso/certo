@@ -95,6 +95,31 @@ it says which node it came from. A tree that stored one per node and checked
 each on its own terms accepted two of them **exchanged**, and an expensive
 subtree closed by a cheap one's certificate read exactly like a complete proof.
 
+## Which way is up: the frame of an `lp_dual`
+
+`A`, `b`, `c`, `primal`, `dual` and `objective` are stored in the internal
+**maximised** system, because that is the only frame where `c.x == b.y` closes.
+A spec written `sense="min"` is solved as `max -c.x`, so those numbers are the
+negation of the ones you asked for.
+
+The payload never said so. A minimisation whose answer was `3/2` was archived
+as `"sense": "min", "objective": "-3/2"` and **verified** — consistent with
+itself in a frame it did not name. The screen said `3/2` and the file said
+`-3/2`, and nothing said which was which.
+
+So the artefact carries both:
+
+```json
+"sense": "min",
+"objective": "-3/2",            // the internal system, where c.x == b.y
+"declared": {"objective": "3/2"}   // the sense you asked for
+```
+
+`declared` is **optional**, the way `loads` is: a certificate written before it
+existed verifies exactly as before, and the schema stays at 4. It is derived
+when the certificate is built and **recomputed** by `verify` — edit it and the
+certificate is rejected, like every other number here.
+
 ## The warnings are part of the artefact
 
 A certificate carries what it does *not* establish, and `verify` repeats it

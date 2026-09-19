@@ -270,13 +270,20 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
             v: repr(sol_float[j]) for j, v in enumerate(spec.var_names)}
 
         if discrete:
-            bound = exact.serialize(rep["objective"])
+            # The internal system MAXIMISES, so for `sense="min"` every number
+            # read out of it is the negation of the declared one. The line
+            # above does that for `objective_ex`; this branch replaced both
+            # numbers and did not, so a minimisation ILP whose answer was 2
+            # reported -2, and so did its certificate. Every "minimum
+            # deletion" question has this shape.
+            flip = -1 if spec.sense == "min" else 1
+            bound = exact.serialize(flip * rep["objective"])
             if integral is None:
                 # Nothing to report but the bound -- and it is named a bound.
                 detail = t("engine.opt.mixed_bound_only", bound=bound)                         if not all_discrete else                                                   t("engine.opt.ilp_bound_only", bound=bound)
                 meta_obj = None
             else:
-                meta_obj = exact.serialize(integral[1])
+                meta_obj = exact.serialize(flip * integral[1])
                 tight = integral[1] == rep["objective"]
                 detail = t("engine.opt.ilp_tight" if tight
                            else "engine.opt.ilp_gap",
@@ -325,8 +332,12 @@ def opt(spec, limits: Limits | None = None, use_exact: bool = True,
         meta={"objective": meta_obj,
               "objective_float": (None if meta_obj is None
                                   else float(exact.to_fraction(meta_obj))),
-              "bound": (exact.serialize(rep["objective"])
-                        if exact_ok and discrete else None),
+              # In the declared sense, like `objective` beside it. This one
+              # was computed a third time, from the internal system, and so
+              # kept the sign the other two had already lost.
+              "bound": (exact.serialize(
+                  (-1 if spec.sense == "min" else 1) * rep["objective"])
+                  if exact_ok and discrete else None),
               "exact": exact_ok, "solution": meta_sol,
               "integer": discrete, "denominator": denom,
               # `None`, not 0.0, when there is no dual: the smallest entry of

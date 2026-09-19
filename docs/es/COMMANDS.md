@@ -201,10 +201,11 @@ Spec -- para `certo prove / check / core`
   1 errores, 0 avisos, 0 notas
 ```
 
-Tres hallazgos que se pagan solos:
+Cuatro hallazgos que se pagan solos:
 
 | Hallazgo | Por qué importa |
 |---|---|
+| la afirmación es un polinomio univariado de grado ≥ 11 | `prove` cierra grado 10 en 12 ms y no cierra grado 11 en 20 s, medido sobre un enunciado trivialmente cierto. Un usuario pasó 71 minutos con un polinomio de schedule de grado 63 y obtuvo `INCONCLUSIVE [timeout]`; sustituir `t = s³` a mano dejó que certo lo cerrara en 4,3 ms |
 | el paso inductivo empieza después de que acaben los casos base | `induct` también se niega —después de descargar cada caso base, que es donde se van las horas. Aquí es comparar dos enteros |
 | el predicado devuelve `bool` | entonces el barrido será `reproducible`, no `certificado`. Gente que escribió el predicado ella misma ha leído mal esa diferencia |
 | `integer=True` hace enteras **todas** las variables | un usuario lo leyó como "aquí dentro hay enteros" y obtuvo un diseño que no vale nada, con cada peso redondeado a cero |
@@ -427,6 +428,18 @@ Tratamiento completo en [Casos trabajados](CASES.md#diseños-mixtos).
 **Certificado** — `bisect`; la libertad de solver depende de sus hijos
 **No establece** — monotonía en el parámetro. Se **supone**; se comprueban los
 extremos y se avisa si se portan mal, pero la monotonía misma no se demuestra.
+
+`build(t)` puede devolver un **`CNFSpec`**, no solo un `Spec`, y así es como
+`bisect` responde *«¿cuál es el conjunto más pequeño que arregla esto?»* — los
+mínimos vértices que borrar, cláusulas que quitar, aristas que eliminar. Para un
+`CNFSpec`, «se cumple» significa **UNSAT**: no existe objeto de ese tamaño. Ver
+[**El conjunto más pequeño que arregla esto**](CASES.md#el-conjunto-más-pequeño-que-arregla-esto).
+
+Úsalo en vez de un bucle sobre `cases`. Un `for k in ...` que pare en el primer
+SAT lee `unknown_solver` como `unsat` y reporta un umbral que no lo es; dos
+personas escribieron exactamente eso con un día de diferencia y las dos
+obtuvieron un número falso. `bisect` lleva tres estados y se detiene ante el
+sondeo inconcluso en vez de elegir un lado.
 
 ### `certo bounds`
 

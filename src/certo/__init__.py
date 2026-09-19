@@ -15,7 +15,7 @@ from __future__ import annotations
 from .certificate import Certificate, VerifyReport, verify
 from .cnf import CNF, CNFSpec
 from .graphs import Graph
-from . import doctor, reducers
+from . import api, doctor, reducers
 from .structures import SetFamily, family_from_masks, mask_to_set, set_to_mask
 from .packing import PackingSpec, loads_from_dual
 from .i18n import set_lang, t
@@ -29,7 +29,7 @@ from .spec import (BisectSpec, BoundSpec, DomainSpec, IdealSpec,
                    SynthSpec, load_spec)
 from .status import Result, Status, Verdict
 
-__version__ = "0.11.3"
+__version__ = "0.11.4"
 
 __all__ = [
     "Spec", "SynthSpec", "LPSpec", "SweepSpec", "CNF", "CNFSpec",
@@ -41,5 +41,6 @@ __all__ = [
     "Certificate", "VerifyReport", "verify",
     "Graph", "PackingSpec", "loads_from_dual", "doctor", "reducers", "SetFamily",
     "family_from_masks", "mask_to_set", "set_to_mask", "set_lang", "t",
+    "api",
     "__version__",
 ]

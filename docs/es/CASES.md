@@ -457,3 +457,107 @@ la vía barata ya falló, terminar importa más que ser rápido.
 Nada de lo que produce se cree por haberse producido ahí. El resultado pasa por
 el mismo `check_lp` que una conjetura redondeada, así que un fallo ahí aparece
 como certificado que no verifica —nunca como uno equivocado que sí.
+
+## El conjunto más pequeño que arregla esto
+
+La pregunta sale constantemente y no parece una pregunta de SAT: *¿cuántos
+vértices como mínimo tengo que borrar para que este grafo sea 3-coloreable?
+¿cuántas cláusulas quitar para que sea satisfacible? ¿cuántas aristas para
+matar todo ciclo impar?*
+
+No hay comando para eso, y no hace falta que lo haya. Un equipo que necesitaba
+la primera escribió un programa entero completo, reportó los números y tuvo que
+retractar parte de la conclusión. Su propio resumen después: *«no me faltó
+herramienta; me faltó ver el encoding»*. Así que aquí está el encoding.
+
+### Una restricción de conteo es todo el truco
+
+`CNF.at_most_k(lits, k)` es lo que convierte `cases` de procedimiento de
+decisión en optimizador. Es un **contador secuencial**, `O(n·k)` cláusulas —el
+encaje pairwise de «a lo sumo k» es `C(n, k+1)`, que con 35 literales y `k=6`
+son 6.724.520 cláusulas, y es donde se descubrió—.
+
+```python
+from certo import CNF, CNFSpec
+
+def borrables(n, aristas, q, k):
+    """Satisfacible exactamente cuando la q-colorabilidad está a k borrados."""
+    cnf = CNF("D_%d <= %d" % (q, k))
+    y = [cnf.var("y%d" % v) for v in range(n)]              # borrar v
+    z = [[cnf.var("z%d_%d" % (v, c)) for c in range(q)]     # colorear v
+         for v in range(n)]
+    for v in range(n):
+        cnf.exactly_one(z[v] + [y[v]])          # borrado o coloreado, no ambos
+    for a, b in aristas:
+        for c in range(q):
+            cnf.add(-z[a][c], -z[b][c])         # ninguna arista monocromática
+    cnf.at_most_k(y, k)                         # y esto es el objetivo
+    return CNFSpec(cnf=cnf, title=cnf.title)
+```
+
+### Las dos cotas, las dos certificadas
+
+Las dos respuestas son artefactos distintos, y las dos valen:
+
+| | | |
+|---|---|---|
+| **SAT** | el modelo **es** el conjunto borrado y la coloración | cota superior |
+| **UNSAT** | una prueba **DRAT** de que ningún borrado de tamaño `k` sirve | cota inferior |
+
+Sobre cinco `K₆` disjuntos con `q = 3`, donde la respuesta es 15:
+
+```
+k=14   UNSAT   229 ms   drat        -> 14 borrados no bastan
+k=15   SAT      13 ms   cnf_model   -> y aquí van 15 que sí
+```
+
+### Barre `k` con `bisect`, nunca con un bucle
+
+Lo obvio es un `for k in range(...)` que pare en el primer SAT. No lo escribas.
+Dos personas lo escribieron por su cuenta con un día de diferencia y las dos
+obtuvieron un número falso, porque las dos leyeron «no SAT» como UNSAT — y
+`unknown_solver` no es `unsat`, que es la distinción que esta herramienta entera
+existe para mantener.
+
+`bisect` ya lo tiene. `build(t)` devuelve un `CNFSpec`, y para un `CNFSpec`
+«se cumple» significa UNSAT, así que el umbral es el mayor `k` en el que no
+existe borrado de ese tamaño:
+
+```python
+from certo import BisectSpec
+
+def spec():
+    return BisectSpec(build=lambda k: borrables(30, ARISTAS, 3, int(k)),
+                      lo=0, hi=20, direction="max_true", integer=True,
+                      title="el mayor k sin borrado de tamaño k")
+```
+
+```
+$ certo bisect spec.py
+PROVED  threshold at 14 (holds at t=14, fails at t=15; 7 probes)   553 ms
+```
+
+Siete sondeos, medio segundo, un certificado, y **se detiene** ante un sondeo
+inconcluso en vez de adivinar de qué lado estaba.
+
+### Certifica el objeto más pequeño
+
+La cota suele venir de algo mucho más barato que aquello que estás acotando.
+Para el borrado hasta `q`-coloreable existe
+
+```
+D_q(H)  >=  n - q·alfa(H)
+```
+
+—tras borrar `S` lo que queda es `q`-coloreable, o sea está cubierto por `q`
+conjuntos independientes de tamaño a lo sumo `alfa`, luego `n - |S| <= q·alfa`—.
+
+El encoding de `D_q <= k` tiene `n + n·q` variables. El de `alfa >= t` tiene
+`n`. Sobre un grafo de conflicto de 35 vértices con `q = 10` eso es 385 contra
+35, y decide la cuestión: el lado de `D_q` agotó el presupuesto del CDCL
+incorporado, mientras que `alfa <= 2` volvió UNSAT con una prueba DRAT de 136
+pasos en **462 ms** en la misma máquina. Misma cota, tres órdenes de magnitud, y
+`alfa` no depende de `q`, así que un certificado sirve para toda la familia.
+
+Floja a veces, exacta cuando el grafo se cubre con independientes de tamaño
+`alfa` — comprueba el hueco en vez de adoptarla.

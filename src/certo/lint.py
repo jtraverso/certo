@@ -177,6 +177,85 @@ def _magnitude_shaped(expr):
     return sorted(negative) if len(negative) >= 2 else None
 
 
+#: Where `prove` stops being usable on a univariate polynomial goal.
+#:
+#: MEASURED, not chosen. On `t^k <= t` over `[0, 1]` -- a statement that is
+#: trivially true and squarely inside the decidable fragment:
+#:
+#:     t^9  <= t        29 ms   proved
+#:     t^10 <= t        12 ms   proved
+#:     t^11 <= t     20198 ms   TIMEOUT
+#:
+#: A cliff between 10 and 11, not a slope. A user brought a degree-63 schedule
+#: polynomial and spent 71 minutes reaching `INCONCLUSIVE [timeout]` with no
+#: certificate; reducing the degree by hand (substituting `t = s^3`, plus a
+#: domination argument) let certo close the same question in 4.3 ms.
+#:
+#: One family measured, so this WARNS and does not route: nlsat's behaviour
+#: depends on more than the degree, and a linter that is wrong about something
+#: expensive is a linter people switch off.
+DEGREE_CLIFF = 11
+
+
+def _polynomial_degree(expr, var):
+    """The degree of `expr` in `var`, or None if it is not a polynomial.
+
+    Walks the z3 term rather than multiplying it out: the goal that prompted
+    this was degree 63, and expanding it to count is doing the work the check
+    exists to avoid.
+    """
+    import z3
+
+    if z3.is_const(expr):
+        return 1 if str(expr) == str(var) else 0
+    if z3.is_add(expr) or z3.is_sub(expr):
+        parts = [_polynomial_degree(a, var) for a in expr.children()]
+        return None if any(p is None for p in parts) else max(parts)
+    if z3.is_mul(expr):
+        parts = [_polynomial_degree(a, var) for a in expr.children()]
+        return None if any(p is None for p in parts) else sum(parts)
+    if z3.is_app_of(expr, z3.Z3_OP_POWER):
+        base, power = expr.arg(0), expr.arg(1)
+        # Over the reals z3 types the exponent as a REAL numeral, so
+        # `is_int_value` says no to `t**63` and the whole check went quiet.
+        if z3.is_int_value(power):
+            k = power.as_long()
+        elif z3.is_rational_value(power) and power.denominator_as_long() == 1:
+            k = power.numerator_as_long()
+        else:
+            return None
+        if k < 0:
+            return None
+        inner = _polynomial_degree(base, var)
+        return None if inner is None else inner * k
+    if z3.is_div(expr):
+        num, den = expr.arg(0), expr.arg(1)
+        if _polynomial_degree(den, var) != 0:
+            return None            # a rational function, not a polynomial
+        inner = _polynomial_degree(num, var)
+        return inner
+    return None
+
+
+def _high_degree_univariate(goal):
+    """The degree of a one-variable polynomial goal, when it is past the cliff.
+
+    Univariate because that is where the measurement is. A multivariate goal
+    of the same degree is a different problem and this says nothing about it.
+    """
+    from .z3util import free_consts
+
+    names = free_consts(goal)
+    if len(names) != 1:
+        return None
+    var = names[0]
+    degrees = [_polynomial_degree(side, var) for side in _sides(goal)]
+    if not degrees or any(d is None for d in degrees):
+        return None
+    top = max(degrees)
+    return top if top >= DEGREE_CLIFF else None
+
+
 def _check_spec(spec, limits):
     if spec.goal is None:
         yield _f(ERROR, "spec.no_goal")
@@ -199,6 +278,10 @@ def _check_spec(spec, limits):
                     yield _f(NOTE, "spec.magnitude",
                              names=", ".join(names[:4]))
                     break
+            degree = _high_degree_univariate(spec.goal)
+            if degree is not None:
+                yield _f(WARN, "spec.high_degree", degree=degree,
+                         proved=DEGREE_CLIFF - 1, cliff=DEGREE_CLIFF)
     if not spec.assumptions:
         yield _f(NOTE, "spec.no_hypotheses")
     clash = _contradictory(spec.assumptions, limits)
@@ -684,6 +767,23 @@ def _check_bisect(spec, limits):
     yield _f(NOTE, "bisect.monotone")
 
 
+def _cardinality_bound(cnf):
+    """Does this formula carry an `at_most_k` counter?
+
+    `at_most_k` names its auxiliaries `__count<tag>_<i>_<j>` rather than
+    numbering them, so a DRAT proof over the formula can be read -- and that
+    naming is what makes the counter visible here too. Derived from the
+    encoder, so it cannot drift from it.
+
+    Only `k >= 2` leaves a marker: `k == 1` delegates to the pairwise
+    `at_most_one` and `k == 0` becomes unit clauses, neither of which has
+    auxiliaries. That is the right side to miss on -- a cardinality bound of
+    one is rarely the objective of a search.
+    """
+    names = getattr(cnf, "_name", None) or []
+    return any(isinstance(n, str) and n.startswith("__count") for n in names)
+
+
 def _check_cnf(spec, limits):
     cnf = getattr(spec, "cnf", spec)
     clauses = getattr(cnf, "clauses", [])
@@ -692,6 +792,19 @@ def _check_cnf(spec, limits):
     else:
         yield _f(NOTE, "cnf.size", clauses=len(clauses),
                  variables=getattr(cnf, "nvars", 0))
+    # A counting constraint is what turns `cases` from a decision procedure
+    # into an optimiser, and somebody who wrote one is usually asking for the
+    # SMALLEST k rather than about one k. The loop they then write reads
+    # `unknown_solver` as `unsat` and reports a threshold that is not one --
+    # two people wrote exactly that within a day of each other. `bisect` takes
+    # a `CNFSpec` from `build(t)` and carries the third state.
+    #
+    # A NOTE, not a warning: writing `at_most_k` and running `cases` once is a
+    # perfectly good thing to do. This is the same shape as `spec.magnitude`,
+    # which exists because `order` shipped and the person who needed it did
+    # not find it.
+    if clauses and _cardinality_bound(cnf):
+        yield _f(NOTE, "cnf.cardinality")
 
 
 CHECKS = {

@@ -450,3 +450,108 @@ speed in a fallback that only runs when the cheap route has already failed.
 Nothing it produces is trusted for being produced there. The result goes
 through the same `check_lp` as a rounded guess, so a bug in it shows up as a
 certificate that does not verify — never as a wrong one that does.
+
+## The smallest set that fixes this
+
+The question comes up constantly and does not look like a SAT question:
+*what is the fewest vertices I can delete to make this graph 3-colourable?*
+*the fewest clauses to drop to make this satisfiable? the fewest edges to
+remove to kill every odd cycle?*
+
+There is no command for it, and there does not need to be. A team that needed
+the first one wrote a whole integer program, reported the numbers, and had to
+retract part of the conclusion. Their own summary afterwards: *"I wasn't
+missing a tool; I was missing the encoding."* So here is the encoding.
+
+### One counting constraint is the whole trick
+
+`CNF.at_most_k(lits, k)` is what turns `cases` from a decision procedure into
+an optimiser. It is a **sequential counter**, `O(n·k)` clauses — the pairwise
+encoding of "at most k" is `C(n, k+1)`, which with 35 literals and `k=6` is
+6,724,520 clauses, and is how this was discovered.
+
+```python
+from certo import CNF, CNFSpec
+
+def deletable(n, edges, q, k):
+    """Satisfiable exactly when q-colourability is k deletions away."""
+    cnf = CNF("D_%d <= %d" % (q, k))
+    y = [cnf.var("y%d" % v) for v in range(n)]              # delete v
+    z = [[cnf.var("z%d_%d" % (v, c)) for c in range(q)]     # colour v
+         for v in range(n)]
+    for v in range(n):
+        cnf.exactly_one(z[v] + [y[v]])          # deleted, or coloured, not both
+    for a, b in edges:
+        for c in range(q):
+            cnf.add(-z[a][c], -z[b][c])         # no edge is monochromatic
+    cnf.at_most_k(y, k)                         # and this is the objective
+    return CNFSpec(cnf=cnf, title=cnf.title)
+```
+
+### Both bounds, both certified
+
+The two answers are different artefacts, and both are worth having:
+
+| | | |
+|---|---|---|
+| **SAT** | the model **is** the deletion set and the colouring | upper bound |
+| **UNSAT** | a **DRAT** proof that no deletion of size `k` works | lower bound |
+
+On five disjoint `K₆` with `q = 3`, where the answer is 15:
+
+```
+k=14   UNSAT   229 ms   drat        -> no 14 deletions suffice
+k=15   SAT      13 ms   cnf_model   -> and here are 15 that do
+```
+
+### Sweep `k` with `bisect`, never with a loop
+
+The obvious thing is a `for k in range(...)` that stops at the first SAT. Do
+not write it. Two people wrote it independently within a day of each other and
+both got a wrong number, because both read "not SAT" as UNSAT — and
+`unknown_solver` is not `unsat`, which is the one distinction this whole tool
+exists to keep.
+
+`bisect` already has it. `build(t)` returns a `CNFSpec`, and for a `CNFSpec`
+"holds" means UNSAT, so the threshold is the largest `k` at which no deletion
+of that size exists:
+
+```python
+from certo import BisectSpec
+
+def spec():
+    return BisectSpec(build=lambda k: deletable(30, EDGES, 3, int(k)),
+                      lo=0, hi=20, direction="max_true", integer=True,
+                      title="the largest k with no k-deletion")
+```
+
+```
+$ certo bisect spec.py
+PROVED  threshold at 14 (holds at t=14, fails at t=15; 7 probes)   553 ms
+```
+
+Seven probes, half a second, a certificate, and it **stops** on an
+inconclusive probe instead of guessing which side it was on.
+
+### Certify the smaller object
+
+The bound often comes from something far cheaper than the thing you are
+bounding. For deletion-to-`q`-colourable there is
+
+```
+D_q(H)  >=  n - q·alpha(H)
+```
+
+— after deleting `S` the rest is `q`-colourable, so it is covered by `q`
+independent sets of size at most `alpha`, giving `n - |S| <= q·alpha`.
+
+The encoding of `D_q <= k` has `n + n·q` variables. The encoding of
+`alpha >= t` has `n`. On a 35-vertex conflict graph with `q = 10` that is 385
+against 35, and it decides the question: the `D_q` side ran out of budget on
+the built-in CDCL, while `alpha <= 2` came back UNSAT with a 136-step DRAT
+proof in **462 ms** on the same machine. Same bound, three orders of
+magnitude, and `alpha` does not depend on `q`, so one certificate serves the
+whole family.
+
+Weak sometimes, exact when the graph is covered by `alpha`-sized independent
+sets — check the gap rather than adopting it.

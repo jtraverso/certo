@@ -108,6 +108,22 @@ ceros, porque `b.0 = 0` no acota nada—, el número vuelve etiquetado como sin
 certificar y no se escribe fichero. Un artefacto que no pasa el verificador no
 es un certificado más débil; no es un certificado.
 
+**¿Por qué `prove` es rápido con un polinomio y no puede con otro?**
+El grado. Sobre `t^k <= t` en `[0, 1]` —trivialmente cierto y decidible— el
+grado 10 se demuestra en 12 ms y el grado 11 no se demuestra en 20 segundos. Es
+un acantilado, no una pendiente, y está mucho más abajo de lo que se espera: un
+objetivo de grado 63 no es "un poco más difícil". `certo lint` avisa en 11. El
+remedio es una sustitución que baje el grado; el schedule de grado 63 de un
+usuario se volvió `t = s^3` más un argumento de dominación, y certo lo cerró en
+4,3 ms.
+
+**Necesito correr miles de instancias.**
+No hagas un bucle sobre la CLI. Cada llamada paga un arranque de Python —1,2 s
+en Windows antes de importar certo— así que un barrido de dos minutos tarda
+veinte. La [API en proceso](../README.es.md#api-en-proceso) es
+`api.run(comando, spec)`, y conserva los racionales exactos que un apaño en
+flotante regala.
+
 **¿Por qué es lento el solver SAT incorporado?**
 Porque es un CDCL en Python. Existe porque el registro de pruebas de pysat no
 funciona en Windows —devuelve 0 líneas con cada uno de sus solvers— y sin prueba

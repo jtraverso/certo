@@ -7,6 +7,169 @@ payload — each such change says so and what still reads the old shape.
 ## [Unreleased]
 
 
+## [0.11.4] — 2026-09-19
+
+**Everything here came from running the tool on someone's real
+problem.** Two capabilities nobody could find, two numbers reported
+with the wrong sign, and a startup cost that was pushing people to
+floating point. Nothing was discovered by looking for it.
+
+### The optimiser inside `cases` that nobody could find
+
+A team needed the fewest vertices to delete to make a graph `q`-colourable,
+reported "certo has no command for this", and wrote an integer program. They
+were literally right and practically wrong: `cases` with a counting constraint
+answers it, and answers it better — SAT gives the deletion set and the
+colouring, UNSAT gives a **DRAT proof** that no deletion of that size exists.
+Their own summary afterwards was *"I wasn't missing a tool; I was missing the
+encoding."*
+
+Nothing was built for this release, because nothing needed building. What was
+missing was any way to find it:
+
+* **`at_most_k` appeared in no documentation at all.** Not the README, not
+  `docs/`, not the Spanish mirror. It is the piece that turns `cases` from a
+  decision procedure into an optimiser, and it was invisible.
+* **`bisect` over a `CNFSpec` was equally invisible.** `build(t)` may return a
+  `CNFSpec`, where "holds" means UNSAT — which is exactly the guarded sweep
+  over `k`. Its entry in `docs/COMMANDS.md` did not mention CNF or UNSAT.
+
+Both are now written, in both languages, with
+[**the smallest set that fixes this**](docs/CASES.md) carrying the encoding,
+both bounds, and the measurement that decides how to certify: `D_q <= k` needs
+`n + n·q` variables where `alpha >= t` needs `n`, and on a 35-vertex instance
+that was the difference between running out of budget and a 136-step DRAT proof
+in 462 ms.
+
+`examples/smallest_deletion.py` runs the recipe in the suite, because a recipe
+nobody runs is a recipe that rots.
+
+**And `lint` now names it.** A `CNFSpec` carrying an `at_most_k` counter gets a
+note pointing at `bisect` — detected from the counter's own auxiliary names, so
+it cannot drift from the encoder. A note rather than a warning: writing
+`at_most_k` and running `cases` once is a perfectly good thing to do. This is
+the same shape as the magnitude note, which exists because `order` shipped in
+0.5.0 and the person who needed it did not find it.
+
+### Do not write the loop
+
+Two people wrote `for k in range(...)`, stopped at the first `SAT`, and both
+got a wrong number — within a day of each other, one of them this tool's own
+author. Both read "not SAT" as UNSAT, and `unknown_solver` is not `unsat`,
+which is the one distinction the whole project exists to keep.
+
+`bisect` already carried three states and already stopped on an inconclusive
+probe. It is said out loud now, in `docs/CASES.md`, in the `bisect` reference
+and in the example.
+
+### `doctor` says how to get a SAT solver, not just that you lack one
+
+`cadical [--]` named the fallback — "the built-in CDCL: correct, and slow" —
+and stopped there. It now names where the binary comes from and the flag that
+takes it.
+
+### `opt` had the sign backwards on every minimisation
+
+The internal system MAXIMISES: a spec written `sense="min"` is solved as
+`max -c.x`, because that is the only frame where `c.x == b.y` closes. One line
+undoes that on the way out, and the discrete branch replaced both numbers
+afterwards without it.
+
+```
+min x  s.t.  2x >= 3,  x integer          the minimum is 2, the bound 3/2
+
+   objective : -2
+   bound     : -3/2
+   solution  : {'x': '2'}        <- the solution itself was right
+```
+
+The pure-LP minimisation was worse, because the two surfaces disagreed with
+each other: the CLI printed `3/2` and the archived certificate re-verified as
+`-3/2`. And it **verified** — the artefact was consistent with itself in a
+frame it never named, which is the same failure as a certificate that passes
+and is wrong about its own claim.
+
+Fixed in the three places a number is read: `meta["objective"]`,
+`meta["bound"]`, and the detail `verify` prints. `bb`, `mixed`, `packing` and
+`family` are unaffected: every one of them either solves a continuous LP or
+refuses a minimisation before solving it.
+
+Found by building a minimum-deletion ILP — the shape of every "smallest set
+that fixes this" question — to look at a user's problem, not by looking for it.
+
+### An `lp_dual` now says which way is up
+
+The payload never named its frame. `"sense": "min", "objective": "-3/2"` for a
+minimum of `3/2` is correct and unreadable, and a reader of the JSON has no
+way to know. So the artefact carries both:
+
+```json
+"objective": "-3/2",              // the internal system, where c.x == b.y
+"declared": {"objective": "3/2"}  // the sense that was asked for
+```
+
+`declared` is **optional**, the way `loads` is: a certificate written before it
+existed verifies exactly as before, with one check fewer, and the schema stays
+at 4. It is derived when the certificate is built, never passed in by an
+engine, and `verify` recomputes it from the stored system — edit it and the
+certificate is rejected, like every other number in there.
+
+### An in-process API, because the startup was the tax
+
+A user sweeping 853 graphs, 1992 clique-sums and 180 random chordals left certo
+for PuLP/CBC in-process, and was right to: a CLI costs one Python startup per
+question, and on Windows that is **1.2 s before certo is imported** —
+`python -c pass` alone — against ~70 ms of certo's own. Two minutes of work
+behind twenty minutes of starting Python.
+
+The cost was not the time. Their fallback worked in floating point, so a ratio
+came out `4499996/999999` and a retraction had to be re-signed with `Fraction`.
+The exactness certo exists for was lost to a startup that has nothing to do
+with exactness.
+
+Everything was already exported except the thing that runs: the package gives
+you every spec type, `Limits`, `Result`, `Certificate` and `verify`, so you
+could build a question in-process and check an answer in-process, and had to
+shell out to get between them.
+
+```python
+from certo import LPSpec, api
+
+res = api.run("opt", spec)
+res.meta["objective"]     # '32/3' -- exact, as a string
+```
+
+`api.run` / `api.runnable` / `api.options` are the public surface; the engine
+modules stay private. `run` verifies what it produced and raises
+`SelfCheckFailed` rather than return a certificate that fails its own verifier
+— under 1% of an `opt`, and it is what caught the defects in 0.11.3.
+
+`routing.RUNNERS` is untouched: it is `ask`'s table by definition, holding only
+what runs with no decision. The four that need one — `range` needs to know
+which variable — live in `api.DECIDED` with the decision as a keyword, and a
+test holds the pair complete against the catalogue.
+
+### `lint` warns at the degree where `prove` falls off
+
+The same user spent 71 minutes on a degree-63 univariate schedule polynomial
+and got `INCONCLUSIVE [timeout]` with no certificate. Reducing the degree by
+hand — `t = s^3` plus a domination argument — let certo close it in 4.3 ms.
+
+The threshold is measured, not chosen. On `t^k <= t` over `[0, 1]`, a statement
+that is trivially true and squarely decidable:
+
+```
+t^9  <= t        29 ms   proved
+t^10 <= t        12 ms   proved
+t^11 <= t     20198 ms   TIMEOUT
+```
+
+A cliff between 10 and 11, five times below where the user hit it. `lint` now
+warns on a univariate polynomial goal of degree ≥ 11 and names the remedy. It
+warns rather than routes: one family measured, nlsat depends on more than the
+degree, and a linter that is wrong about something expensive gets switched off.
+
+
 ## [0.11.3] — 2026-09-18
 
 **Certificates that could not be cited, and a tree that pruned what it

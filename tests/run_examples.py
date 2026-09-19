@@ -91,6 +91,10 @@ CASES = [
     ("overdetermined.py", "eliminate", []),
     ("counting_bound.py", "prove", []),
     ("lean_binding.py", "bind", []),
+
+    # The recipe in docs/CASES.md. A recipe nobody runs is a recipe that rots,
+    # and this one exists because a team could not find the encoding.
+    ("smallest_deletion.py", "bisect", []),
 ]
 
 #: Commands that report rather than certify. `status` is not here because it

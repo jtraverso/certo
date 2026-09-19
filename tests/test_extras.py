@@ -8847,6 +8847,369 @@ def test_a_node_without_a_certificate_is_not_an_empty_subtree():
     assert r.certificate is None
 
 
+# --- the in-process API ----------------------------------------------------
+
+
+def _hexagon():
+    from certo import LPSpec
+
+    s = LPSpec(sense="max", title="hexagon")
+    for j in range(6):
+        s.variable("x%d" % j)
+    s.objective({"x%d" % j: 1 for j in range(6)})
+    for j in range(6):
+        s.constraint({"x%d" % j: 1, "x%d" % ((j + 1) % 6): 1}, "<=", 1,
+                     name="e%d" % j)
+    return s
+
+
+def test_run_covers_every_command_that_takes_a_spec():
+    """Two tables nobody compares is the failure this project exists to refuse.
+
+    `api.DECIDED` holds the commands `routing.RUNNERS` cannot -- RUNNERS is
+    `ask`'s table, and `ask` will not choose which variable `range` is about.
+    A second table is only safe if something makes it complete, so: every
+    command in the catalogue is either runnable here or named as one that does
+    not take a spec at all.
+    """
+    from certo import api, catalogue
+
+    every = {r["command"] for r in catalogue.rows()}
+    uncovered = sorted(every - set(api.runnable()) - api.NOT_FROM_A_SPEC)
+    assert not uncovered, {"commands run() cannot reach": uncovered}
+    # and nothing is claimed that is not a command
+    assert not sorted(set(api.runnable()) - every), sorted(
+        set(api.runnable()) - every)
+
+
+def test_run_gives_the_same_answer_as_the_command_line():
+    """The point of the API is to skip the interpreter, not the arithmetic."""
+    from fractions import Fraction
+
+    from certo import api
+
+    res = api.run("opt", _hexagon())
+    assert res.verdict is Verdict.SATISFIABLE
+    assert res.meta["exact"] is True
+    # Exact, as a string that reads back as a rational -- which is the whole
+    # reason to stay in-process: a user who shelled out to CBC instead got
+    # 4499996/999999 where the answer was 4.5.
+    assert Fraction(res.meta["objective"]) == 3
+    assert res.certificate is not None and verify(res.certificate).ok
+
+
+def test_run_refuses_what_it_cannot_run_by_name():
+    """An option silently ignored answers a different question."""
+    from certo import api
+
+    for call, want in (
+        (lambda: api.run("nope", _hexagon()), "no such command"),
+        (lambda: api.run("verify", _hexagon()), "does not run a spec"),
+        (lambda: api.run("opt", _hexagon(), exacto=True), "does not take"),
+    ):
+        try:
+            call()
+            raise AssertionError("did not raise: " + want)
+        except (TypeError, ValueError) as exc:
+            assert want in str(exc), (want, str(exc))
+
+
+def test_run_refuses_a_spec_of_the_wrong_type():
+    """`prove` on an LPSpec used to be a TypeError from inside z3."""
+    from certo import api
+
+    try:
+        api.run("prove", _hexagon())
+        raise AssertionError("did not raise")
+    except TypeError as exc:
+        assert "wants a Spec" in str(exc) and "LPSpec" in str(exc)
+
+
+def test_a_command_needing_a_decision_says_which_one():
+    """`range` is out of RUNNERS because `ask` cannot choose `--var`. Here the
+    caller can, so it runs -- and forgetting the keyword names it."""
+    import z3
+
+    from certo import Spec, api
+
+    a, b = z3.Reals("a b")
+    spec = Spec(title="window")
+    spec.assume("cheb", 3 * a <= 1)
+    spec.assume("a_nonneg", a >= 0)
+    spec.claim(a <= 1)
+
+    try:
+        api.run("range", spec)
+        raise AssertionError("did not raise")
+    except TypeError as exc:
+        assert "`var=`" in str(exc)
+
+    res = api.run("range", spec, var="a")
+    assert res.certificate.payload["variable"] == "a"
+
+
+def test_run_raises_rather_than_return_a_certificate_that_fails_verify():
+    """The CLI prints to stderr and exits 1; in a library the equivalent of
+    "the caller decides" is an exception they can catch. Defaulting to silence
+    would remove the check that found the zero dual in 0.11.3."""
+    from certo import api
+    from certo.engines import lp as engine
+
+    real = engine.opt
+
+    def _forged(spec, limits=None, **kw):
+        r = real(spec, limits, **kw)
+        r.certificate.payload["objective"] = "999"
+        return r
+
+    try:
+        engine.opt = _forged
+        try:
+            api.run("opt", _hexagon())
+            raise AssertionError("did not raise")
+        except api.SelfCheckFailed as exc:
+            assert exc.result is not None and exc.report is not None
+            assert not exc.report.ok
+        # and it is the caller's to switch off, having been told
+        res = api.run("opt", _hexagon(), self_check=False)
+        assert res.certificate.payload["objective"] == "999"
+    finally:
+        engine.opt = real
+
+
+def test_options_come_from_the_engine_signature():
+    """Derived, so it cannot drift from what the engine takes."""
+    from certo import api
+
+    assert api.options("opt") == ["target", "use_exact"]
+    assert "use_geng" in api.options("sweep")
+    assert api.options("range") == ["var"]
+
+
+# --- the degree cliff ------------------------------------------------------
+
+
+def test_lint_warns_at_the_measured_degree_and_not_below():
+    """A degree-63 univariate goal cost a user 71 minutes and no certificate.
+    The cliff was measured at 11, not 63: `t^10 <= t` proves in 12 ms and
+    `t^11 <= t` does not prove in 20 s."""
+    import z3
+
+    from certo import lint
+
+    t_ = z3.Real("t")
+    assert lint._high_degree_univariate(t_**63 <= t_) == 63
+    assert lint._high_degree_univariate(t_**lint.DEGREE_CLIFF <= t_)         == lint.DEGREE_CLIFF
+    # below the cliff it says nothing, because `prove` closes it in milliseconds
+    assert lint._high_degree_univariate(t_**(lint.DEGREE_CLIFF - 1) <= t_) is None
+
+
+def test_the_degree_check_is_univariate_and_polynomial_only():
+    """Two variables at the same degree is a different problem, and this
+    measurement says nothing about it. A rational function is not a
+    polynomial, and guessing its degree would be inventing one."""
+    import z3
+
+    from certo import lint
+
+    t_, u = z3.Reals("t u")
+    assert lint._high_degree_univariate(t_**40 * u <= t_) is None   # two vars
+    assert lint._high_degree_univariate(t_**40 / u <= t_) is None   # and a quotient
+    assert lint._polynomial_degree(t_**40 / t_, t_) is None
+    assert lint._polynomial_degree((t_ + 1) ** 12, t_) == 12
+    assert lint._polynomial_degree(t_ * t_ * t_, t_) == 3
+
+
+def test_the_high_degree_warning_reaches_the_report():
+    """A rule nothing routes to is a rule nobody sees."""
+    import z3
+
+    from certo import Spec, lint
+
+    t_ = z3.Real("t")
+    spec = Spec(title="a degree 63 schedule")
+    spec.assume("range", z3.And(t_ >= 0, t_ <= 1))
+    spec.claim(t_**63 <= t_)
+
+    found = [f for f in lint._check_spec(spec, LIM)
+             if f["key"] == "spec.high_degree"]
+    assert len(found) == 1
+    assert found[0]["level"] == lint.WARN
+    assert "63" in found[0]["text"]
+
+
+# --- the sign of a minimisation --------------------------------------------
+
+
+def _min_ilp():
+    """min x subject to 2x >= 3, x integer. The answer is 2, bound 3/2."""
+    from certo import LPSpec
+
+    lp = LPSpec(sense="min", title="min x, 2x >= 3, integer", integer=True)
+    lp.variable("x", hi=10)
+    lp.objective({"x": 1})
+    lp.constraint({"x": 2}, ">=", 3, name="lower")
+    return lp
+
+
+def test_a_minimisation_is_reported_in_the_sense_it_was_asked():
+    """The internal system MAXIMISES, so for `sense="min"` every number read
+    out of it is the negation of the declared one.
+
+    The continuous path performed that flip; the discrete path replaced both
+    numbers afterwards and did not. So an ILP whose minimum is 2 reported -2,
+    with a relaxation bound of -3/2, and the certificate said the same. It
+    VERIFIED, because the artefact was consistent with itself in a frame it
+    never named -- the same failure as a certificate that verifies and is
+    wrong about its own claim.
+
+    Found by putting a minimum-deletion ILP through `opt`, which is the shape
+    of every "smallest set that fixes this" question.
+    """
+    from fractions import Fraction
+
+    from certo import api
+
+    res = api.run("opt", _min_ilp(), self_check=False)
+    assert Fraction(res.meta["objective"]) == 2, res.meta["objective"]
+    assert Fraction(res.meta["bound"]) == Fraction(3, 2), res.meta["bound"]
+    assert res.meta["solution"]["x"] == "2"
+
+
+def test_the_certificate_of_a_minimisation_states_the_minimum():
+    """`certo verify` is what a referee runs, and it read the internal frame.
+
+    A pure-LP minimisation was worse than the ILP here: the CLI printed 3/2
+    and the ARCHIVED artefact re-verified as -3/2, so the number on screen and
+    the number in the file disagreed and neither said which was which.
+    """
+    from certo import LPSpec, api
+
+    rep = verify(api.run("opt", _min_ilp(), self_check=False).certificate)
+    assert rep.ok
+    assert "2" in rep.detail and "-2" not in rep.detail, rep.detail
+    assert "3/2" in rep.detail and "-3/2" not in rep.detail, rep.detail
+
+    lp = LPSpec(sense="min", title="pure min")
+    lp.variable("x", hi=10)
+    lp.objective({"x": 1})
+    lp.constraint({"x": 2}, ">=", 3, name="lower")
+    rep = verify(api.run("opt", lp).certificate)
+    assert rep.ok and "-3/2" not in rep.detail, rep.detail
+
+
+def test_a_maximisation_is_untouched_by_the_sign_fix():
+    """The frame and the declared sense agree for `max`, so nothing moves."""
+    from fractions import Fraction
+
+    from certo import LPSpec, api
+
+    lp = LPSpec(sense="max", title="max x, 2x <= 3, integer", integer=True)
+    lp.variable("x", hi=10)
+    lp.objective({"x": 1})
+    lp.constraint({"x": 2}, "<=", 3, name="upper")
+    res = api.run("opt", lp, self_check=False)
+    assert Fraction(res.meta["objective"]) == 1
+    assert Fraction(res.meta["bound"]) == Fraction(3, 2)
+    assert "3/2" in verify(res.certificate).detail
+
+
+def test_the_declared_sense_travels_in_the_certificate_and_is_recomputed():
+    """A field nothing checks is a field that can be forged.
+
+    `declared` is the one number a reader of the JSON will quote, so `verify`
+    recomputes it from the stored system rather than reading it back.
+    """
+    from fractions import Fraction
+
+    from certo import api
+
+    cert = api.run("opt", _min_ilp(), self_check=False).certificate
+    d = cert.payload["declared"]
+    assert Fraction(d["objective"]) == Fraction(3, 2)      # the relaxation
+    assert Fraction(d["integral_objective"]) == 2          # the integer point
+    assert verify(cert).ok
+
+    forged = json.loads(json.dumps(cert.to_dict()))
+    forged["payload"]["declared"]["objective"] = "1"
+    assert not verify(Certificate.from_dict(forged)).ok
+
+
+def test_a_certificate_written_before_the_field_verifies_exactly_as_before():
+    """`declared` is optional, the way `loads` is, so the schema stays at 4."""
+    from certo import api
+
+    cert = api.run("opt", _min_ilp(), self_check=False).certificate
+    old = json.loads(json.dumps(cert.to_dict()))
+    n_new = len(verify(Certificate.from_dict(old)).checks)
+    old["payload"].pop("declared")
+    rep = verify(Certificate.from_dict(old))
+    assert rep.ok
+    assert len(rep.checks) == n_new - 1     # one check, and only that one
+
+
+def test_the_stored_system_stays_in_the_frame_its_arithmetic_closes():
+    """Only what a READER sees is flipped. `c.x == b.y` holds in the internal
+    maximised system and nowhere else, so `A`, `b`, `c`, the primal and the
+    dual are left exactly as they were -- and the schema stays at 4."""
+    from fractions import Fraction
+
+    from certo import api
+
+    p = api.run("opt", _min_ilp(), self_check=False).certificate.payload
+    assert p["sense"] == "min"
+    assert Fraction(p["c"][0]) == -1          # min x is max -x, internally
+    assert verify(Certificate.from_dict(json.loads(json.dumps(
+        {"schema": 4, "kind": "lp_dual", "solver_free": True,
+         "note": "", "payload": p})))).ok
+
+
+def test_a_counting_constraint_points_at_bisect():
+    """`at_most_k` is what turns `cases` into an optimiser, and somebody who
+    wrote one is usually after the smallest k. The loop they write next reads
+    `unknown_solver` as `unsat`; `bisect` carries the third state.
+
+    Detected from the counter's own auxiliary names, so it cannot drift from
+    the encoder. `spec.magnitude` is the same shape, and exists because
+    `order` shipped and the person who needed it did not find it.
+    """
+    from certo import CNF, CNFSpec, lint
+
+    def _spec(k):
+        cnf = CNF("at most %d of 10" % k)
+        xs = [cnf.var("x%d" % i) for i in range(10)]
+        cnf.add(*xs)
+        cnf.at_most_k(xs, k)
+        return CNFSpec(cnf=cnf, title=cnf.title)
+
+    keys = [f["key"] for f in lint._check_cnf(_spec(3), LIM)]
+    assert "cnf.cardinality" in keys
+
+    # A formula with no counter says nothing, or the note is noise.
+    plain = CNF("plain")
+    a, b = plain.var("a"), plain.var("b")
+    plain.add(a, b)
+    keys = [f["key"] for f in lint._check_cnf(CNFSpec(cnf=plain, title="p"), LIM)]
+    assert "cnf.cardinality" not in keys
+
+    # k <= 1 leaves no auxiliaries, and that is the right side to miss on.
+    assert not lint._cardinality_bound(_spec(1).cnf)
+
+
+def test_the_counter_marker_is_the_encoders_own_naming():
+    """If `at_most_k` renamed its auxiliaries, this would go quiet -- so the
+    test pins the two together rather than trusting the prefix."""
+    from certo import CNF, lint
+
+    cnf = CNF("counter")
+    xs = [cnf.var("x%d" % i) for i in range(8)]
+    cnf.at_most_k(xs, 3)
+    aux = [n for n in cnf._name if isinstance(n, str) and n.startswith("__")]
+    assert aux, "at_most_k produced no auxiliaries at all"
+    assert all(n.startswith("__count") for n in aux), aux
+    assert lint._cardinality_bound(cnf)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fails = 0

@@ -97,6 +97,31 @@ cada uno por su cuenta aceptó dos de ellos **intercambiados**, y un subárbol
 caro cerrado por el certificado de uno barato se leía exactamente como una
 demostración completa.
 
+## Hacia dónde es arriba: el marco de un `lp_dual`
+
+`A`, `b`, `c`, `primal`, `dual` y `objective` se guardan en el sistema interno
+**maximizado**, porque es el único marco donde cierra `c.x == b.y`. Un spec
+escrito con `sense="min"` se resuelve como `max -c.x`, así que esos números son
+la negación de los que pediste.
+
+El payload no lo decía. Una minimización cuya respuesta era `3/2` quedaba
+archivada como `"sense": "min", "objective": "-3/2"` y **verificaba**, siendo
+consistente consigo misma en un marco que no nombraba. La pantalla decía `3/2`
+y el fichero decía `-3/2`, y nada decía cuál era cuál.
+
+Así que el artefacto lleva los dos:
+
+```json
+"sense": "min",
+"objective": "-3/2",              // el sistema interno, donde c.x == b.y
+"declared": {"objective": "3/2"}  // el sentido que pediste
+```
+
+`declared` es **opcional**, como `loads`: un certificado escrito antes de que
+existiera verifica exactamente igual, y el esquema sigue en 4. Se deriva al
+construir el certificado y `verify` lo **recalcula** — edítalo y el certificado
+se rechaza, como cualquier otro número de aquí.
+
 ## Los avisos son parte del artefacto
 
 Un certificado lleva lo que *no* establece, y `verify` lo repite cada vez —meses

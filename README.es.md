@@ -136,6 +136,9 @@ en tu idioma.
    existe".
 5. Los certificados se escriben a disco y no viajan en la respuesta MCP. Llama
    a `verify` con la ruta que te dan.
+6. ¿Más de un puñado de preguntas? Usa la [API en proceso](#api-en-proceso), no
+   un bucle sobre la CLI: manda el arranque, y un apaño escrito para evitarlo
+   es un apaño en punto flotante.
 
 ## Los cuarenta y seis comandos
 
@@ -213,6 +216,38 @@ decide esta herramienta.
 
 La lista completa, y las preguntas frecuentes, en
 [`docs/es/LIMITS.md`](docs/es/LIMITS.md).
+
+## API en proceso
+
+Una CLI cuesta un arranque de Python por pregunta. En un portátil con Windows
+son **1,2 s antes de importar certo** —`python -c pass` a secas— frente a unos
+70 ms propios de certo. Un barrido de 853 programas lineales son dos minutos de
+trabajo detrás de veinte minutos de arrancar Python.
+
+```python
+from certo import LPSpec, api
+
+spec = LPSpec(sense="max", title="w")
+...
+res = api.run("opt", spec)
+res.meta["objective"]     # '32/3' -- una cadena exacta, no un float
+res.certificate           # el artefacto que habría escrito `--cert`
+```
+
+| | |
+|---|---|
+| `api.run(comando, spec, limits=None, **opciones)` | devuelve un `Result` |
+| `api.runnable()` | cada comando que toma un spec |
+| `api.options(comando)` | lo que ese comando acepta, leído del motor |
+
+`run` **verifica lo que produjo** y levanta `api.SelfCheckFailed` antes que
+devolver un certificado que no pasa su propio verificador. Cuesta menos del 1%
+de un `opt`. Pon `self_check=False` solo después de medirlo.
+
+Los módulos de `certo.engines` siguen siendo privados; la promesa son `run`,
+`runnable` y `options`. Los comandos que leen un directorio o el entorno
+(`verify`, `status`, `doctor`, `enum`, …) no están aquí —para los dos primeros
+ya están exportados `certo.verify` y `certo.load_spec`—.
 
 ## Servidor MCP
 

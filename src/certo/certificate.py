@@ -228,6 +228,39 @@ def unsat_core_certificate(core_smt2: str, names: list, dropped: list,
     )
 
 
+def _declared_values(sense, objective, integral_objective):
+    """The same numbers in the sense the caller asked for.
+
+    `A`, `b`, `c`, `primal`, `dual` and `objective` are stored in the internal
+    MAXIMISED system, because `c.x == b.y` closes there and nowhere else. For
+    `sense: min` the declared optimum is the negation, and a reader of the
+    JSON had no way to know: the payload said `sense: "min", objective:
+    "-3/2"` for a minimum of `3/2`, and verified, being consistent with itself
+    in a frame it never named.
+
+    So the artefact carries both. This field is OPTIONAL, the way `loads` is:
+    a reader that does not know it verifies exactly as before, and the schema
+    stays at 4. It is DERIVED here rather than passed in, so an engine cannot
+    supply a different number -- and `verify` recomputes it anyway, because a
+    field nothing checks is a field that can be forged.
+    """
+    from . import exact
+
+    if objective is None:
+        return {}
+    flip = -1 if sense == "min" else 1
+
+    def turn(v):
+        if isinstance(v, str):
+            return exact.serialize(flip * exact.to_fraction(v))
+        return flip * v
+
+    out = {"objective": turn(objective)}
+    if integral_objective is not None:
+        out["integral_objective"] = turn(integral_objective)
+    return out
+
+
 def lp_dual_certificate(sense, objective, dual, A, b, c, names,
                         primal=None, var_names=None, is_exact=False,
                         integer=False, integral_point=None,
@@ -248,6 +281,10 @@ def lp_dual_certificate(sense, objective, dual, A, b, c, names,
             # discrete part exists; this says WHICH, so a reader of the
             # certificate alone can tell a design from a relaxation.
             "kinds": kinds or {}, "target": target,
+            # The objective in the sense that was ASKED, beside the one in
+            # the frame the arithmetic uses. Optional, derived, and checked.
+            "declared": _declared_values(sense, objective,
+                                         integral_objective),
             # Named regions the design was asked to respect, each with what
             # the solution actually does to it and what it cost. An OPTIONAL
             # field, which the frozen schema allows: a reader that does not
@@ -3633,9 +3670,11 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                            exact.to_fraction(p["integral_objective"]) == value,
                            p["integral_objective"]))
             if value != rep["objective"]:
+                # In the declared sense, like everything else a reader sees.
+                f = -1 if p.get("sense") == "min" else 1
                 warnings.append(t("verify.lp.ilp_gap",
-                                  value=exact.serialize(value),
-                                  bound=exact.serialize(rep["objective"])))
+                                  value=exact.serialize(f * value),
+                                  bound=exact.serialize(f * rep["objective"])))
 
     # The declared loads, recomputed from the primal rather than believed.
     for load in p.get("loads") or []:
@@ -3671,11 +3710,42 @@ def _verify_lp_dual_exact(p) -> VerifyReport:
                               target=p["target"],
                               deficit=exact.serialize(want - value)))
 
-    detail = (t("verify.lp.exact.detail", value=exact.serialize(rep["objective"]))
+    # THE FRAME. `A`, `b`, `c`, `primal` and `dual` are stored in the
+    # internal MAXIMISED system, because that is the one the arithmetic above
+    # closes: `c.x == b.y` only holds there. For `sense: min` the declared
+    # optimum is the negation, and nothing here used to perform it -- so a
+    # minimisation whose answer is 3/2 was reported, archived and re-verified
+    # as -3/2, and it verified, because the artefact was consistent with
+    # itself and wrong about what it claimed. Found by putting a minimisation
+    # ILP through `opt`, which is the shape of every "minimum deletion"
+    # question.
+    flip = -1 if p.get("sense") == "min" else 1
+    value = exact.serialize(flip * rep["objective"])
+
+    # The declared-sense numbers, RECOMPUTED from the system above rather than
+    # read. A field nothing checks is a field that can be forged, and this one
+    # is the number a reader of the JSON will quote.
+    declared = p.get("declared") or {}
+    if declared:
+        want = {"objective": flip * rep["objective"]}
+        if p.get("integral_objective") is not None:
+            want["integral_objective"] = flip * exact.to_fraction(
+                p["integral_objective"])
+        off = sorted(k for k, v in want.items()
+                     if k in declared
+                     and exact.to_fraction(declared[k]) != v)
+        checks.append((t("verify.lp.declared_sense"), not off,
+                       t("verify.lp.declared_sense_detail",
+                         sense=p.get("sense") or "max",
+                         names=", ".join(off) or "-",
+                         value=exact.serialize(want["objective"]))))
+    detail = (t("verify.lp.exact.detail", value=value)
               if not p.get("integer")
               else t("verify.lp.ilp.detail",
-                     value=p.get("integral_objective") or "-",
-                     bound=exact.serialize(rep["objective"])))
+                     value=(exact.serialize(
+                         flip * exact.to_fraction(p["integral_objective"]))
+                         if p.get("integral_objective") is not None else "-"),
+                     bound=value))
     return VerifyReport(
         all(k[1] for k in checks), "lp_dual", True, checks=checks,
         warnings=warnings, detail=detail,
@@ -3711,7 +3781,23 @@ def _verify_lp_dual_float(p) -> VerifyReport:
          "b.y={:.6g} vs obj={:.6g}".format(bound, p["objective"]))
     )
 
-    ok = nonneg and feas and tight
+    # The declared-sense number, checked here too. A float certificate is
+    # loose, not unchecked, and an unchecked field is a field that can be
+    # forged whatever tier it sits in.
+    declared = p.get("declared") or {}
+    agrees = True
+    if "objective" in declared:
+        flip = -1 if p.get("sense") == "min" else 1
+        want = flip * float(p["objective"])
+        got = float(declared["objective"])
+        agrees = abs(got - want) <= 1e-4 * max(1.0, abs(want))
+        checks.append((t("verify.lp.declared_sense"), agrees,
+                       t("verify.lp.declared_sense_detail",
+                         sense=p.get("sense") or "max",
+                         names="-" if agrees else "objective",
+                         value="{:.6g}".format(want))))
+
+    ok = nonneg and feas and tight and agrees
     return VerifyReport(
         ok, "lp_dual", True, checks=checks,
         warnings=[t("verify.lp.float.warning")],

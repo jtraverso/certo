@@ -201,10 +201,11 @@ Spec -- for `certo prove / check / core`
   1 errors, 0 warnings, 0 notes
 ```
 
-Three findings that pay for themselves:
+Four findings that pay for themselves:
 
 | Finding | Why it matters |
 |---|---|
+| the claim is a univariate polynomial of degree ≥ 11 | `prove` closes degree 10 in 12 ms and does not close degree 11 in 20 s, measured on a statement that is trivially true. A user spent 71 minutes on a degree-63 schedule polynomial and got `INCONCLUSIVE [timeout]`; substituting `t = s³` by hand let certo close it in 4.3 ms |
 | the inductive step starts after the base cases end | `induct` refuses this too — after discharging every base case, which is where the hours go. Here it is a comparison of two integers |
 | the predicate returns `bool` | then the sweep will be `reproducible`, not `certified`. People who wrote the predicate themselves have read that difference wrong |
 | `integer=True` makes **all** variables integer | a user read it as "there are integers in here" and got a design worth nothing, every weight rounded to zero |
@@ -420,6 +421,18 @@ Full treatment in [Worked cases](CASES.md#mixed-designs).
 **Not established** — monotonicity in the parameter. It is **assumed**; the
 endpoints are checked and a warning is issued if they misbehave, but
 monotonicity itself is not proved.
+
+`build(t)` may return a **`CNFSpec`**, not only a `Spec`, and that is how
+`bisect` answers *"what is the smallest set that fixes this?"* — the fewest
+vertices to delete, clauses to drop, edges to remove. For a `CNFSpec` "holds"
+means **UNSAT**: no object of that size exists. See
+[**The smallest set that fixes this**](CASES.md#the-smallest-set-that-fixes-this).
+
+Use it rather than a loop over `cases`. A `for k in ...` that stops at the
+first SAT reads `unknown_solver` as `unsat` and reports a threshold that is not
+one; two people wrote exactly that within a day of each other and both got a
+wrong number. `bisect` carries three states and stops on the inconclusive
+probe instead of picking a side.
 
 ### `certo bounds`
 

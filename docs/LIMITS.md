@@ -106,6 +106,20 @@ does, since `b.0 = 0` bounds nothing -- the number comes back labelled
 uncertified and no file is written. An artefact that fails the verifier is not a
 weaker certificate; it is not a certificate.
 
+**Why is `prove` fast on one polynomial and hopeless on another?**
+Degree. On `t^k <= t` over `[0, 1]` — trivially true, squarely decidable —
+degree 10 proves in 12 ms and degree 11 does not prove in 20 seconds. It is a
+cliff, not a slope, and it sits far below where people expect: a degree-63
+goal is not "a bit harder". `certo lint` warns at 11. The remedy is a
+substitution that lowers the degree; one user's degree-63 schedule became
+`t = s^3` plus a domination argument, and certo closed it in 4.3 ms.
+
+**I need to run thousands of instances.**
+Do not loop over the CLI. Each call pays a Python startup — 1.2 s on Windows
+before certo is imported — so a two-minute sweep takes twenty. The
+[in-process API](../README.md#in-process-api) is `api.run(command, spec)`, and
+it keeps the exact rationals that a hand-rolled float fallback gives up.
+
 **Why is the built-in SAT solver slow?**
 Because it is a CDCL in Python. It exists because pysat's proof logging does not
 work on Windows — it returns 0 lines with every one of its solvers — and without
